@@ -1,6 +1,28 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "defaultMode": "acceptEdits"
+  },
+  "enabledPlugins": {
+    "kokko-ai-config@kokko-ng-kokko-cmds": true,
+    "kokko-code-quality@kokko-ng-kokko-cmds": true,
+    "kokko-git@kokko-ng-kokko-cmds": true,
+    "kokko-infra@kokko-ng-kokko-cmds": true,
+    "kokko-notifications@kokko-ng-kokko-cmds": true,
+    "kokko-safety@kokko-ng-kokko-cmds": false,
+    "kokko-sandbox@kokko-ng-kokko-cmds": true,
+    "kokko-viz@kokko-ng-kokko-cmds": true
+  },
+  "extraKnownMarketplaces": {
+    "kokko-ng-kokko-cmds": {
+      "source": {
+        "source": "github",
+        "repo": "kokko-ng/kokko-cmds"
+      }
+    }
   },
   "alwaysThinkingEnabled": true,
   "skipDangerousModePermissionPrompt": true
