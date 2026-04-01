@@ -1,0 +1,60 @@
+// devcontainer.json — generic FastAPI + Vue development environment
+// See INSTRUCTIONS.md for full setup guide.
+{
+  "name": "fastapi-vue-dev",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    // Azure CLI — remove if not using Azure
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true
+    }
+  },
+  "containerEnv": {
+    // Adjust the src path if your project layout differs
+    "PYTHONPATH": "${containerWorkspaceFolder}/src",
+    "UV_LINK_MODE": "copy"
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  // FastAPI default port (8000) and Vite dev server (5173)
+  "forwardPorts": [8000, 5173],
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--cap-add=NET_BIND_SERVICE",
+    "--security-opt=no-new-privileges:true",
+    "--pids-limit=512"
+  ],
+  // Optional mounts — uncomment blocks you need.
+  // Shell config and Claude Code settings are bundled in .devcontainer/config/
+  // and installed by post-create.sh, so no host mounts are required by default.
+  //
+  // "mounts": [
+  //   // Azure CLI session — keeps you logged in across rebuilds
+  //   "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind",
+  //
+  //   // Claude Code state — persists conversation history across rebuilds
+  //   // (post-create.sh will not overwrite settings.json if this is mounted)
+  //   "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
+  // ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "Vue.volar",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
+      }
+    }
+  }
+}
