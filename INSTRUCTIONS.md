@@ -136,13 +136,7 @@ Add this to your shell profile (`~/.zshrc` or similar) if you need it persistent
 The devcontainer CLI lets you build and enter containers without VS Code:
 
 ```bash
-npm install -g @devcontainers/cli
-```
-
-Or, if you prefer to avoid a global npm install, use `npx` on each invocation:
-
-```bash
-npx @devcontainers/cli up --workspace-folder .
+brew install devcontainer
 ```
 
 Verify:
@@ -378,11 +372,6 @@ Update the `version` in the Node feature:
 
 ### Persisting shell customisations
 
-The `post-create.sh` script configures oh-my-zsh plugins inline, so no dotfiles need to be mounted from the host. To add aliases or custom configuration, append to `~/.zshrc` at the end of `post-create.sh`:
+Shell config is bundled in `.devcontainer/config/zsh/` and symlinked into the container by `post-create.sh`. Edits to those files take effect after reopening the shell and persist across container restarts (but not full rebuilds, since the files live in the workspace).
 
-```bash
-echo 'alias ll="ls -la"' >> ~/.zshrc
-echo 'alias be="uv run"' >> ~/.zshrc
-```
-
-These changes persist for the lifetime of the container but are lost on a full rebuild. For permanent customisation, add the lines to `post-create.sh` itself.
+To add permanent aliases or settings, edit `.devcontainer/config/zsh/aliases.zsh` or `integrations.zsh` directly — changes are committed to the repo and applied on the next rebuild.
