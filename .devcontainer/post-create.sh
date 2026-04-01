@@ -12,7 +12,7 @@ git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting \
 
 echo "=== Setting up zsh config ==="
 DOTFILES_ZSH="$(pwd)/.devcontainer/config/zsh"
-mkdir -p "$HOME/.config/zsh"
+mkdir -p "$HOME/.config"
 ln -sfn "$DOTFILES_ZSH" "$HOME/.config/zsh"
 ln -sfn "$DOTFILES_ZSH/.zshrc" "$HOME/.zshrc"
 
