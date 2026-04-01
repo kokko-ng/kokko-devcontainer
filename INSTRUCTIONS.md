@@ -73,13 +73,23 @@ brew install --cask ghostty
 
 Open Ghostty from your Applications folder or Spotlight. All subsequent terminal commands in this guide should be run in Ghostty.
 
-Ghostty stores its configuration at `~/.config/ghostty/config`. A minimal example:
+### Apply the bundled config
 
+This repo includes a Ghostty config at `ghostty/config`. To use it:
+
+```bash
+mkdir -p ~/.config/ghostty
+cp ghostty/config ~/.config/ghostty/config
 ```
-font-family = "JetBrains Mono"
-font-size = 14
-theme = dark
+
+Or symlink it so changes in the repo are reflected immediately:
+
+```bash
+mkdir -p ~/.config/ghostty
+ln -sfn "$(pwd)/ghostty/config" ~/.config/ghostty/config
 ```
+
+Ghostty picks up config changes on restart.
 
 ---
 
