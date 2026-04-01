@@ -16,6 +16,20 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 
 Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically.
 
+## Repo structure
+
+```
+.devcontainer/
+├── devcontainer.json
+├── Dockerfile
+├── post-create.sh
+└── config/
+    ├── zsh/          # Shell config (bundled into container)
+    ├── claude/       # Claude Code settings and CLAUDE.md
+ghostty/
+└── config            # Host-side Ghostty terminal config
+```
+
 ## Quick start
 
 ```bash
