@@ -314,6 +314,26 @@ The devcontainer makes two layout assumptions:
 
 If your project uses a different layout, update these two locations before building.
 
+### `devcontainer up` fails with "Command failed: docker ps"
+
+This means Docker is not reachable — Colima is not running. Start it:
+
+```bash
+colima start --cpu 4 --memory 8 --disk 60
+```
+
+Then retry `devcontainer up`. You can verify Docker is available with:
+
+```bash
+docker ps
+```
+
+To avoid this on every login, enable Colima as a background service:
+
+```bash
+brew services start colima
+```
+
 ### Colima socket path in CI or other tools
 
 Some tools (BuildKit, Testcontainers, etc.) look for the Docker socket at `/var/run/docker.sock`. Colima does not create this symlink by default. You can add one:
