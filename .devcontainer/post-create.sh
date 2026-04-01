@@ -33,30 +33,42 @@ fi
 
 # =====================
 # Python dependencies
-# Requires a pyproject.toml / uv.lock at the workspace root.
+# Only runs if a pyproject.toml exists at the workspace root.
 # =====================
-echo "=== Installing Python dependencies ==="
-uv sync
+if [[ -f pyproject.toml ]]; then
+    echo "=== Installing Python dependencies ==="
+    uv sync
+else
+    echo "=== Skipping Python dependencies (no pyproject.toml found) ==="
+fi
 
 # =====================
 # Frontend dependencies
-# Assumes frontend source lives at src/frontend.
-# Adjust the path if your project layout differs.
+# Only runs if src/frontend/package.json exists.
 # =====================
-echo "=== Installing frontend dependencies ==="
-cd src/frontend && npm ci --legacy-peer-deps && cd ../..
+if [[ -f src/frontend/package.json ]]; then
+    echo "=== Installing frontend dependencies ==="
+    cd src/frontend && npm ci --legacy-peer-deps && cd ../..
+else
+    echo "=== Skipping frontend dependencies (no src/frontend/package.json found) ==="
+fi
 
 # =====================
 # Pre-commit hooks
+# Only runs if .pre-commit-config.yaml exists.
 # =====================
-echo "=== Installing pre-commit hooks ==="
-uv run pre-commit install 2>/dev/null || true
+if [[ -f .pre-commit-config.yaml ]]; then
+    echo "=== Installing pre-commit hooks ==="
+    uv run pre-commit install 2>/dev/null || true
+fi
 
 # =====================
 # .env file
+# Only copies if .env.example exists.
 # =====================
-if [[ ! -f .env ]]; then
-    cp .env.example .env 2>/dev/null && echo "Created .env from .env.example" || true
+if [[ ! -f .env && -f .env.example ]]; then
+    cp .env.example .env
+    echo "Created .env from .env.example"
 fi
 
 # =====================
