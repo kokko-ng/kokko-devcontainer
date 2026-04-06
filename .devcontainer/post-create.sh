@@ -20,7 +20,7 @@ ln -sfn "$DOTFILES_ZSH/.zshrc" "$HOME/.zshrc"
 # Claude Code (native binary — no Node/npm required)
 # =====================
 echo "=== Installing Claude Code CLI ==="
-curl -fsSL https://claude.ai/install.sh | bash
+curl -fsSLk https://claude.ai/install.sh | bash
 
 echo "=== Setting up Claude config ==="
 mkdir -p "$HOME/.claude"
