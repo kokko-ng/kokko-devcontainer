@@ -200,6 +200,7 @@ devcontainer up --workspace-folder . --remove-existing-container
 .devcontainer/
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
+├── init-host-certs.sh  # Extracts host CA certs (runs before build)
 └── post-create.sh      # Runs once after the container is created
 ```
 
@@ -208,10 +209,18 @@ devcontainer up --workspace-folder . --remove-existing-container
 ```dockerfile
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
 
-RUN pip install --no-cache-dir uv
+# Trust host CA certificates (e.g. corporate proxy CAs)
+COPY certs/ /usr/local/share/ca-certificates/extra/
+RUN update-ca-certificates
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+RUN apt-get update && apt-get install -y --no-install-recommends jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --root-user-action=ignore uv
 ```
 
-The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. `uv` is the Python package manager used instead of pip/Poetry.
+The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. `uv` is the Python package manager used instead of pip/Poetry. Host CA certificates are copied in so that corporate proxy CAs are trusted without disabling SSL verification. `jq` is installed for plugin hook JSON parsing.
 
 Additional tools (Node, Azure CLI, GitHub CLI, Docker-in-Docker, zsh) are added via **devcontainer features** in `devcontainer.json` rather than the Dockerfile. Features are composable, versioned, and reusable across projects.
 
@@ -224,6 +233,7 @@ Key sections:
 | `build` | Points to the Dockerfile |
 | `features` | Installs composable tooling layers |
 | `containerEnv` | Environment variables set inside the container |
+| `initializeCommand` | Runs on the host before build (extracts CA certs) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
 | `runArgs` | Docker run flags — the defaults drop all capabilities except `NET_BIND_SERVICE` for a hardened container |
@@ -237,7 +247,7 @@ Runs once after the container is first created. It:
 
 1. Installs zsh plugins (autosuggestions, syntax highlighting).
 2. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc`.
-3. Installs Claude Code via the native binary installer (`curl -fsSL https://claude.ai/install.sh | bash`).
+3. Installs Claude Code via the native binary installer.
 4. Copies bundled Claude config (`config/claude/`) to `~/.claude/`.
 6. Runs `uv sync` to install Python dependencies from `pyproject.toml`.
 7. Runs `npm ci` in `src/frontend` to install frontend dependencies.
