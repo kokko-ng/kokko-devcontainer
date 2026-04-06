@@ -61,4 +61,4 @@ devcontainer exec --workspace-folder . zsh
 - Shell config (zsh) and Claude Code settings are bundled in `.devcontainer/config/` — no host dotfiles are read.
 - Optional mounts for `~/.azure` and `~/.claude` are commented out in `devcontainer.json`. Uncomment them to persist credentials and Claude state across rebuilds.
 
-See [INSTRUCTIONS.md](INSTRUCTIONS.md) for a full walkthrough.
+See [INSTRUCTIONS.md](INSTRUCTIONS.md) for a full setup walkthrough and [MANAGING.md](MANAGING.md) for running multiple instances.
