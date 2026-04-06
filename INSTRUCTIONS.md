@@ -215,13 +215,23 @@ COPY certs/ /usr/local/share/ca-certificates/extra/
 RUN update-ca-certificates
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
-RUN apt-get update && apt-get install -y --no-install-recommends jq \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        jq \
+        chromium \
+        chromium-sandbox \
+        libnss3 \
+        libatk-bridge2.0-0 \
+        libgtk-3-0 \
+        libgbm1 \
+        libasound2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/google/chrome \
+    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
 
 RUN pip install --no-cache-dir --root-user-action=ignore uv
 ```
 
-The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. `uv` is the Python package manager used instead of pip/Poetry. Host CA certificates are copied in so that corporate proxy CAs are trusted without disabling SSL verification. `jq` is installed for plugin hook JSON parsing.
+The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. `uv` is the Python package manager used instead of pip/Poetry. Host CA certificates are copied in so that corporate proxy CAs are trusted without disabling SSL verification. `jq` is installed for kokko-cmds plugin hook JSON parsing. Chromium and its dependencies are installed for the Playwright MCP plugin, which provides browser automation capabilities to Claude Code. A symlink at `/opt/google/chrome/chrome` points to Chromium so the Playwright MCP can find a browser at the expected path (Google Chrome is not available for ARM64 Linux).
 
 Additional tools (Node, Azure CLI, GitHub CLI, Docker-in-Docker, zsh) are added via **devcontainer features** in `devcontainer.json` rather than the Dockerfile. Features are composable, versioned, and reusable across projects.
 
@@ -237,7 +247,7 @@ Key sections:
 | `initializeCommand` | Runs on the host before build (extracts CA certs) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
-| `runArgs` | Docker run flags — the defaults drop all capabilities except `NET_BIND_SERVICE` for a hardened container |
+| `runArgs` | Docker run flags — the defaults drop all capabilities except `NET_BIND_SERVICE`, set `no-new-privileges`, and raise the PID limit to 1024 (needed by Chromium/Playwright) |
 | `customizations.vscode` | Extensions and settings applied when opening in VS Code |
 
 `PYTHONPATH` is set to `${containerWorkspaceFolder}/src`, which resolves at runtime to `/workspaces/<your-repo-name>/src`. Adjust this if your project's source layout differs.
@@ -249,11 +259,12 @@ Runs once after the container is first created. It:
 1. Installs zsh plugins (autosuggestions, syntax highlighting).
 2. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc`.
 3. Installs Claude Code via the native binary installer.
-4. Copies bundled Claude config (`config/claude/`) to `~/.claude/`.
-6. Runs `uv sync` to install Python dependencies from `pyproject.toml`.
-7. Runs `npm ci` in `src/frontend` to install frontend dependencies.
-8. Installs pre-commit hooks.
-9. Copies `.env.example` to `.env` if no `.env` exists.
+4. Copies bundled Claude config (`config/claude/`) to `~/.claude/` (skips `settings.json` if one already exists, e.g. from a mount).
+5. Configures the Playwright MCP plugin for container environments by writing `.mcp.json` files with `--no-sandbox` (required because the container drops all Linux capabilities).
+7. Runs `uv sync` if `pyproject.toml` exists.
+8. Runs `npm ci` in `src/frontend` if `src/frontend/package.json` exists.
+9. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+10. Copies `.env.example` to `.env` if no `.env` exists.
 
 ---
 
@@ -281,6 +292,9 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 | `ccc` | `claude --permission-mode bypassPermissions` | Claude without permission prompts |
 | `cccc` | `claude --permission-mode bypassPermissions --continue` | Claude, continuing last session |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Update Claude Code to latest |
+| `dce` | `devcontainer exec --workspace-folder . zsh` | Open a shell in the running container |
+| `dcu` | `devcontainer up --workspace-folder .` | Start the devcontainer |
+| `dcur` | `devcontainer up --workspace-folder . --remove-existing-container` | Rebuild the container from scratch |
 
 ---
 

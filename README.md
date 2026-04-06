@@ -12,6 +12,7 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`) |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
+| Playwright MCP + Chromium | Browser automation for Claude Code |
 | Docker-in-Docker | Container builds inside the devcontainer |
 
 Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically.
