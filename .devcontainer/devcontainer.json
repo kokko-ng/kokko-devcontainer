@@ -31,7 +31,9 @@
     "--cap-drop=ALL",
     "--cap-add=NET_BIND_SERVICE",
     "--security-opt=no-new-privileges:true",
-    "--pids-limit=512"
+    // Chromium (used by the Playwright MCP) spawns many short-lived processes.
+    // 512 is too low — raise to 1024 to avoid EAGAIN errors.
+    "--pids-limit=1024"
   ],
   // Optional mounts — uncomment blocks you need.
   // Shell config and Claude Code settings are bundled in .devcontainer/config/
