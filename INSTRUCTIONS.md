@@ -17,7 +17,8 @@ A step-by-step guide to setting up a reproducible development environment on mac
 9. [Bundled config](#bundled-config)
 10. [Optional mounts](#optional-mounts)
 11. [Caveats and known issues](#caveats-and-known-issues)
-12. [Customisation](#customisation)
+12. [Sign in to CLIs](#sign-in-to-clis)
+13. [Customisation](#customisation)
 
 ---
 
@@ -373,6 +374,52 @@ The initial `devcontainer up` downloads the base image (~1 GB) and runs `post-cr
 ### Apple Silicon compatibility
 
 All images referenced here (`mcr.microsoft.com/devcontainers/python`, devcontainer features) publish `linux/arm64` variants. Colima defaults to the native architecture, so no emulation is required on Apple Silicon.
+
+---
+
+## Sign in to CLIs
+
+After entering the container for the first time, authenticate the following CLIs:
+
+### Git identity
+
+Configure your git author identity so commits are attributed correctly:
+
+```bash
+git config --global user.name "$(gh api user --jq .name)"
+git config --global user.email "$(gh api user --jq .email)"
+```
+
+This pulls your name and email from your authenticated GitHub account. Verify with:
+
+```bash
+git config --global --get user.name
+git config --global --get user.email
+```
+
+### GitHub CLI
+
+```bash
+gh auth login
+```
+
+Follow the interactive prompts. Choose **GitHub.com**, **HTTPS**, and authenticate via browser. This also enables `git push/pull` over HTTPS with your GitHub credentials.
+
+### Azure CLI
+
+```bash
+az login
+```
+
+A browser window opens for Microsoft authentication. Follow the prompts to complete sign-in.
+
+### Claude Code
+
+```bash
+claude
+```
+
+On first launch Claude Code prompts you to authenticate. Follow the instructions to sign in via browser. Subsequent launches reuse the stored session.
 
 ---
 
