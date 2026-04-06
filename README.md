@@ -22,6 +22,7 @@ Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically.
 .devcontainer/
 ├── devcontainer.json
 ├── Dockerfile
+├── init-host-certs.sh
 ├── post-create.sh
 └── config/
     ├── zsh/          # Shell config (bundled into container)
