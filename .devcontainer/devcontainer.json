@@ -23,6 +23,7 @@
     "PYTHONPATH": "${containerWorkspaceFolder}/src",
     "UV_LINK_MODE": "copy"
   },
+  "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   // FastAPI default port (8000) and Vite dev server (5173)
   "forwardPorts": [8000, 5173],
