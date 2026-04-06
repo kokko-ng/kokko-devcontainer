@@ -1,0 +1,2 @@
+# Host-specific CA certificates extracted by initializeCommand
+.devcontainer/certs/
