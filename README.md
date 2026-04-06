@@ -26,10 +26,13 @@ Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically.
 ├── init-host-certs.sh
 ├── post-create.sh
 └── config/
-    ├── zsh/          # Shell config (bundled into container)
-    ├── claude/       # Claude Code settings and CLAUDE.md
+    ├── zsh/              # Shell config (bundled into container)
+    └── claude/           # Claude Code settings and CLAUDE.md
 ghostty/
-└── config            # Host-side Ghostty terminal config
+└── config                # Host-side Ghostty terminal config
+INSTRUCTIONS.md           # Full setup walkthrough
+MANAGING.md               # Multi-instance management guide
+README.md                 # This file
 ```
 
 ## Quick start

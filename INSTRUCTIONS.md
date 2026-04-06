@@ -261,10 +261,10 @@ Runs once after the container is first created. It:
 3. Installs Claude Code via the native binary installer.
 4. Copies bundled Claude config (`config/claude/`) to `~/.claude/` (skips `settings.json` if one already exists, e.g. from a mount).
 5. Configures the Playwright MCP plugin for container environments by writing `.mcp.json` files with `--no-sandbox` (required because the container drops all Linux capabilities).
-7. Runs `uv sync` if `pyproject.toml` exists.
-8. Runs `npm ci` in `src/frontend` if `src/frontend/package.json` exists.
-9. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
-10. Copies `.env.example` to `.env` if no `.env` exists.
+6. Runs `uv sync` if `pyproject.toml` exists.
+7. Runs `npm ci` in `src/frontend` if `src/frontend/package.json` exists.
+8. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+9. Copies `.env.example` to `.env` if no `.env` exists.
 
 ---
 
