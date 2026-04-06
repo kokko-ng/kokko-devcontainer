@@ -19,6 +19,9 @@ window-height = 25
 cursor-style = block
 cursor-style-blink = false
 
+# Bell - audible bell on BEL character (used by devcontainer hook notifications)
+bell-features = audio
+
 # Shell settings - ensure zsh loads with login shell for oh-my-zsh
 command = /bin/zsh --login
 
