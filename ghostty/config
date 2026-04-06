@@ -20,7 +20,10 @@ cursor-style = block
 cursor-style-blink = false
 
 # Bell - audible bell on BEL character (used by devcontainer hook notifications)
+# Uses the same Mac system sound as kokko-notifications hooks
 bell-features = audio
+bell-audio-path = /System/Library/Sounds/Pop.aiff
+bell-audio-volume = 1.0
 
 # Shell settings - ensure zsh loads with login shell for oh-my-zsh
 command = /bin/zsh --login
