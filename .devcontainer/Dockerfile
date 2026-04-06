@@ -1,30 +1,26 @@
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
 
-# Trust host CA certificates (e.g. corporate proxy CAs)
-# Extracted from the host by initializeCommand (init-host-certs.sh)
-COPY certs/ /usr/local/share/ca-certificates/extra/
-RUN update-ca-certificates
-# Node.js uses its own CA bundle; point it at the system store so it trusts
-# corporate proxy CAs too (needed by Claude Code installer, npm, etc.)
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# Install uv globally (npm/node not available yet - added by features layer)
+RUN pip install --no-cache-dir uv
 
-# jq is required by kokko-cmds plugin hooks (JSON parsing of hook input).
-# Chromium is installed for the Playwright MCP plugin. Google Chrome is not
-# available for ARM64 Linux, so we use the system Chromium package instead.
-# The Playwright MCP looks for the 'chrome' channel at /opt/google/chrome/chrome
-# on Linux — the symlink below satisfies that lookup without Google Chrome.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        jq \
-        chromium \
-        chromium-sandbox \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libgbm1 \
-        libasound2 \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /opt/google/chrome \
-    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
+# Install ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL)
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && true
 
-# Install uv globally (Node/npm not available at this layer — added by the features layer)
-RUN pip install --no-cache-dir --root-user-action=ignore uv
+# Install Chromium system dependencies for Playwright
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+        libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create host-path symlink so macOS absolute paths in Claude plugin configs
+# (e.g. /Users/kng1/.claude/...) resolve inside the container.
+# The actual username is injected at build time via ARG; defaults to kng1.
+ARG HOST_USER=kng1
+RUN mkdir -p /Users && ln -sfn /home/vscode /Users/${HOST_USER}
