@@ -13,4 +13,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv globally (Node/npm not available at this layer — added by the features layer)
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir --root-user-action=ignore uv
