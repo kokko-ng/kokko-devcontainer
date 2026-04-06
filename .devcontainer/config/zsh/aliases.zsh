@@ -8,6 +8,10 @@ alias cccc="claude --permission-mode bypassPermissions --continue"
 # Update Claude Code (native installer)
 alias cu="curl -fsSL https://claude.ai/install.sh | bash"
 
+# ===================
+# GitHub Copilot CLI
+# ===================
+alias caat="copilot --allow-all-tools --banner"
 
 # ===================
 # Devcontainer
