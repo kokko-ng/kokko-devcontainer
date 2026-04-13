@@ -11,6 +11,20 @@ git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "${ZSH_
 echo "=== Installing Claude Code CLI ==="
 curl -fsSL https://claude.ai/install.sh | bash
 
+echo "=== Configuring Claude Code ==="
+CLAUDE_DIR="/home/vscode/.claude"
+BUNDLED_CLAUDE_DIR="/workspaces/devcontainer-starter/.devcontainer/config/claude"
+mkdir -p "$CLAUDE_DIR"
+# Copy bundled settings unless a host mount already provides one
+if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$BUNDLED_CLAUDE_DIR/settings.json" ]]; then
+    cp "$BUNDLED_CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json"
+    echo "  Copied bundled settings.json"
+fi
+if [[ ! -f "$CLAUDE_DIR/CLAUDE.md" && -f "$BUNDLED_CLAUDE_DIR/CLAUDE.md" ]]; then
+    cp "$BUNDLED_CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+    echo "  Copied bundled CLAUDE.md"
+fi
+
 echo "=== Claude plugin paths ==="
 # The Dockerfile creates /Users/<host_user> -> /home/vscode so macOS
 # absolute paths in installed_plugins.json resolve inside the container.
