@@ -18,12 +18,18 @@ ls -la /Users/ 2>/dev/null || true
 
 echo "=== Setting up shell config ==="
 DOTFILES_DIR="/home/vscode/.dotfiles"
+BUNDLED_ZSH_DIR="/workspaces/devcontainer-starter/.devcontainer/config/zsh"
 if [[ -d "$DOTFILES_DIR/zsh" ]]; then
     mkdir -p /home/vscode/.config
     ln -sfn "$DOTFILES_DIR/zsh" /home/vscode/.config/zsh
+elif [[ -d "$BUNDLED_ZSH_DIR" ]]; then
+    mkdir -p /home/vscode/.config
+    ln -sfn "$BUNDLED_ZSH_DIR" /home/vscode/.config/zsh
 fi
 if [[ -f "$DOTFILES_DIR/.zshrc" ]]; then
     ln -sfn "$DOTFILES_DIR/.zshrc" /home/vscode/.zshrc
+elif [[ -f "$BUNDLED_ZSH_DIR/.zshrc" ]]; then
+    ln -sfn "$BUNDLED_ZSH_DIR/.zshrc" /home/vscode/.zshrc
 fi
 
 # =====================
