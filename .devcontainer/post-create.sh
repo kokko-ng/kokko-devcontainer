@@ -29,26 +29,42 @@ fi
 # =====================
 # Python dependencies
 # =====================
-echo "=== Installing Python dependencies ==="
-uv sync
+if [[ -f pyproject.toml ]]; then
+    echo "=== Installing Python dependencies ==="
+    uv sync
+else
+    echo "=== Skipping Python dependencies (no pyproject.toml) ==="
+fi
 
 # =====================
 # Playwright Chromium
 # =====================
-echo "=== Installing Playwright Chromium ==="
-uv run playwright install --with-deps chromium
+if [[ -f pyproject.toml ]]; then
+    echo "=== Installing Playwright Chromium ==="
+    uv run playwright install --with-deps chromium
+else
+    echo "=== Skipping Playwright (no pyproject.toml) ==="
+fi
 
 # =====================
 # Frontend dependencies
 # =====================
-echo "=== Installing frontend dependencies ==="
-cd ui && npm ci --legacy-peer-deps && cd ..
+if [[ -d ui ]]; then
+    echo "=== Installing frontend dependencies ==="
+    cd ui && npm ci --legacy-peer-deps && cd ..
+else
+    echo "=== Skipping frontend dependencies (no ui/ directory) ==="
+fi
 
 # =====================
 # Pre-commit hooks
 # =====================
-echo "=== Installing pre-commit hooks ==="
-uv run pre-commit install 2>/dev/null || true
+if [[ -f .pre-commit-config.yaml ]]; then
+    echo "=== Installing pre-commit hooks ==="
+    uv run pre-commit install 2>/dev/null || true
+else
+    echo "=== Skipping pre-commit hooks (no config found) ==="
+fi
 
 # =====================
 # .env file
