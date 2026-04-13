@@ -18,7 +18,8 @@ A step-by-step guide to setting up a reproducible development environment on mac
 10. [Optional mounts](#optional-mounts)
 11. [Caveats and known issues](#caveats-and-known-issues)
 12. [Sign in to CLIs](#sign-in-to-clis)
-13. [Customisation](#customisation)
+13. [Forking this starter](#forking-this-starter)
+14. [Customisation](#customisation)
 
 ---
 
@@ -202,7 +203,10 @@ devcontainer up --workspace-folder . --remove-existing-container
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
 ├── init-host-certs.sh  # Extracts host CA certs (runs before build)
-└── post-create.sh      # Runs once after the container is created
+├── post-create.sh      # Runs once after the container is created
+└── config/
+    ├── zsh/            # Bundled shell config (symlinked by post-create.sh)
+    └── claude/         # Bundled Claude Code settings and CLAUDE.md
 ```
 
 ### Dockerfile
@@ -210,28 +214,42 @@ devcontainer up --workspace-folder . --remove-existing-container
 ```dockerfile
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
 
-# Trust host CA certificates (e.g. corporate proxy CAs)
-COPY certs/ /usr/local/share/ca-certificates/extra/
-RUN update-ca-certificates
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+RUN pip install --no-cache-dir uv
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        jq \
+# ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL)
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Chromium + system dependencies for Playwright MCP
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         chromium \
-        chromium-sandbox \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libgtk-3-0 \
-        libgbm1 \
-        libasound2 \
-    && rm -rf /var/lib/apt/lists/* \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+        libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+        libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
     && mkdir -p /opt/google/chrome \
-    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
+    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --root-user-action=ignore uv
+# Symlink so macOS absolute paths in Claude plugin configs resolve
+ARG HOST_USER=kng1
+RUN mkdir -p /Users && ln -sfn /home/vscode /Users/${HOST_USER}
+
+# Trust host CA certificates (corporate proxies, etc.)
+COPY certs/ /usr/local/share/ca-certificates/host/
+RUN update-ca-certificates
 ```
 
-The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. `uv` is the Python package manager used instead of pip/Poetry. Host CA certificates are copied in so that corporate proxy CAs are trusted without disabling SSL verification. `jq` is installed for kokko-cmds plugin hook JSON parsing. Chromium and its dependencies are installed for the Playwright MCP plugin, which provides browser automation capabilities to Claude Code. A symlink at `/opt/google/chrome/chrome` points to Chromium so the Playwright MCP can find a browser at the expected path (Google Chrome is not available for ARM64 Linux).
+The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Microsoft and includes git, curl, the `vscode` user, and oh-my-zsh. Key layers:
+
+- **uv** is the Python package manager used instead of pip/Poetry.
+- **ODBC Driver 18** is required by pyodbc for Azure SQL connectivity. Remove this block if you do not use Azure SQL.
+- **Chromium** and its system dependencies are installed for the Playwright MCP plugin, which provides browser automation capabilities to Claude Code. A symlink at `/opt/google/chrome/chrome` points to Chromium so the Playwright MCP can find a browser at the expected path (Google Chrome is not available for ARM64 Linux).
+- **`HOST_USER` ARG** creates a `/Users/<username>` symlink to `/home/vscode` so that macOS absolute paths embedded in Claude plugin configs (e.g. `/Users/kng1/.claude/...`) resolve inside the container. **Change the default value to your macOS username** when forking this repo (see [Forking this starter](#forking-this-starter)).
+- **Host CA certificates** are copied from `certs/` (populated by `init-host-certs.sh` at build time) so that corporate proxy CAs are trusted without disabling SSL verification.
 
 Additional tools (Node, Azure CLI, GitHub CLI, Docker-in-Docker, zsh) are added via **devcontainer features** in `devcontainer.json` rather than the Dockerfile. Features are composable, versioned, and reusable across projects.
 
@@ -257,12 +275,12 @@ Key sections:
 Runs once after the container is first created. It:
 
 1. Installs zsh plugins (autosuggestions, syntax highlighting).
-2. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc`.
-3. Installs Claude Code via the native binary installer.
-4. Copies bundled Claude config (`config/claude/`) to `~/.claude/` (skips `settings.json` if one already exists, e.g. from a mount).
-5. Configures the Playwright MCP plugin for container environments by writing `.mcp.json` files with `--no-sandbox` (required because the container drops all Linux capabilities).
-6. Runs `uv sync` if `pyproject.toml` exists.
-7. Runs `npm ci` in `src/frontend` if `src/frontend/package.json` exists.
+2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`).
+3. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
+4. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
+5. Runs `uv sync` if `pyproject.toml` exists.
+6. Installs Playwright Chromium if `pyproject.toml` exists.
+7. Runs `npm ci` in `ui/` if the `ui/` directory exists.
 8. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
 9. Copies `.env.example` to `.env` if no `.env` exists.
 
@@ -292,6 +310,7 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 | `ccc` | `claude --permission-mode bypassPermissions` | Claude without permission prompts |
 | `cccc` | `claude --permission-mode bypassPermissions --continue` | Claude, continuing last session |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Update Claude Code to latest |
+| `caat` | `copilot --allow-all-tools --banner` | GitHub Copilot CLI with all tools |
 | `dce` | `devcontainer exec --workspace-folder . zsh` | Open a shell in the running container |
 | `dcu` | `devcontainer up --workspace-folder .` | Start the devcontainer |
 | `dcur` | `devcontainer up --workspace-folder . --remove-existing-container` | Rebuild the container from scratch |
@@ -335,7 +354,7 @@ The devcontainer makes two layout assumptions:
 | Assumption | Where to change |
 |-----------|----------------|
 | Python source lives in `src/` | `PYTHONPATH` in `devcontainer.json` |
-| Vue/Vite frontend lives in `src/frontend/` | `cd src/frontend` in `post-create.sh` |
+| Vue/Vite frontend lives in `ui/` | `cd ui` in `post-create.sh` |
 
 If your project uses a different layout, update these two locations before building.
 
@@ -437,6 +456,48 @@ On first launch Claude Code prompts you to authenticate. Follow the instructions
 
 ---
 
+## Forking this starter
+
+When you copy or fork this repo for your own project, update the following values. All are concentrated in a few files.
+
+### Required changes
+
+| What to change | File | Default value | Change to |
+|----------------|------|---------------|-----------|
+| macOS username (host-path symlink) | `.devcontainer/Dockerfile` | `ARG HOST_USER=kng1` | Your macOS username (`whoami`) |
+| Workspace name in bundled paths | `.devcontainer/post-create.sh` | `/workspaces/devcontainer-starter` (2 occurrences) | `/workspaces/<your-repo-name>` |
+| Container display name | `.devcontainer/devcontainer.json` | `"name": "fastapi-vue-dev"` | A name for your project |
+
+### Optional changes
+
+| What to change | File | Default value | Notes |
+|----------------|------|---------------|-------|
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | kokko-ng plugins enabled | Remove or replace with your own plugin marketplace and enabled plugins |
+| Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
+| `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
+| Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
+| ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
+| Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
+| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication and process rules | Rewrite to match your team's conventions |
+
+### Quick checklist
+
+```bash
+# 1. Update the Dockerfile HOST_USER default
+sed -i '' "s/HOST_USER=kng1/HOST_USER=$(whoami)/" .devcontainer/Dockerfile
+
+# 2. Update workspace paths in post-create.sh
+sed -i '' "s|/workspaces/devcontainer-starter|/workspaces/$(basename "$PWD")|g" .devcontainer/post-create.sh
+
+# 3. Update container name
+#    Edit .devcontainer/devcontainer.json and change "name" to your project
+
+# 4. Review and update Claude Code plugins in
+#    .devcontainer/config/claude/settings.json
+```
+
+---
+
 ## Customisation
 
 ### Adding Python packages
@@ -445,7 +506,7 @@ Add packages to `pyproject.toml` and run `uv sync` (or let the next container bu
 
 ### Adding npm packages
 
-Add packages to `src/frontend/package.json` and run `npm install` inside the frontend directory.
+Add packages to `ui/package.json` and run `npm install` inside the `ui/` directory.
 
 ### Adding VS Code extensions
 

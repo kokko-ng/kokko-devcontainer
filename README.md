@@ -60,7 +60,7 @@ devcontainer exec --workspace-folder . zsh
 
 ## Caveats
 
-- The devcontainer assumes a **FastAPI + Vue** project layout (`src/` for Python, `src/frontend/` for Vue). Adjust `PYTHONPATH` and the frontend install path if your layout differs.
+- The devcontainer assumes a **FastAPI + Vue** project layout (`src/` for Python, `ui/` for Vue). Adjust `PYTHONPATH` and the frontend install path if your layout differs.
 - Shell config (zsh) and Claude Code settings are bundled in `.devcontainer/config/` — no host dotfiles are read.
 - Optional mounts for `~/.azure` and `~/.claude` are commented out in `devcontainer.json`. Uncomment them to persist credentials and Claude state across rebuilds.
 
