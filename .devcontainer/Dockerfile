@@ -24,3 +24,7 @@ RUN apt-get update \
 # The actual username is injected at build time via ARG; defaults to kng1.
 ARG HOST_USER=kng1
 RUN mkdir -p /Users && ln -sfn /home/vscode /Users/${HOST_USER}
+
+# Install host CA certificates so curl/npm/pip trust corporate proxies
+COPY certs/ /usr/local/share/ca-certificates/host/
+RUN update-ca-certificates
