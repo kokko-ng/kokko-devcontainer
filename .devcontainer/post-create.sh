@@ -9,7 +9,7 @@ git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "${ZSH_CUST
 git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
 
 echo "=== Installing Claude Code CLI ==="
-npm install -g @anthropic-ai/claude-code
+curl -fsSL https://claude.ai/install.sh | bash
 
 echo "=== Claude plugin paths ==="
 # The Dockerfile creates /Users/<host_user> -> /home/vscode so macOS
