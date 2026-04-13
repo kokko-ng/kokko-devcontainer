@@ -11,12 +11,18 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && true
 
-# Install Chromium system dependencies for Playwright
+# Install Chromium and system dependencies for Playwright.
+# The Playwright MCP server hardcodes the chrome binary path to
+# /opt/google/chrome/chrome, so symlink the Debian chromium binary there.
+# (Google Chrome itself is x86_64-only and unavailable on arm64.)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        chromium \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
         libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
         libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
+    && mkdir -p /opt/google/chrome \
+    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create host-path symlink so macOS absolute paths in Claude plugin configs
