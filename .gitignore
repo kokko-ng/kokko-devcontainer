@@ -1,2 +1,5 @@
 # Host-specific CA certificates extracted by initializeCommand
 .devcontainer/certs/
+
+# Playwright MCP runtime artifacts
+.playwright-mcp/
