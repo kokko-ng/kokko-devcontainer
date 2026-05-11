@@ -3,7 +3,12 @@
 {
   "name": "fastapi-vue-dev",
   "build": {
-    "dockerfile": "Dockerfile"
+    "dockerfile": "Dockerfile",
+    "args": {
+      // Forwarded to the Dockerfile so /Users/<host_user> -> /home/vscode
+      // resolves macOS absolute paths in Claude plugin configs.
+      "HOST_USER": "${localEnv:USER}"
+    }
   },
   "features": {
     // Azure CLI — remove if not using Azure
@@ -28,9 +33,6 @@
   // FastAPI default port (8000) and Vite dev server (5173)
   "forwardPorts": [8000, 5173],
   "runArgs": [
-    "--cap-drop=ALL",
-    "--cap-add=NET_BIND_SERVICE",
-    "--security-opt=no-new-privileges:true",
     // Chromium (used by the Playwright MCP) spawns many short-lived processes.
     // 512 is too low — raise to 1024 to avoid EAGAIN errors.
     "--pids-limit=1024"

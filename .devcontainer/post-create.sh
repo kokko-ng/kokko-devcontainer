@@ -1,19 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Resolve the bundled config directory relative to this script so it works
+# regardless of the workspace folder name.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUNDLED_CONFIG_DIR="$SCRIPT_DIR/config"
+
 # =====================
 # Shell config (zsh aliases from dotfiles)
 # =====================
+ZSH_CUSTOM_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+clone_zsh_plugin() {
+    local repo="$1" name="$2"
+    local dest="$ZSH_CUSTOM_DIR/plugins/$name"
+    if [[ -d "$dest/.git" ]]; then
+        echo "  $name already present, skipping"
+    else
+        rm -rf "$dest"
+        git clone --depth=1 "$repo" "$dest"
+    fi
+}
 echo "=== Installing zsh plugins ==="
-git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions"
-git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
+clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions
+clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting
 
 echo "=== Installing Claude Code CLI ==="
-curl -fsSL https://claude.ai/install.sh | bash
+if command -v claude >/dev/null 2>&1; then
+    echo "  Claude Code already installed at $(command -v claude)"
+else
+    curl -fsSL https://claude.ai/install.sh | bash
+fi
+
+echo "=== Installing GitHub Copilot CLI ==="
+# Published as @github/copilot on npm. The devcontainer Node feature creates a
+# user-writable global prefix, so no sudo is needed.
+if command -v copilot >/dev/null 2>&1; then
+    echo "  Copilot CLI already installed at $(command -v copilot)"
+elif command -v npm >/dev/null 2>&1; then
+    npm install -g @github/copilot
+else
+    echo "  npm not available — skipping Copilot CLI install"
+fi
 
 echo "=== Configuring Claude Code ==="
 CLAUDE_DIR="/home/vscode/.claude"
-BUNDLED_CLAUDE_DIR="/workspaces/devcontainer-starter/.devcontainer/config/claude"
+BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"
 mkdir -p "$CLAUDE_DIR"
 # Copy bundled settings unless a host mount already provides one
 if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$BUNDLED_CLAUDE_DIR/settings.json" ]]; then
@@ -32,7 +63,7 @@ ls -la /Users/ 2>/dev/null || true
 
 echo "=== Setting up shell config ==="
 DOTFILES_DIR="/home/vscode/.dotfiles"
-BUNDLED_ZSH_DIR="/workspaces/devcontainer-starter/.devcontainer/config/zsh"
+BUNDLED_ZSH_DIR="$BUNDLED_CONFIG_DIR/zsh"
 if [[ -d "$DOTFILES_DIR/zsh" ]]; then
     mkdir -p /home/vscode/.config
     ln -sfn "$DOTFILES_DIR/zsh" /home/vscode/.config/zsh

@@ -234,8 +234,10 @@ RUN apt-get update \
     && ln -sf /usr/bin/chromium /opt/google/chrome/chrome \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Symlink so macOS absolute paths in Claude plugin configs resolve
-ARG HOST_USER=kng1
+# Symlink so macOS absolute paths in Claude plugin configs resolve.
+# HOST_USER is injected by devcontainer.json (build.args) as ${localEnv:USER}
+# so the symlink matches your macOS username automatically.
+ARG HOST_USER=vscode
 RUN mkdir -p /Users && ln -sfn /home/vscode /Users/${HOST_USER}
 
 # Trust host CA certificates (corporate proxies, etc.)
@@ -248,7 +250,7 @@ The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Micro
 - **uv** is the Python package manager used instead of pip/Poetry.
 - **ODBC Driver 18** is required by pyodbc for Azure SQL connectivity. Remove this block if you do not use Azure SQL.
 - **Chromium** and its system dependencies are installed for the Playwright MCP plugin, which provides browser automation capabilities to Claude Code. A symlink at `/opt/google/chrome/chrome` points to Chromium so the Playwright MCP can find a browser at the expected path (Google Chrome is not available for ARM64 Linux).
-- **`HOST_USER` ARG** creates a `/Users/<username>` symlink to `/home/vscode` so that macOS absolute paths embedded in Claude plugin configs (e.g. `/Users/kng1/.claude/...`) resolve inside the container. **Change the default value to your macOS username** when forking this repo (see [Forking this starter](#forking-this-starter)).
+- **`HOST_USER` ARG** creates a `/Users/<username>` symlink to `/home/vscode` so that macOS absolute paths embedded in Claude plugin configs (e.g. `/Users/<your-mac-user>/.claude/...`) resolve inside the container. The value is auto-injected by `devcontainer.json` from `${localEnv:USER}`, so it matches your host username automatically — no manual edit needed when forking.
 - **Host CA certificates** are copied from `certs/` (populated by `init-host-certs.sh` at build time) so that corporate proxy CAs are trusted without disabling SSL verification.
 
 Additional tools (Node, Azure CLI, GitHub CLI, Docker-in-Docker, zsh) are added via **devcontainer features** in `devcontainer.json` rather than the Dockerfile. Features are composable, versioned, and reusable across projects.
@@ -265,24 +267,27 @@ Key sections:
 | `initializeCommand` | Runs on the host before build (extracts CA certs) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
-| `runArgs` | Docker run flags — the defaults drop all capabilities except `NET_BIND_SERVICE`, set `no-new-privileges`, and raise the PID limit to 1024 (needed by Chromium/Playwright) |
+| `runArgs` | Docker run flags — defaults raise the PID limit to 1024 (needed by Chromium/Playwright). Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
 | `customizations.vscode` | Extensions and settings applied when opening in VS Code |
 
 `PYTHONPATH` is set to `${containerWorkspaceFolder}/src`, which resolves at runtime to `/workspaces/<your-repo-name>/src`. Adjust this if your project's source layout differs.
 
 ### post-create.sh
 
-Runs once after the container is first created. It:
+Runs once after the container is first created. Steps are idempotent so a rebuild does not fail on already-installed components. It:
 
-1. Installs zsh plugins (autosuggestions, syntax highlighting).
-2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`).
-3. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
-4. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
-5. Runs `uv sync` if `pyproject.toml` exists.
-6. Installs Playwright Chromium if `pyproject.toml` exists.
-7. Runs `npm ci` in `ui/` if the `ui/` directory exists.
-8. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
-9. Copies `.env.example` to `.env` if no `.env` exists.
+1. Installs zsh plugins (autosuggestions, syntax highlighting). Skips if already cloned.
+2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Skips if `claude` is already on `PATH`.
+3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
+4. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
+5. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
+6. Runs `uv sync` if `pyproject.toml` exists.
+7. Installs Playwright Chromium if `pyproject.toml` exists.
+8. Runs `npm ci` in `ui/` if the `ui/` directory exists.
+9. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+10. Copies `.env.example` to `.env` if no `.env` exists.
+
+The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything — no `sed` needed when forking.
 
 ---
 
@@ -458,15 +463,13 @@ On first launch Claude Code prompts you to authenticate. Follow the instructions
 
 ## Forking this starter
 
-When you copy or fork this repo for your own project, update the following values. All are concentrated in a few files.
+When you copy or fork this repo for your own project, no host-specific edits are required — `HOST_USER` is auto-injected from `${localEnv:USER}` and bundled config paths are resolved relative to the script.
 
 ### Required changes
 
 | What to change | File | Default value | Change to |
 |----------------|------|---------------|-----------|
-| macOS username (host-path symlink) | `.devcontainer/Dockerfile` | `ARG HOST_USER=kng1` | Your macOS username (`whoami`) |
-| Workspace name in bundled paths | `.devcontainer/post-create.sh` | `/workspaces/devcontainer-starter` (2 occurrences) | `/workspaces/<your-repo-name>` |
-| Container display name | `.devcontainer/devcontainer.json` | `"name": "fastapi-vue-dev"` | A name for your project |
+| Container display name | `.devcontainer/devcontainer.json` | `"name": "fastapi-vue-dev"` | A name for your project (optional, cosmetic) |
 
 ### Optional changes
 
@@ -483,18 +486,17 @@ When you copy or fork this repo for your own project, update the following value
 ### Quick checklist
 
 ```bash
-# 1. Update the Dockerfile HOST_USER default
-sed -i '' "s/HOST_USER=kng1/HOST_USER=$(whoami)/" .devcontainer/Dockerfile
+# 1. (Optional) Update container name in .devcontainer/devcontainer.json
+#    Change "name": "fastapi-vue-dev" to a name for your project.
 
-# 2. Update workspace paths in post-create.sh
-sed -i '' "s|/workspaces/devcontainer-starter|/workspaces/$(basename "$PWD")|g" .devcontainer/post-create.sh
-
-# 3. Update container name
-#    Edit .devcontainer/devcontainer.json and change "name" to your project
-
-# 4. Review and update Claude Code plugins in
-#    .devcontainer/config/claude/settings.json
+# 2. (Optional) Review and update Claude Code plugins in
+#    .devcontainer/config/claude/settings.json — remove the kokko-ng marketplace
+#    and `enabledPlugins` entries if you do not use them.
 ```
+
+That's it. `HOST_USER` is auto-injected from the host environment, and the
+post-create script resolves bundled config paths relative to itself, so the
+workspace folder can be named anything.
 
 ---
 
