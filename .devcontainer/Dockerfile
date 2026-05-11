@@ -26,9 +26,10 @@ RUN apt-get update \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Create host-path symlink so macOS absolute paths in Claude plugin configs
-# (e.g. /Users/kng1/.claude/...) resolve inside the container.
-# The actual username is injected at build time via ARG; defaults to kng1.
-ARG HOST_USER=kng1
+# (e.g. /Users/<username>/.claude/...) resolve inside the container.
+# The actual username is injected at build time by devcontainer.json via
+# ${localEnv:USER}; the default is a placeholder for direct `docker build`.
+ARG HOST_USER=vscode
 RUN mkdir -p /Users && ln -sfn /home/vscode /Users/${HOST_USER}
 
 # Install host CA certificates so curl/npm/pip trust corporate proxies

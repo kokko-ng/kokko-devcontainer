@@ -9,13 +9,17 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | Python 3.12 + uv | Backend runtime and dependency management |
 | Node 20 | Frontend build tooling |
 | Azure CLI | Azure resource management |
+| ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc |
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`) |
+| GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot` |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 | Playwright MCP + Chromium | Browser automation for Claude Code |
 | Docker-in-Docker | Container builds inside the devcontainer |
 
-Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically.
+Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically when opened in VS Code.
+
+The container is portable — `HOST_USER` is auto-injected from your macOS username, and bundled config paths are resolved relative to the script, so the workspace can be named anything.
 
 ## Repo structure
 
