@@ -223,17 +223,6 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Chromium + system dependencies for Playwright MCP
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        chromium \
-        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
-        libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-        libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 \
-    && mkdir -p /opt/google/chrome \
-    && ln -sf /usr/bin/chromium /opt/google/chrome/chrome \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
 # Symlink so macOS absolute paths in Claude plugin configs resolve.
 # HOST_USER is injected by devcontainer.json (build.args) as ${localEnv:USER}
 # so the symlink matches your macOS username automatically.
@@ -249,7 +238,7 @@ The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Micro
 
 - **uv** is the Python package manager used instead of pip/Poetry.
 - **ODBC Driver 18** is required by pyodbc for Azure SQL connectivity. Remove this block if you do not use Azure SQL.
-- **Chromium** and its system dependencies are installed for the Playwright MCP plugin, which provides browser automation capabilities to Claude Code. A symlink at `/opt/google/chrome/chrome` points to Chromium so the Playwright MCP can find a browser at the expected path (Google Chrome is not available for ARM64 Linux).
+- **Chromium** and its system dependencies are installed by `post-create.sh` via `playwright-cli install-browser --with-deps` (the [Playwright CLI](https://playwright.dev/agent-cli/installation)), which provides browser automation capabilities to coding agents.
 - **`HOST_USER` ARG** creates a `/Users/<username>` symlink to `/home/vscode` so that macOS absolute paths embedded in Claude plugin configs (e.g. `/Users/<your-mac-user>/.claude/...`) resolve inside the container. The value is auto-injected by `devcontainer.json` from `${localEnv:USER}`, so it matches your host username automatically — no manual edit needed when forking.
 - **Host CA certificates** are copied from `certs/` (populated by `init-host-certs.sh` at build time) so that corporate proxy CAs are trusted without disabling SSL verification.
 
@@ -279,13 +268,14 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 1. Installs zsh plugins (autosuggestions, syntax highlighting). Skips if already cloned.
 2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Skips if `claude` is already on `PATH`.
 3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
-4. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
-5. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
-6. Runs `uv sync` if `pyproject.toml` exists.
-7. Installs Playwright Chromium if `pyproject.toml` exists.
-8. Runs `npm ci` in `ui/` if the `ui/` directory exists.
-9. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
-10. Copies `.env.example` to `.env` if no `.env` exists.
+4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@latest`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). Skips if `playwright-cli` is already on `PATH`.
+5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
+6. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
+7. Runs `uv sync` if `pyproject.toml` exists.
+8. Installs Playwright Chromium (Python package) if `pyproject.toml` exists.
+9. Runs `npm ci` in `ui/` if the `ui/` directory exists.
+10. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+11. Copies `.env.example` to `.env` if no `.env` exists.
 
 The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything — no `sed` needed when forking.
 
