@@ -42,6 +42,18 @@ else
     echo "  npm not available — skipping Copilot CLI install"
 fi
 
+echo "=== Installing Playwright CLI ==="
+# https://playwright.dev/agent-cli/installation
+if command -v playwright-cli >/dev/null 2>&1; then
+    echo "  Playwright CLI already installed at $(command -v playwright-cli)"
+elif command -v npm >/dev/null 2>&1; then
+    npm install -g @playwright/cli@latest
+    playwright-cli install-browser --with-deps
+    playwright-cli install --skills
+else
+    echo "  npm not available — skipping Playwright CLI install"
+fi
+
 echo "=== Configuring Claude Code ==="
 CLAUDE_DIR="/home/vscode/.claude"
 BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"

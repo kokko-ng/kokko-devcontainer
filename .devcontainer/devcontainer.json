@@ -33,7 +33,7 @@
   // FastAPI default port (8000) and Vite dev server (5173)
   "forwardPorts": [8000, 5173],
   "runArgs": [
-    // Chromium (used by the Playwright MCP) spawns many short-lived processes.
+    // Chromium (used by the Playwright CLI) spawns many short-lived processes.
     // 512 is too low — raise to 1024 to avoid EAGAIN errors.
     "--pids-limit=1024"
   ],
