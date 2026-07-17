@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# snaps — browse and restore working-tree snapshots taken by git-snapshot.sh.
+#
+#   snaps              list snapshots, newest first
+#   snaps show <ref>   show what a snapshot contains (diff vs its parent)
+#   snaps diff <ref>   diff a snapshot against the CURRENT working tree
+#   snaps restore <ref>  apply a snapshot back onto the working tree
+#
+# Snapshots hold uncommitted TRACKED changes, checkpointed automatically before
+# git commands and on every prompt. They are ordinary git commits under
+# refs/snapshots/, so nothing here is magic: `git stash apply <ref>` is the
+# whole restore mechanism.
+set -uo pipefail
+
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "snaps: not a git repository" >&2; exit 1; }
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \?//'; }
+
+list() {
+    local n=0
+    while read -r ref obj date; do
+        [[ -z "$ref" ]] && continue
+        n=$((n + 1))
+        printf '%-34s %s  %s\n' "$ref" "${obj:0:8}" "$date"
+    done < <(git for-each-ref --sort=-refname \
+        --format='%(refname) %(objectname) %(committerdate:relative)' refs/snapshots/ 2>/dev/null)
+    if [[ $n -eq 0 ]]; then
+        echo "No snapshots yet."
+        echo "They are created automatically when the tree has uncommitted tracked changes."
+    else
+        echo
+        echo "$n snapshot(s). Inspect: snaps show <ref> | Restore: snaps restore <ref>"
+    fi
+}
+
+resolve() {
+    local r="$1"
+    [[ "$r" == refs/snapshots/* ]] || r="refs/snapshots/$r"
+    git rev-parse --verify -q "$r" >/dev/null 2>&1 || { echo "snaps: no such snapshot: $1" >&2; exit 1; }
+    printf '%s' "$r"
+}
+
+case "${1:-list}" in
+    list|"")  list ;;
+    show)     [[ $# -ge 2 ]] || { usage; exit 1; }; git stash show -p "$(resolve "$2")" ;;
+    diff)     [[ $# -ge 2 ]] || { usage; exit 1; }; git diff "$(resolve "$2")" ;;
+    restore)
+        [[ $# -ge 2 ]] || { usage; exit 1; }
+        ref="$(resolve "$2")"
+        # Refuse to apply over a dirty tree: that is the very mistake this repo
+        # exists to prevent. Snapshot the current state first, then retry.
+        if [[ -n "$(git status --porcelain --untracked-files=no | head -1)" ]]; then
+            echo "snaps: the working tree has uncommitted changes." >&2
+            echo "       Applying on top could conflict or clobber them. Commit first," >&2
+            echo "       or inspect with: snaps diff $2" >&2
+            exit 1
+        fi
+        git stash apply "$ref" && echo "Restored $ref onto the working tree."
+        ;;
+    -h|--help|help) usage ;;
+    *) usage; exit 1 ;;
+esac

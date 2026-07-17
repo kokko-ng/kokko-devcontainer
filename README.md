@@ -32,15 +32,46 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
 ├── init-host-certs.sh
 ├── post-create.sh
 └── config/
+    ├── bin/
+    │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Shell config (bundled into container)
     └── claude/           # Claude Code settings and CLAUDE.md
+        ├── hooks/        # Git safety hooks (see "Git safety" below)
+        └── merge-hooks.jq
 ghostty/
 └── config                # Host-side Ghostty terminal config
 .gitignore                # Ignores extracted host CA certs, secrets, build artifacts
+GIT-SAFETY.md             # How the git safety net works
 INSTRUCTIONS.md           # Full setup walkthrough
 MANAGING.md               # Multi-instance management guide
 README.md                 # This file
 ```
+
+## Git safety
+
+Coding agents rewrite git history as a routine step. When they do it over a dirty tree,
+every uncommitted change to a tracked file is **destroyed silently and unrecoverably** —
+that work was never a git object, so there is no reflog entry and `git fsck` will not find
+it. This has cost real projects hours of work.
+
+The container ships two independent layers, on by default:
+
+| Layer | What it does |
+|---|---|
+| **Snapshots** | Uncommitted tracked changes are checkpointed to `refs/snapshots/` before every git command and on every prompt. Run `snaps` to list, `snaps restore <ref>` to get work back. |
+| **Guard** | Destructive git commands are **blocked while the tree is dirty**, and allowed while it is clean — so a rebase on a clean tree just works. |
+
+Plus `gc.reflogExpire=never` and `gc.pruneExpire=never`, so git stops deleting the objects
+recovery depends on.
+
+```bash
+snaps                 # list snapshots, newest first
+snaps show <ref>      # what's in it
+snaps restore <ref>   # put it back
+```
+
+See [GIT-SAFETY.md](GIT-SAFETY.md) for the design, the full list of blocked commands, and
+the override.
 
 ## Quick start
 
