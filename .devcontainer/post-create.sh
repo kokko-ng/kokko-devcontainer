@@ -147,3 +147,38 @@ echo "  Frontend:  cd ui && npm run dev"
 echo "  Claude:    claude"
 echo "  Azure:     az account show"
 echo ""
+
+# =====================
+# Colima VM disk check
+# =====================
+# Runs last so the warning is the final thing on screen.
+#
+# A full Colima disk kills the Docker daemon with no usable error (`colima
+# status` still reports healthy), so warn early. See MANAGING.md.
+#
+# Inside a container `df /` reports the VM's disk, so this measures the right
+# thing. Must never fail the build -- hence the guards and the `|| true`.
+check_vm_disk() {
+    local pct avail
+    pct="$(df -P / 2>/dev/null | awk 'NR==2 {sub(/%/,"",$5); print $5}')"
+    avail="$(df -Ph / 2>/dev/null | awk 'NR==2 {print $4}')"
+
+    [[ "$pct" =~ ^[0-9]+$ ]] || return 0
+    (( pct >= 80 )) || return 0
+
+    echo "=== WARNING: Colima VM disk is ${pct}% full (${avail} free) ==="
+    echo ""
+    echo "  This is shared by every container on this machine. At 100% the"
+    echo "  Docker daemon dies and colima reports no useful error."
+    echo ""
+    echo "  Reclaim now (safe -- keeps your volumes and running containers):"
+    echo ""
+    echo "    docker image prune -a"
+    echo ""
+    echo "  Do NOT use 'docker system prune --volumes': it also deletes the"
+    echo "  docker-in-docker, Claude Code and VS Code state volumes."
+    echo ""
+    echo "  See MANAGING.md -> Disk management."
+    echo ""
+}
+check_vm_disk || true

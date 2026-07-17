@@ -17,6 +17,8 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | Playwright CLI + Chromium | Browser automation for coding agents (`playwright-cli`) |
 | Docker-in-Docker | Container builds inside the devcontainer |
 
+Docker-in-Docker keeps its own image store in a volume that grows unnoticed — `docker system df` does not count it. Prune it periodically from inside the container; see [Disk management](MANAGING.md#disk-management).
+
 Ports `8000` (FastAPI) and `5173` (Vite) are forwarded automatically when opened in VS Code.
 
 The container is portable — `HOST_USER` is auto-injected from your macOS username, and bundled config paths are resolved relative to the script, so the workspace can be named anything.
@@ -47,7 +49,9 @@ brew install colima devcontainer
 brew install --cask ghostty
 
 # 2. Start Colima
-colima start --cpu 4 --memory 8
+# --disk is generous on purpose: devcontainer images are 5-6GB each and
+# Colima can grow a disk but never shrink it. See MANAGING.md.
+colima start --cpu 8 --memory 16 --disk 150
 
 # 3. Clone this repo into your project and open it
 cd your-project
