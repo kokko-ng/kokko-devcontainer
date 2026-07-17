@@ -33,7 +33,15 @@
   "containerEnv": {
     // Adjust the src path if your project layout differs
     "PYTHONPATH": "${containerWorkspaceFolder}/src",
-    "UV_LINK_MODE": "copy"
+    "UV_LINK_MODE": "copy",
+    // `devcontainer exec` / `docker exec` don't forward the host terminal's
+    // env: COLORTERM is lost and TERM arrives as plain "xterm". Chalk-based
+    // CLIs (Claude Code, Copilot CLI, ...) then fall back to 16-color mode
+    // and downsample their brand colors to the nearest ANSI color — Claude
+    // Code's orange becomes ANSI red, which the bundled Ghostty palette
+    // renders as maroon. Both documented hosts (Ghostty, VS Code) are
+    // truecolor terminals, so advertise that container-wide.
+    "COLORTERM": "truecolor"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
