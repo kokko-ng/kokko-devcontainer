@@ -36,6 +36,7 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
     └── claude/           # Claude Code settings and CLAUDE.md
 ghostty/
 └── config                # Host-side Ghostty terminal config
+.gitignore                # Ignores extracted host CA certs, secrets, build artifacts
 INSTRUCTIONS.md           # Full setup walkthrough
 MANAGING.md               # Multi-instance management guide
 README.md                 # This file
