@@ -1,5 +1,36 @@
-# Host-specific CA certificates extracted by initializeCommand
+# Host-specific CA certificates extracted by initializeCommand.
+# init-host-certs.sh writes real CA certs from the host keychain here.
 .devcontainer/certs/
 
-# Playwright MCP runtime artifacts
+# Playwright CLI runtime artifacts (browsers, profiles, traces).
+# post-create.sh installs @playwright/cli, which creates these in the workspace.
+.playwright/
+.playwright-cli/
 .playwright-mcp/
+test-results/
+playwright-report/
+
+# Secrets. Nothing here today, but post-create.sh creates .env from
+# .env.example, and this starter is copied into projects that do have secrets.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.cer
+id_rsa*
+id_ed25519*
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
+node_modules/
+
+# macOS
+.DS_Store

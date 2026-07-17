@@ -214,9 +214,12 @@ devcontainer up --workspace-folder . --remove-existing-container
 └── config/
     ├── zsh/            # Bundled shell config (symlinked by post-create.sh)
     └── claude/         # Bundled Claude Code settings and CLAUDE.md
+.gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
 
 ### Dockerfile
+
+Abridged for readability — comments are condensed and some flags omitted. `.devcontainer/Dockerfile` is the source of truth.
 
 ```dockerfile
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
@@ -280,7 +283,7 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 6. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
 7. Runs `uv sync` if `pyproject.toml` exists.
 8. Installs Playwright Chromium (Python package) if `pyproject.toml` exists.
-9. Runs `npm ci` in `ui/` if the `ui/` directory exists.
+9. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists.
 10. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
 11. Copies `.env.example` to `.env` if no `.env` exists.
 
@@ -507,14 +510,14 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | kokko-ng plugins enabled | Remove or replace with your own plugin marketplace and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 7 of 8 `kokko-ng` plugins enabled (`kokko-safety` is set to `false`) | Remove or replace with your own plugin marketplace and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
 | ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
 | Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
 | Docker-in-Docker feature | `.devcontainer/devcontainer.json` | `docker-in-docker:2` | Remove if you never build/run containers inside the devcontainer; it costs disk (see MANAGING.md) |
-| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication and process rules | Rewrite to match your team's conventions |
+| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
 
 ### Quick checklist
 
