@@ -6,6 +6,47 @@
   "permissions": {
     "defaultMode": "acceptEdits"
   },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/vscode/.claude/hooks/git-snapshot.sh",
+            "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "/home/vscode/.claude/hooks/guard-git.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/vscode/.claude/hooks/git-snapshot.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/vscode/.claude/hooks/session-git-safety.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "kokko-ai-config@kokko-ng-kokko-cmds": true,
     "kokko-code-quality@kokko-ng-kokko-cmds": true,

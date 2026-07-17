@@ -68,6 +68,65 @@ if [[ ! -f "$CLAUDE_DIR/CLAUDE.md" && -f "$BUNDLED_CLAUDE_DIR/CLAUDE.md" ]]; the
     echo "  Copied bundled CLAUDE.md"
 fi
 
+# =====================
+# Git safety net (see .devcontainer/config/claude/CLAUDE.md)
+# =====================
+# Deliberately NOT gated on "unless a file already exists", unlike the two
+# copies above. The hooks are the enforcement layer, and the setup most likely
+# to skip them -- a host-mounted ~/.claude -- is exactly the setup where a
+# long-lived project has work worth protecting. Always refresh them, and merge
+# the hook wiring into whatever settings.json is present rather than replacing
+# it, so a user's own settings survive.
+echo "=== Installing git safety hooks ==="
+if [[ -d "$BUNDLED_CLAUDE_DIR/hooks" ]]; then
+    mkdir -p "$CLAUDE_DIR/hooks"
+    cp "$BUNDLED_CLAUDE_DIR"/hooks/*.sh "$CLAUDE_DIR/hooks/"
+    chmod +x "$CLAUDE_DIR"/hooks/*.sh
+    echo "  Installed: $(cd "$CLAUDE_DIR/hooks" && echo *.sh)"
+fi
+
+if [[ -f "$BUNDLED_CONFIG_DIR/bin/snaps" ]]; then
+    mkdir -p "$HOME/.local/bin"
+    if sudo install -m 0755 "$BUNDLED_CONFIG_DIR/bin/snaps" /usr/local/bin/snaps 2>/dev/null \
+        || install -m 0755 "$BUNDLED_CONFIG_DIR/bin/snaps" "$HOME/.local/bin/snaps" 2>/dev/null; then
+        echo "  Installed 'snaps' (list/show/diff/restore working-tree snapshots)"
+    else
+        echo "  WARNING: could not install the 'snaps' helper onto PATH"
+    fi
+fi
+
+# Splice the hook wiring into the live settings.json. See merge-hooks.jq: this
+# preserves the user's own hooks and is safe to re-run on every rebuild.
+if command -v jq >/dev/null 2>&1 \
+    && [[ -f "$BUNDLED_CLAUDE_DIR/settings.json" && -f "$CLAUDE_DIR/settings.json" ]]; then
+    if jq -e . "$CLAUDE_DIR/settings.json" >/dev/null 2>&1; then
+        cp "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json.bak"
+        if jq -s -f "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" \
+            "$CLAUDE_DIR/settings.json" "$BUNDLED_CLAUDE_DIR/settings.json" \
+            > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
+            && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
+            mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
+            echo "  Merged git safety hooks into settings.json (backup: settings.json.bak)"
+        else
+            rm -f "$CLAUDE_DIR/settings.json.tmp"
+            echo "  WARNING: hook merge failed — settings.json left unchanged."
+        fi
+    else
+        echo "  WARNING: settings.json is not valid JSON — leaving it alone."
+        echo "           Add the 'hooks' block from $BUNDLED_CLAUDE_DIR/settings.json by hand."
+    fi
+fi
+
+# Never expire the reflog or prune unreachable objects. The default 90/30-day
+# windows quietly delete the very objects a recovery depends on -- including the
+# snapshots' parents. Disk is cheaper than the work.
+echo "=== Configuring git for recoverability ==="
+git config --global gc.reflogExpire never
+git config --global gc.reflogExpireUnreachable never
+git config --global gc.pruneExpire never
+git config --global rerere.enabled true
+echo "  reflog retention: never expire; unreachable objects: never pruned"
+
 echo "=== Claude plugin paths ==="
 # The Dockerfile creates /Users/<host_user> -> /home/vscode so macOS
 # absolute paths in installed_plugins.json resolve inside the container.
