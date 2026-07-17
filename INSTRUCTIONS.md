@@ -108,10 +108,14 @@ brew install colima docker docker-compose
 ### Start Colima
 
 ```bash
-colima start --cpu 4 --memory 8 --disk 60
+colima start --cpu 8 --memory 16 --disk 150
 ```
 
-Adjust `--cpu` and `--memory` to suit your machine. 4 CPUs and 8 GB RAM is a reasonable baseline for a FastAPI + Vue project with hot reload.
+Adjust `--cpu` and `--memory` to suit your machine. 4 CPUs and 8 GB RAM is a workable baseline for a single FastAPI + Vue project with hot reload; 8 and 16 are comfortable if you run more than one container or build images.
+
+**Size `--disk` generously from the start.** Each devcontainer image built from this starter is 5-6 GB, every rebuild leaves the previous image behind, and the `docker-in-docker` feature keeps a second, nested image store per container. A 60 GB disk fills up faster than expected, and a full disk takes the Docker daemon down in a way that is hard to diagnose (see [Disk management](MANAGING.md#disk-management)).
+
+Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 150` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
 
 ### Auto-start at login
 
@@ -125,11 +129,14 @@ brew services start colima
 docker info | head -5
 ```
 
-You should see output referencing the Colima context. If Docker cannot connect, check that Colima is running:
+You should see output referencing the Colima context. If Docker cannot connect, check that Colima is running and that its disk is not full:
 
 ```bash
-colima status
+colima status        # did the VM boot?
+colima ssh -- df -h /   # is the disk full? colima status will NOT tell you
 ```
+
+A healthy `colima status` is not proof that Docker works: the VM can be running normally while the daemon inside it is dead from a full disk. See [Disk management](MANAGING.md#disk-management).
 
 ### Docker socket path
 
@@ -355,10 +362,10 @@ If your project uses a different layout, update these two locations before build
 
 ### `devcontainer up` fails with "Command failed: docker ps"
 
-This means Docker is not reachable — Colima is not running. Start it:
+Docker is not reachable. Usually Colima is simply not running — start it:
 
 ```bash
-colima start --cpu 4 --memory 8 --disk 60
+colima start --cpu 8 --memory 16 --disk 150
 ```
 
 Then retry `devcontainer up`. You can verify Docker is available with:
@@ -373,6 +380,14 @@ To avoid this on every login, enable Colima as a background service:
 brew services start colima
 ```
 
+**If Colima says it is already running and Docker still does not work**, do not stop here assuming the VM is fine — the most likely cause is that the VM's disk is full. Check the disk before anything else:
+
+```bash
+colima ssh -- df -h /
+```
+
+At 100% the Docker daemon is dead even though the VM booted normally, so `colima status` still looks healthy and `colima start` answers `already running, ignoring`. See [Disk management](MANAGING.md#disk-management) for the full symptom list and recovery steps.
+
 ### Colima socket path in CI or other tools
 
 Some tools (BuildKit, Testcontainers, etc.) look for the Docker socket at `/var/run/docker.sock`. Colima does not create this symlink by default. You can add one:
@@ -385,15 +400,42 @@ Or use the `DOCKER_HOST` environment variable as described in the [Colima sectio
 
 ### Docker-in-Docker vs Docker-outside-of-Docker
 
-The devcontainer uses the **Docker-in-Docker** feature, which runs a separate Docker daemon inside the container. This is the safest isolation model. As a trade-off, images built inside the container are not shared with the host's Docker cache and are discarded when the container is removed.
+The devcontainer uses the **Docker-in-Docker** feature, which runs a separate Docker daemon inside the container. This is the safest isolation model: the container cannot touch the host's daemon, and images built inside it are not shared with the host's Docker cache.
 
-If you need to share the host Docker socket (Docker-outside-of-Docker), replace the `docker-in-docker` feature with a socket mount:
+**Know where its storage actually goes.** The nested daemon's images live in a **named volume** (`dind-var-lib-docker-*`), one per container. That volume:
+
+- **survives container removal** — rebuilding with `dcur` does *not* reclaim it
+- is **not counted by `docker system df`**, which reports only the outer daemon
+- is **not reclaimed by `docker image prune`** on the host
+
+So it grows unnoticed until the Colima VM's disk fills, which takes Docker down in a way that is hard to diagnose. This is a real cost, not a theoretical one — but it is manageable if you know it is there. See [Disk management](MANAGING.md#disk-management).
+
+Keeping it in check:
+
+```bash
+# INSIDE the devcontainer -- clears the nested store
+docker system prune -a
+
+# ON THE HOST -- how big has a nested store become?
+docker system df -v | grep dind-var-lib-docker
+```
+
+When you retire a project for good, remove the container *and then* its volume by name — removing the container alone leaves the volume behind:
+
+```bash
+docker rm <container>
+docker volume rm dind-var-lib-docker-<hash>
+```
+
+**Alternative: share the host's Docker socket** (Docker-outside-of-Docker). Containers you start become siblings on the Colima daemon rather than nested, so there is no second image store and no hidden volume — images share the host cache and prune normally. The trade-off is weaker isolation: the container gets full control of the host's Docker daemon.
 
 ```jsonc
 "mounts": [
   "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
 ]
 ```
+
+Note that Colima does not create `/var/run/docker.sock` on the host by default; see [Colima socket path](#colima-socket-path-in-ci-or-other-tools) for the symlink.
 
 ### First build time
 
@@ -471,6 +513,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
 | ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
 | Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
+| Docker-in-Docker feature | `.devcontainer/devcontainer.json` | `docker-in-docker:2` | Remove if you never build/run containers inside the devcontainer; it costs disk (see MANAGING.md) |
 | Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication and process rules | Rewrite to match your team's conventions |
 
 ### Quick checklist

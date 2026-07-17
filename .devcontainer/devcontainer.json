@@ -16,6 +16,13 @@
     "ghcr.io/devcontainers/features/node:1": {
       "version": "20"
     },
+    // Docker-in-Docker — a second Docker daemon inside the container.
+    // Its image store lives in a named `dind-var-lib-docker-*` volume that
+    // survives container removal, is not counted by `docker system df`, and is
+    // not reclaimed by `docker image prune`. It therefore grows unnoticed until
+    // the Colima VM's disk fills. Prune it from INSIDE the container with
+    // `docker system prune -a`, and delete the volume by name when retiring a
+    // project. See MANAGING.md -> Disk management.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
