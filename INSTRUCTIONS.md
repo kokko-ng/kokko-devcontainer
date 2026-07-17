@@ -440,6 +440,22 @@ docker volume rm dind-var-lib-docker-<hash>
 
 Note that Colima does not create `/var/run/docker.sock` on the host by default; see [Colima socket path](#colima-socket-path-in-ci-or-other-tools) for the symlink.
 
+### Claude Code (and other CLI) colors look wrong — orange renders as maroon
+
+`devcontainer exec` / `docker exec` do not forward the host terminal's environment: inside the container `COLORTERM` is unset and `TERM` is plain `xterm`. Chalk-based CLIs such as Claude Code read those variables to pick a color depth, fall back to 16-color mode, and downsample their true-color UI to the nearest ANSI color — Claude Code's orange becomes ANSI red, which the bundled Ghostty palette (`palette = 1=#590008`) renders as dark maroon.
+
+Two layers fix this:
+
+- `containerEnv` in `devcontainer.json` sets `COLORTERM=truecolor` container-wide.
+- The bundled zsh config (`integrations.zsh`) re-exports `COLORTERM` if missing and normalizes `TERM` to `xterm-256color` when it is plain `xterm` or has no terminfo entry in the container.
+
+If colors are still wrong, the container likely predates these settings — rebuild it (`dcur`), then verify inside the container:
+
+```bash
+echo "$TERM $COLORTERM"        # expect: xterm-256color truecolor
+printf '\e[38;2;217;119;87mtruecolor test\e[0m\n'   # should print in orange
+```
+
 ### First build time
 
 The initial `devcontainer up` downloads the base image (~1 GB) and runs `post-create.sh`. On a fast connection, expect 3–8 minutes. Subsequent starts from the cached image take a few seconds.

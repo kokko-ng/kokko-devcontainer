@@ -6,6 +6,25 @@
 path_prepend() { [[ ":$PATH:" != *":$1:"* ]] && export PATH="$1:$PATH" }
 
 # ===================
+# Terminal color capabilities
+# ===================
+# `devcontainer exec` / `docker exec` don't forward the host terminal's env:
+# COLORTERM is lost and TERM arrives as plain "xterm". Chalk-based CLIs
+# (Claude Code, Copilot CLI, ...) then drop to 16-color mode and downsample
+# their brand colors to the nearest ANSI color — Claude Code's orange becomes
+# ANSI red, which the bundled Ghostty palette renders as maroon (#590008).
+# devcontainer.json sets COLORTERM container-wide; this guard covers shells
+# that reach zsh without it (older containers, plain docker exec, ssh).
+# Both documented hosts (Ghostty, VS Code) are truecolor terminals.
+[[ -z "$COLORTERM" ]] && export COLORTERM=truecolor
+# Plain "xterm" undersells the host terminal, and a TERM with no terminfo
+# entry in the container (e.g. xterm-ghostty on Debian bookworm) breaks
+# less/clear. Normalize both cases to xterm-256color.
+if [[ "$TERM" == xterm ]] || ! infocmp "$TERM" &>/dev/null; then
+    export TERM=xterm-256color
+fi
+
+# ===================
 # Oh My Zsh
 # ===================
 export ZSH="$HOME/.oh-my-zsh"
