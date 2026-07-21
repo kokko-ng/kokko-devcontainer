@@ -77,8 +77,11 @@ matches "${G}update-ref[[:space:]]+-d[[:space:]]+refs/snapshots" && \
 matches "${G}push[[:space:]]+.*(--force([[:space:]]|=|$)|--force-with-lease|[[:space:]]-f([[:space:]]|$))" && \
     deny "BLOCKED: force-push rewrites the shared remote. Push additively; if a push is rejected, leave it rejected and tell the user."
 
-matches "${G}add[[:space:]]+(\.|-A([[:space:]]|$)|--all([[:space:]]|$))" && \
-    deny "BLOCKED: \`git add .\` stages everything, including build output, secrets and scratch files. Stage explicit paths: \`git add src/ docs/\`."
+# The dot must be a COMPLETE argument (`.` or `./`), not a prefix — otherwise
+# legitimate dotted paths (`git add .claude/settings.json`, `.gitignore`)
+# false-positive as `git add .`.
+matches "${G}add[[:space:]]+(\.[/]?([[:space:]]|$)|-A([[:space:]]|$)|--all([[:space:]]|$))" && \
+    deny "BLOCKED: \`git add .\` stages everything, including build output, secrets and scratch files. Stage explicit file paths. Note a directory add also sweeps in any UNTRACKED files inside it — prefer naming files."
 
 matches "${G}stash[[:space:]]+(drop|clear)" && \
     deny "BLOCKED: this permanently deletes stashed work. Inspect it first (\`git stash list\`, \`git stash show -p\`)."
@@ -87,8 +90,20 @@ matches "${G}stash[[:space:]]+(drop|clear)" && \
 # Denied only against a dirty tree — safe and allowed on a clean one.
 # ---------------------------------------------------------------------------
 
-git rev-parse --git-dir >/dev/null 2>&1 || exit 0
-[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null | head -1)" ]] || exit 0
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null | head -1)" ]] || exit 0
+else
+    # git cannot READ this repository at all. The usual cause is the
+    # "dubious ownership" refusal on bind-mounted workspaces owned by the
+    # host uid. That must fail CLOSED, not open: the tree may well be dirty,
+    # the snapshot hook's git calls are failing identically (so nothing is
+    # checkpointed), and an agent can bypass the refusal per-command with
+    # `git -c safe.directory=... rebase` — sailing past a guard that cannot
+    # see the tree. Treat the tree as dirty until git works again.
+    err=$(git rev-parse --git-dir 2>&1 >/dev/null || true)
+    printf '%s' "$err" | grep -qi 'dubious ownership' || exit 0
+    RECOVER='git itself cannot read this repository ("dubious ownership": the workspace is owned by a different uid than the container user). The dirty-tree check AND the snapshot safety net are both non-functional, so the tree is treated as dirty. Fix first: `git config --global --add safe.directory <workspace>`, verify `snaps` works, then retry.'
+fi
 
 matches "${G}rebase([[:space:]]|$)" && \
     deny "BLOCKED: \`git rebase\` over a dirty tree silently discards every uncommitted change to a tracked file, with no prompt and no way back. $RECOVER"
