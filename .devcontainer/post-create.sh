@@ -168,9 +168,16 @@ fi
 # =====================
 # Playwright Chromium
 # =====================
-if [[ -f pyproject.toml ]]; then
+# `uv sync` above installs only the default dependency groups. A project can
+# declare playwright in a non-default group (or not at all), in which case
+# `uv run playwright` aborts with "Failed to spawn: playwright" and takes the
+# whole postCreateCommand down with it. Probe the synced environment first.
+if [[ -f pyproject.toml ]] && uv run python -c "import playwright" >/dev/null 2>&1; then
     echo "=== Installing Playwright Chromium ==="
-    uv run playwright install --with-deps chromium
+    uv run playwright install --with-deps chromium || \
+        echo "  WARNING: playwright install failed — browsers not provisioned"
+elif [[ -f pyproject.toml ]]; then
+    echo "=== Skipping Playwright Chromium (playwright not in the synced environment) ==="
 else
     echo "=== Skipping Playwright (no pyproject.toml) ==="
 fi
