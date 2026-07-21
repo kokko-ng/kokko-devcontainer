@@ -106,7 +106,7 @@ if command -v jq >/dev/null 2>&1 \
             > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
             && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
             mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-            echo "  Merged git safety hooks into settings.json (backup: settings.json.bak)"
+            echo "  Merged git safety hooks and plugin roster into settings.json (backup: settings.json.bak)"
         else
             rm -f "$CLAUDE_DIR/settings.json.tmp"
             echo "  WARNING: hook merge failed — settings.json left unchanged."
