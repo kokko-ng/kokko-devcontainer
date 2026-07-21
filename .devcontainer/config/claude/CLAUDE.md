@@ -97,3 +97,14 @@ All testing artifacts, temporary files, and development scripts should be placed
 
 - Ask the user to manually restart services if needed
 - Use specific process IDs with `kill` only for processes you started
+
+## Architecture Diagrams (C4) and Validation Output
+
+- In any generated architecture or codemap markdown, every source file,
+  module, or code element mentioned MUST be a markdown hyperlink to the
+  actual file it refers to (repo-relative path so the link resolves when
+  browsing on GitHub) — never bare text like `src/db.py`. Verify the link
+  target exists before writing it.
+- Never write validation or verification reports as documents in the repo
+  (no VERIFICATION.md, no report files). Report validation results directly
+  in the reply message instead.

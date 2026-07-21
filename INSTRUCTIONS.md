@@ -526,7 +526,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 9 of 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`) | Remove or replace with your own plugin marketplaces and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 8 of 9 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`) | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
