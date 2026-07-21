@@ -24,7 +24,18 @@ set -uo pipefail
 input=$(cat 2>/dev/null || true)
 
 command -v jq >/dev/null 2>&1 || exit 0
-git rev-parse --git-dir >/dev/null 2>&1 || exit 0
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    # Distinguish "not a repo" (fine, stay silent) from "git refuses to
+    # operate" (dubious ownership on a host-uid bind mount). The latter means
+    # NOTHING is being checkpointed — a safety net that fails silently is
+    # worse than none, because everyone assumes it is working. Say so on
+    # stdout: for UserPromptSubmit hooks that lands in Claude's context, so
+    # the broken state gets surfaced instead of discovered after data loss.
+    err=$(git rev-parse --git-dir 2>&1 >/dev/null || true)
+    printf '%s' "$err" | grep -qi 'dubious ownership' && \
+        echo "WARNING: git-snapshot.sh cannot checkpoint this repository — git reports 'dubious ownership' (workspace owned by a different uid). Uncommitted work is NOT protected until this is fixed: git config --global --add safe.directory <workspace>"
+    exit 0
+fi
 
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // ""' 2>/dev/null || echo "")
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")

@@ -54,7 +54,10 @@ humans, not for you.
   what is on disk, **not** what is in HEAD — so deploying uncommitted work silently
   diverges the deployed artifact from git history).
   If it is good enough to build an image from, it is good enough to commit first.
-- **Stage explicit paths** — `git add src/ docs/`, never `git add .`.
+- **Stage explicit file paths**, never `git add .`. Be careful with directory
+  adds (`git add src/`): they also stage any UNTRACKED files inside the
+  directory, which has swept scratch files into commits before. When untracked
+  files live near what you are committing, name the files individually.
 - **Check which branch you are on** — `git rev-parse --abbrev-ref HEAD`. Never assume `main`.
 - **Use `cp` to back up and restore files**, never `git checkout -- <path>`.
 - **A rejected push is usually correct.** Report it and stop; do not work around it.
