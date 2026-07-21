@@ -121,6 +121,13 @@ fi
 # windows quietly delete the very objects a recovery depends on -- including the
 # snapshots' parents. Disk is cheaper than the work.
 echo "=== Configuring git for recoverability ==="
+# Bind-mounted workspaces are owned by the HOST uid, not the container user.
+# Without safe.directory git refuses every command with "detected dubious
+# ownership" -- which also silently kills the snapshot hook (its git calls
+# fail, so nothing is ever checkpointed and the safety net protects nothing).
+# postCreateCommand runs with the workspace folder as cwd, so $PWD is right.
+git config --global --add safe.directory "$PWD"
+echo "  safe.directory: $PWD"
 git config --global gc.reflogExpire never
 git config --global gc.reflogExpireUnreachable never
 git config --global gc.pruneExpire never
