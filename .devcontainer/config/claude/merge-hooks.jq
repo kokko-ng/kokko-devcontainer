@@ -15,6 +15,12 @@
 # So: drop any entry pointing at our own hooks directory (a previous install of
 # these same hooks), then append the current bundled set. User hooks never match
 # that path and survive untouched.
+#
+# It also ADDITIVELY merges the bundled plugin roster (enabledPlugins,
+# extraKnownMarketplaces): bundled entries are added only when the key is
+# absent, so a user's explicit choices — including disabling a plugin with
+# `false` — always win, while new plugins added to the bundle reach
+# long-lived host-mounted setups that would otherwise never see them.
 
 def ours: "/home/vscode/\\.claude/hooks/";
 
@@ -34,3 +40,9 @@ def strip_ours:
                .[$event] = ((.[$event] // []) + $new_hooks[$event]))
       )
   }
+| if (($new.enabledPlugins // {}) | length) > 0
+  then .enabledPlugins = (($new.enabledPlugins // {}) + (.enabledPlugins // {}))
+  else . end
+| if (($new.extraKnownMarketplaces // {}) | length) > 0
+  then .extraKnownMarketplaces = (($new.extraKnownMarketplaces // {}) + (.extraKnownMarketplaces // {}))
+  else . end
