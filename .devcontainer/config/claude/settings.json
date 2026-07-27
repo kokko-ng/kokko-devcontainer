@@ -50,6 +50,7 @@
   "enabledPlugins": {
     "kokko-ai-config@kokko-ng-kokko-cmds": true,
     "kokko-code-quality@kokko-ng-kokko-cmds": true,
+    "kokko-env@kokko-ng-kokko-cmds": true,
     "kokko-git@kokko-ng-kokko-cmds": true,
     "kokko-infra@kokko-ng-kokko-cmds": true,
     "kokko-notifications@kokko-ng-kokko-cmds": true,
