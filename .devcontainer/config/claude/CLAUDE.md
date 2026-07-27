@@ -71,12 +71,87 @@ first"* — that is precisely the thought that preceded every incident. Stop and
 
 ---
 
+## Pre-commit hooks
+
+**If `.pre-commit-config.yaml` exists in the repo, pre-commit runs on every commit you
+make. No exceptions.**
+
+- **Never pass `--no-verify` or `-n` to `git commit`**, and never set `PRE_COMMIT_ALLOW_NO_CONFIG`
+  or otherwise disable the hooks. If you are reaching for a bypass, you are about to
+  commit something the repo has decided is not acceptable.
+- **If the hooks are not installed**, install them before committing: `uv run pre-commit install`
+  (or `pre-commit install` where uv is not in use). A config file with no installed hook
+  is a silent no-op, so verify `.git/hooks/pre-commit` exists rather than assuming.
+- **When hooks fail, fix the cause.** Read the output, correct the code, and commit again.
+  Do not work around the check, loosen the rule, or add per-file ignores to make it pass
+  unless the user asks for exactly that.
+- **When hooks rewrite files** (formatters like black, ruff, prettier), the commit aborts
+  with the fixes left in the working tree. Re-stage the **explicit file paths** — never
+  `git add -u` or `git add .`, per the git rules above — and commit again. Check the diff
+  the hook produced before re-staging; it is a real change to your work.
+- **Run hooks early on large changes** rather than discovering everything at commit time:
+  `pre-commit run --files <paths>`.
+- **A failing hook is information, not an obstacle.** Report what failed and what you did
+  about it; do not silently retry until something goes through.
+
+---
+
 ## Communication Style
 
 - Never use emojis in any communication, code, comments, or documentation
 - Maintain a concise, professional tone in all interactions
 - Provide direct, clear technical communication without unnecessary elaboration
 - Focus on facts and technical accuracy over conversational language
+
+## Finishing a task
+
+Never end a task with only a summary of what was done. Every completed task ends with a
+short **Next steps** section — 2 to 5 concrete, specific items, ordered by value. Cover
+whatever applies:
+
+- **Follow-on work** the change implies but did not include (tests, docs, migrations,
+  callers not yet updated, error paths not yet handled).
+- **Improvements** to what was just written — refactors deferred for scope, duplication
+  introduced, naming or structure worth revisiting.
+- **Risks and unknowns** — assumptions made, things not verified, edge cases untested,
+  places where the change could break something not exercised.
+- **Verification the user should run** if it could not be run here.
+
+Rules for this section:
+
+- Be specific and actionable. "Add tests for the retry path in `client.py`" — not
+  "consider adding tests".
+- Name the files or commands involved.
+- Say why each item matters in a clause, not a paragraph.
+- Rank them. If one item matters more than the rest, say so and say why.
+- If a task genuinely has no meaningful follow-ups, say that explicitly in one line
+  rather than padding the list with filler.
+
+This applies to trivial tasks as well as large ones — the list is just shorter.
+
+## Presenting decisions
+
+When a decision is the user's to make, **never** hand it back without a position.
+"Let me know how you want to proceed", "I'll leave it up to you", and "either works" are
+not acceptable as a complete answer.
+
+Every decision put to the user includes:
+
+1. **The options**, named and briefly described — including the option of doing nothing
+   when that is real.
+2. **Trade-offs for each**, as explicit pros and cons. Cover the axes that actually
+   differ: effort, complexity, performance, maintenance burden, reversibility, blast
+   radius, dependencies added, how it ages.
+3. **A recommendation** — one option, stated plainly as the one to pick.
+4. **Why that one**, and specifically what would have to be true for a different option
+   to win instead. If the recommendation is close, say it is close and say what tips it.
+
+Keep it tight — a compact table or short bulleted comparison, not an essay. The point is
+that the user can decide in seconds because the analysis is already done.
+
+If information needed to make the call is genuinely missing, say what is missing, give
+the recommendation under a stated assumption, and note how it changes if the assumption
+is wrong. A missing fact is not a reason to withhold a recommendation.
 
 ## Context Window
 
@@ -98,13 +173,8 @@ All testing artifacts, temporary files, and development scripts should be placed
 - Ask the user to manually restart services if needed
 - Use specific process IDs with `kill` only for processes you started
 
-## Architecture Diagrams (C4) and Validation Output
+## Validation Output
 
-- In any generated architecture or codemap markdown, every source file,
-  module, or code element mentioned MUST be a markdown hyperlink to the
-  actual file it refers to (repo-relative path so the link resolves when
-  browsing on GitHub) — never bare text like `src/db.py`. Verify the link
-  target exists before writing it.
 - Never write validation or verification reports as documents in the repo
   (no VERIFICATION.md, no report files). Report validation results directly
   in the reply message instead.
