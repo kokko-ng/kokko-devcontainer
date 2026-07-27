@@ -1,0 +1,7 @@
+# Config for markdownlint (pre-commit + CI).
+# Long prose lines are fine in documentation.
+MD013: false
+# MD060 enforces one table-pipe padding style. These documents use the compact
+# `|---|---|` form consistently; the rule wants them realigned to header width,
+# which is churn with no reader benefit.
+MD060: false

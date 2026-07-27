@@ -149,7 +149,7 @@ docker stats --no-stream
 This starter is disk-hungry by design:
 
 | Source | Typical size |
-|---|---|
+| --- | --- |
 | Each project's `vsc-*` devcontainer image | 5-6 GB |
 | Each rebuild, leaving the old image as a dangling `<none>` | 5-6 GB again |
 | `docker-in-docker` nested image store (`dind-var-lib-docker-*` volume) | grows unbounded |
@@ -217,7 +217,7 @@ Before assuming a volume is garbage, check the `LINKS` column — `0` means noth
 docker system df -v | grep -E "VOLUME NAME|dind-var-lib-docker"
 ```
 
-```
+```text
 VOLUME NAME                          LINKS     SIZE
 dind-var-lib-docker-051bsgre...      1         3.897GB    <- in use, leave alone
 dind-var-lib-docker-1iqoip1a...      1         470MB      <- in use, leave alone

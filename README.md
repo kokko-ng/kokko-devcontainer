@@ -5,7 +5,7 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 ## What's included
 
 | Tool | Purpose |
-|------|---------|
+| ------ | --------- |
 | Python 3.12 + uv | Backend runtime and dependency management |
 | Node 20 | Frontend build tooling |
 | Azure CLI | Azure resource management |
@@ -25,7 +25,7 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
 
 ## Repo structure
 
-```
+```text
 .devcontainer/
 ├── devcontainer.json
 ├── Dockerfile
@@ -36,7 +36,7 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
     │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Shell config (bundled into container)
     └── claude/           # Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks (see "Git safety" below)
+        ├── hooks/        # Safety-net verifier (see "Git safety" below)
         └── merge-hooks.jq
 ghostty/
 └── config                # Host-side Ghostty terminal config
@@ -54,12 +54,17 @@ every uncommitted change to a tracked file is **destroyed silently and unrecover
 that work was never a git object, so there is no reflog entry and `git fsck` will not find
 it. This has cost real projects hours of work.
 
-The container ships two independent layers, on by default:
+The container ships three layers, on by default:
 
 | Layer | What it does |
-|---|---|
+| --- | --- |
 | **Snapshots** | Uncommitted tracked changes are checkpointed to `refs/snapshots/` before every git command and on every prompt. Run `snaps` to list, `snaps restore <ref>` to get work back. |
 | **Guard** | Destructive git commands are **blocked while the tree is dirty**, and allowed while it is clean — so a rebase on a clean tree just works. |
+| **Verifier** | Checks at every session start that the first two are actually running, and says so loudly if they are not. |
+
+The first two ship in the [kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin,
+which `post-create.sh` installs. The verifier stays in this repo precisely so that a failed
+plugin install cannot leave you unprotected without knowing it.
 
 Plus `gc.reflogExpire=never` and `gc.pruneExpire=never`, so git stops deleting the objects
 recovery depends on.
@@ -133,3 +138,16 @@ and report what still needs a rebuild. Dockerfile and `devcontainer.json`
 - Optional mounts for `~/.azure` and `~/.claude` are commented out in `devcontainer.json`. Uncomment them to persist credentials and Claude state across rebuilds.
 
 See [INSTRUCTIONS.md](INSTRUCTIONS.md) for a full setup walkthrough and [MANAGING.md](MANAGING.md) for running multiple instances.
+
+## Development
+
+```bash
+bash scripts/test-merge-hooks.sh      # the settings.json merge program
+bash scripts/check-plugin-roster.sh   # every enabled plugin resolves
+bash scripts/check-docs.sh            # documentation matches the repo
+shellcheck --severity=warning .devcontainer/*.sh .devcontainer/config/claude/hooks/*.sh
+markdownlint '**/*.md'
+```
+
+CI runs all of the above on every push, plus a weekly `devcontainer build` to
+catch upstream drift in the feature images. See [CHANGELOG.md](CHANGELOG.md).

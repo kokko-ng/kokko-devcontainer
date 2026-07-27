@@ -1,0 +1,104 @@
+# CI for the devcontainer starter. This repo previously had none, despite
+# shipping a ~400-line provisioning script, a jq merge program that rewrites the
+# user's settings.json, and a plugin roster that nothing verified.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Triggered by a release in kokko-cmds / kokko-janitor: a plugin renamed or
+  # removed there breaks this repo's roster, and nothing else would notice.
+  repository_dispatch:
+    types: [marketplace-updated]
+  schedule:
+    # Weekly, to catch upstream drift in the devcontainer feature images.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: Shellcheck every script
+        run: |
+          mapfile -t scripts < <(
+            find . -name '*.sh' -not -path './.git/*' | sort
+          )
+          scripts+=(".devcontainer/config/bin/snaps")
+          printf 'checking %s\n' "${scripts[@]}"
+          shellcheck --severity=warning "${scripts[@]}"
+      - name: Every script parses
+        run: |
+          status=0
+          while IFS= read -r f; do
+            bash -n "$f" || { echo "ERROR: $f does not parse"; status=1; }
+          done < <(find . -name '*.sh' -not -path './.git/*')
+          bash -n .devcontainer/config/bin/snaps || status=1
+          exit "$status"
+      - name: Scripts referenced by devcontainer.json exist and are executable
+        run: |
+          status=0
+          for f in .devcontainer/post-create.sh .devcontainer/init-host-certs.sh; do
+            [ -f "$f" ] || { echo "ERROR: $f is referenced by devcontainer.json but missing"; status=1; }
+          done
+          exit "$status"
+      - name: post-create.sh --config-only rejects unknown arguments
+        run: |
+          if bash .devcontainer/post-create.sh --nonsense 2>/dev/null; then
+            echo "ERROR: an unknown argument was accepted"
+            exit 1
+          fi
+          echo "OK: unknown arguments are rejected"
+
+  json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install a JSONC-aware parser
+        # devcontainer.json permits comments, so plain jq cannot read it.
+        run: npm install -g json5 strip-json-comments-cli
+      - name: devcontainer.json is valid JSONC
+        run: strip-json-comments .devcontainer/devcontainer.json | jq -e . > /dev/null
+      - name: Bundled settings.json is valid JSON
+        run: jq -e . .devcontainer/config/claude/settings.json > /dev/null
+      - name: The jq merge program compiles and is idempotent
+        run: bash scripts/test-merge-hooks.sh
+
+  roster:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Every enabled plugin resolves against its marketplace
+        run: bash scripts/check-plugin-roster.sh
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Markdownlint
+        run: |
+          npm install -g markdownlint-cli
+          markdownlint '**/*.md'
+      - name: Documented paths and commands still exist
+        run: bash scripts/check-docs.sh
+
+  # The expensive one: does the image still build? Upstream feature images and
+  # the Microsoft apt repositories move without warning, and the first sign is
+  # usually a failed rebuild in the middle of a task.
+  build:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract host CA certificates
+        # The Dockerfile COPYs certs/, which initializeCommand creates. A bare
+        # `docker build` fails without this.
+        run: bash .devcontainer/init-host-certs.sh
+      - name: Install the devcontainer CLI
+        run: npm install -g @devcontainers/cli
+      - name: Build
+        run: devcontainer build --workspace-folder .

@@ -106,16 +106,68 @@ configure_claude() {
 }
 
 # =====================
+# Deferred warnings
+# =====================
+# A warning printed in the middle of a 300-line postCreate log has not been
+# communicated. Anything the user actually needs to act on is collected here and
+# reprinted as a block at the very end, next to the disk-space warning.
+PROVISION_WARNINGS=()
+
+warn_later() {
+    PROVISION_WARNINGS+=("$1")
+    echo "  WARNING: $1"
+}
+
+report_warnings() {
+    [[ ${#PROVISION_WARNINGS[@]} -eq 0 ]] && return 0
+    echo ""
+    echo "############################################################"
+    echo "### ${#PROVISION_WARNINGS[@]} WARNING(S) DURING PROVISIONING"
+    echo "############################################################"
+    echo ""
+    local w
+    for w in "${PROVISION_WARNINGS[@]}"; do
+        echo "  - $w"
+    done
+    echo ""
+    echo "  The container is usable, but the above did not complete."
+    echo "  Re-run just the config steps with:"
+    echo ""
+    echo "    bash .devcontainer/post-create.sh --config-only"
+    echo ""
+}
+
+# =====================
 # Git safety net (see .devcontainer/config/claude/CLAUDE.md)
 # =====================
+# The snapshot and guard hooks themselves now ship in the kokko-safety plugin
+# (kokko-ng/kokko-cmds), so they are versioned, tested in CI, and usable outside
+# this container. What stays here is the part that must not depend on a
+# successful plugin install: verify-safety-net.sh, which asserts at every
+# session start that the plugin's guard is present AND denies a known-
+# destructive canary, and shouts if it does not.
+#
 # Deliberately NOT gated on "unless a file already exists", unlike the two
-# copies above. The hooks are the enforcement layer, and the setup most likely
-# to skip them -- a host-mounted ~/.claude -- is exactly the setup where a
-# long-lived project has work worth protecting. Always refresh them, and merge
+# copies above. This is the enforcement layer's tripwire, and the setup most
+# likely to skip it -- a host-mounted ~/.claude -- is exactly the setup where a
+# long-lived project has work worth protecting. Always refresh it, and merge
 # the hook wiring into whatever settings.json is present rather than replacing
 # it, so a user's own settings survive.
 install_git_safety_hooks() {
     echo "=== Installing git safety hooks ==="
+
+    # Hooks this repo used to install, now shipped by the kokko-safety plugin.
+    # merge-hooks.jq unwires them from settings.json, but the files themselves
+    # would linger in a container provisioned by an older version of this
+    # script -- dead scripts on disk that read as protection. Remove them.
+    local stale
+    for stale in git-snapshot.sh guard-git.sh session-git-safety.sh; do
+        if [[ -f "$CLAUDE_DIR/hooks/$stale" ]]; then
+            rm -f "$CLAUDE_DIR/hooks/$stale"
+            echo "  Removed superseded hook: $stale (now provided by kokko-safety)"
+        fi
+    done
+
     if [[ -d "$BUNDLED_CLAUDE_DIR/hooks" ]]; then
         mkdir -p "$CLAUDE_DIR/hooks"
         cp "$BUNDLED_CLAUDE_DIR"/hooks/*.sh "$CLAUDE_DIR/hooks/"
@@ -129,7 +181,7 @@ install_git_safety_hooks() {
             || install -m 0755 "$BUNDLED_CONFIG_DIR/bin/snaps" "$HOME/.local/bin/snaps" 2>/dev/null; then
             echo "  Installed 'snaps' (list/show/diff/restore working-tree snapshots)"
         else
-            echo "  WARNING: could not install the 'snaps' helper onto PATH"
+            warn_later "could not install the 'snaps' helper onto PATH. Snapshots still work; inspect them with 'git for-each-ref refs/snapshots/'."
         fi
     fi
 }
@@ -149,11 +201,10 @@ merge_claude_settings() {
                 echo "  Merged git safety hooks and plugin roster into settings.json (backup: settings.json.bak)"
             else
                 rm -f "$CLAUDE_DIR/settings.json.tmp"
-                echo "  WARNING: hook merge failed — settings.json left unchanged."
+                warn_later "the settings.json hook merge FAILED. The safety-net verifier is not wired up and the plugin roster was not applied."
             fi
         else
-            echo "  WARNING: settings.json is not valid JSON — leaving it alone."
-            echo "           Add the 'hooks' block from $BUNDLED_CLAUDE_DIR/settings.json by hand."
+            warn_later "$CLAUDE_DIR/settings.json is not valid JSON, so it was left alone. The safety-net verifier is NOT wired up. Add the 'hooks' block from $BUNDLED_CLAUDE_DIR/settings.json by hand."
         fi
     fi
 }
@@ -194,7 +245,7 @@ bootstrap_claude_plugins() {
         elif claude plugin marketplace update "$name" >/dev/null 2>&1; then
             echo "  marketplace updated: $name ($repo)"
         else
-            echo "  WARNING: could not add or update marketplace $name ($repo)"
+            warn_later "could not add or update marketplace $name ($repo). Plugins from it will not install."
         fi
     done < <(jq -r '
         (.extraKnownMarketplaces // {})
@@ -202,7 +253,12 @@ bootstrap_claude_plugins() {
         | select(.value.source.source == "github")
         | "\(.key) \(.value.source.repo)"' "$settings")
 
-    local plugin
+    # A failed plugin install used to print one WARNING line into the middle of
+    # the provisioning log and carry on. The container then came up looking
+    # healthy with a plugin missing, and you found out when a slash command did
+    # not exist -- or, for kokko-safety, when a rebase ate uncommitted work.
+    # Failures are collected and reprinted at the end instead.
+    local plugin failed=()
     while read -r plugin; do
         [[ -n "$plugin" ]] || continue
         if claude plugin install "$plugin" >/dev/null 2>&1; then
@@ -210,13 +266,24 @@ bootstrap_claude_plugins() {
         elif claude plugin update "$plugin" >/dev/null 2>&1; then
             echo "  updated: $plugin"
         else
-            echo "  WARNING: could not install or update $plugin"
+            failed+=("$plugin")
+            echo "  FAILED: $plugin"
         fi
     done < <(jq -r '
         (.enabledPlugins // {})
         | to_entries[]
         | select(.value == true)
         | .key' "$settings")
+
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        warn_later "$(printf '%d plugin(s) did not install: %s' "${#failed[@]}" "$(IFS=', '; echo "${failed[*]}")")"
+        # Called out separately: this one is not a missing convenience command,
+        # it is the git safety net being absent. verify-safety-net.sh will also
+        # say so at every session start, but say it here too.
+        if printf '%s\n' "${failed[@]}" | grep -q '^kokko-safety@'; then
+            warn_later "kokko-safety FAILED TO INSTALL. The git snapshot and guard hooks are NOT active: uncommitted work is not being checkpointed and destructive git commands are not blocked."
+        fi
+    fi
 }
 
 # Never expire the reflog or prune unreachable objects. The default 90/30-day
@@ -387,6 +454,7 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."
     echo ""
+    report_warnings
     exit 0
 fi
 
@@ -415,3 +483,6 @@ echo "  Azure:     az account show"
 echo ""
 
 check_vm_disk || true
+
+# Last, so anything needing action is the final thing on screen.
+report_warnings

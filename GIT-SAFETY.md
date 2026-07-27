@@ -36,7 +36,7 @@ been in place. They were followed right up until the moment an agent's own workf
 
 ### 1. Snapshots — `refs/snapshots/`
 
-`.devcontainer/config/claude/hooks/git-snapshot.sh` runs before every git command and on
+`git-snapshot.sh`, from the **kokko-safety** plugin, runs before every git command and on
 every prompt. If the tree has uncommitted tracked changes, it checkpoints them to
 `refs/snapshots/<timestamp>-<oid>`.
 
@@ -72,7 +72,7 @@ A `PreToolUse` hook that **denies** destructive git commands.
 covered):
 
 | Command | Why |
-|---|---|
+| --- | --- |
 | `git rebase` (any form) | The one that caused every real incident |
 | `git reset` (any form) | Discards tracked changes |
 | `git checkout <ref> -- <path>`, `git checkout .` | Silently overwrites that file |
@@ -84,7 +84,7 @@ covered):
 **Always denied**, tree state irrelevant:
 
 | Command | Why |
-|---|---|
+| --- | --- |
 | `git clean -f/-d/-x` | Deletes untracked files — the one thing snapshots *don't* cover |
 | `git add .` / `-A` / `--all` | Stages build output, secrets, scratch files. One incident staged 4,648 files |
 | `git push --force` / `--force-with-lease` | Rewrites the shared remote |
@@ -92,11 +92,30 @@ covered):
 | `git reflog expire/delete`, `git gc --prune`, `git prune` | Destroys the recovery path itself |
 | `git stash drop` / `clear` | Permanently deletes stashed work |
 
-### 3. Git config
+### 3. The verifier — `verify-safety-net.sh`
+
+The two layers above ship in the [kokko-safety](https://github.com/kokko-ng/kokko-cmds)
+plugin rather than in this repo, so they are versioned, tested in CI, and usable outside
+this container. The cost is that they arrive via `claude plugin install`, which needs
+network and a signed-in CLI — and `post-create.sh` is deliberately allowed to continue when
+that fails, so a transient outage cannot break the container build.
+
+That trade would be unacceptable on its own, because a safety net that fails silently is
+worse than none. So this repo keeps one small hook that does not depend on the plugin
+install succeeding. `verify-safety-net.sh` is wired by the bundled `settings.json` and runs
+at every session start. It locates the plugin's guard, feeds it `git clean -fd`, and
+confirms the answer comes back `deny`. If the plugin is missing, or present but broken, it
+tells Claude in no uncertain terms that the safety net is down and every git command must be
+treated as unguarded.
+
+A behavioural canary rather than a file-exists check: a guard whose regex broke, or whose
+`lib/` failed to install, would pass the latter and protect nothing.
+
+### 4. Git config
 
 `post-create.sh` sets, globally:
 
-```
+```ini
 gc.reflogExpire           never
 gc.reflogExpireUnreachable never
 gc.pruneExpire            never
@@ -137,8 +156,10 @@ Deliberately verbose and greppable. It is for **humans**, not agents — the bun
 Because snapshots run independently of the guard, even an overridden command is still
 recoverable. That is the point of having two layers.
 
-To disable entirely, remove the `hooks` block from `~/.claude/settings.json`. Please
-consider not doing that.
+To disable entirely, set `kokko-safety@kokko-ng-kokko-cmds` to `false` in
+`~/.claude/settings.json` *after* a config refresh — `merge-hooks.jq` force-enables that one
+key on merge, because the value it is correcting was this bundle's own former default rather
+than a considered choice. Please consider not doing that.
 
 ---
 
@@ -155,15 +176,25 @@ consider not doing that.
 
 ## Files
 
+In the **kokko-safety** plugin ([kokko-ng/kokko-cmds](https://github.com/kokko-ng/kokko-cmds)):
+
+| File | Role |
+| --- | --- |
+| `hooks/git-snapshot.sh` | Checkpoints the tree |
+| `hooks/guard-git.sh` | Blocks destructive git commands |
+| `hooks/guard-cloud.sh`, `hooks/guard-bash.sh` | Block destructive cloud and shell commands |
+| `hooks/session-context.sh` | States the rules and the project context at session start |
+
+In this repo:
+
 | Path | Role |
-|---|---|
-| `.devcontainer/config/claude/hooks/git-snapshot.sh` | Checkpoints the tree |
-| `.devcontainer/config/claude/hooks/guard-git.sh` | Blocks destructive commands |
-| `.devcontainer/config/claude/hooks/session-git-safety.sh` | States the rules at session start |
-| `.devcontainer/config/claude/merge-hooks.jq` | Splices hooks into an existing `settings.json` |
+| --- | --- |
+| `.devcontainer/config/claude/hooks/verify-safety-net.sh` | Proves the plugin's guard is installed and working |
+| `.devcontainer/config/claude/settings.json` | Wires the verifier and declares the plugin roster |
+| `.devcontainer/config/claude/merge-hooks.jq` | Splices that wiring into an existing `settings.json` |
 | `.devcontainer/config/bin/snaps` | Browse/restore snapshots |
 | `.devcontainer/config/claude/CLAUDE.md` | The advisory layer |
 
-Hooks are reinstalled on every container rebuild, and the wiring is merged into
+The verifier is reinstalled on every container rebuild, and the wiring is merged into
 `settings.json` rather than overwriting it — so your own hooks and settings survive, and
-re-running never stacks duplicates.
+re-running never stacks duplicates. `scripts/test-merge-hooks.sh` proves both properties.

@@ -7,41 +7,13 @@
     "defaultMode": "acceptEdits"
   },
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/vscode/.claude/hooks/git-snapshot.sh",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "/home/vscode/.claude/hooks/guard-git.sh",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/vscode/.claude/hooks/git-snapshot.sh",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "/home/vscode/.claude/hooks/session-git-safety.sh",
-            "timeout": 10
+            "command": "/home/vscode/.claude/hooks/verify-safety-net.sh",
+            "timeout": 15
           }
         ]
       }
@@ -54,7 +26,7 @@
     "kokko-git@kokko-ng-kokko-cmds": true,
     "kokko-infra@kokko-ng-kokko-cmds": true,
     "kokko-notifications@kokko-ng-kokko-cmds": true,
-    "kokko-safety@kokko-ng-kokko-cmds": false,
+    "kokko-safety@kokko-ng-kokko-cmds": true,
     "kokko-validation@kokko-ng-kokko-cmds": true,
     "kokko-viz@kokko-ng-kokko-cmds": true,
     "kokko-janitor@kokko-ng-kokko-janitor": true

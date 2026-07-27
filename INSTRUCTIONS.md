@@ -36,7 +36,7 @@ On macOS, Docker requires a Linux VM. **Colima** is a lightweight, open-source a
 ## Prerequisites
 
 | Requirement | Minimum version | Notes |
-|-------------|----------------|-------|
+| ------------- | ---------------- | ------- |
 | macOS | 13 Ventura | Apple Silicon or Intel |
 | Homebrew | any | Package manager |
 | Colima | 0.7+ | Docker runtime |
@@ -205,7 +205,7 @@ devcontainer up --workspace-folder . --remove-existing-container
 
 ## Devcontainer structure explained
 
-```
+```text
 .devcontainer/
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
@@ -259,7 +259,7 @@ Additional tools (Node, Azure CLI, GitHub CLI, Docker-in-Docker, zsh) are added 
 Key sections:
 
 | Section | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `build` | Points to the Dockerfile |
 | `features` | Installs composable tooling layers |
 | `containerEnv` | Environment variables set inside the container |
@@ -312,7 +312,7 @@ What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `conta
 
 Shell and Claude Code configuration is bundled inside the devcontainer so no host files are read. The structure:
 
-```
+```text
 .devcontainer/config/
 ├── zsh/
 │   ├── .zshrc           # Entry point — sources integrations and aliases
@@ -328,7 +328,7 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 ### Aliases
 
 | Alias | Command | Purpose |
-|-------|---------|---------|
+| ------- | --------- | --------- |
 | `ccc` | `claude --permission-mode bypassPermissions` | Claude without permission prompts |
 | `cccc` | `claude --permission-mode bypassPermissions --continue` | Claude, continuing last session |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Update Claude Code to latest |
@@ -374,7 +374,7 @@ This produces a standalone binary at `~/.local/bin/claude` with a built-in auto-
 The devcontainer makes two layout assumptions:
 
 | Assumption | Where to change |
-|-----------|----------------|
+| ----------- | ---------------- |
 | Python source lives in `src/` | `PYTHONPATH` in `devcontainer.json` |
 | Vue/Vite frontend lives in `ui/` | `cd ui` in `post-create.sh` |
 
@@ -542,8 +542,8 @@ When you copy or fork this repo for your own project, no host-specific edits are
 ### Optional changes
 
 | What to change | File | Default value | Notes |
-|----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 9 of 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
+| ---------------- | ------ | --------------- | ------- |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | All 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor`. `post-create.sh` registers the marketplaces and installs every enabled plugin, and reports any that failed as a block at the end of provisioning | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
