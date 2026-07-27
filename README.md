@@ -11,7 +11,7 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | Azure CLI | Azure resource management |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc |
 | GitHub CLI | Repository and PR workflows |
-| Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`) |
+| Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`), with the `kokko-ng` plugin roster installed automatically |
 | GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot` |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 | Playwright CLI + Chromium | Browser automation for coding agents (`playwright-cli`) |
@@ -97,6 +97,34 @@ code .
 devcontainer up --workspace-folder .
 devcontainer exec --workspace-folder . zsh
 ```
+
+## Claude Code plugins
+
+`post-create.sh` registers the marketplaces in `extraKnownMarketplaces` and installs every
+plugin set to `true` in `enabledPlugins`, both read from
+`.devcontainer/config/claude/settings.json`. `enabledPlugins` on its own only *enables* a
+plugin that is already installed, so without this step a fresh container comes up with an
+empty plugin directory.
+
+The default roster is the `kokko-ng` plugins across
+[kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
+[kokko-janitor](https://github.com/kokko-ng/kokko-janitor). Edit `enabledPlugins` to change
+it; a plugin set to `false` is never installed.
+
+## Updating a running container
+
+Bundled config changes — `CLAUDE.md`, `settings.json`, the git safety hooks, `snaps`, zsh
+config, the plugin roster — can be re-applied in place, with no rebuild:
+
+```bash
+bash .devcontainer/post-create.sh --config-only
+```
+
+`/devcontainer-update` (from `kokko-env` in
+[kokko-cmds](https://github.com/kokko-ng/kokko-cmds)) does the whole job: diff this
+project's `.devcontainer/` against the latest upstream, update the files, run the refresh,
+and report what still needs a rebuild. Dockerfile and `devcontainer.json`
+`features`/`containerEnv`/`runArgs` changes always need one.
 
 ## Caveats
 
