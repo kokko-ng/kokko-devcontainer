@@ -1,7 +1,11 @@
 # Git safety
 
-How this container stops an agent from destroying your uncommitted work, and how to get it
-back if something does.
+How to get your uncommitted work back when an agent destroys it.
+
+Note the framing: this container does **not** stop it happening. There is no guard hook and
+no blocked-command list — [section 2](#2-there-is-no-guard--and-that-is-deliberate) explains
+why. What it does is make the work recoverable, and tell the agent plainly that nothing will
+refuse it.
 
 ---
 
@@ -32,7 +36,7 @@ been in place. They were followed right up until the moment an agent's own workf
 
 ---
 
-## The two layers
+## How it works
 
 ### 1. Snapshots — `refs/snapshots/`
 
@@ -58,58 +62,70 @@ snaps restore <ref>      # apply it back (refuses if the tree is dirty)
 ```
 
 **Scope:** tracked changes only. Untracked files are not captured, because
-rebase/reset/checkout never touch untracked paths. `git clean` is the exception — which is
-why it is blocked outright rather than dirty-gated.
+rebase/reset/checkout never touch untracked paths. `git clean` is the exception, and since
+nothing blocks it either, it is the one destructive command with **no recovery path at
+all**. The bundled `CLAUDE.md` tells Claude never to run it.
 
 The most recent 200 snapshots are kept; identical trees are de-duplicated, so a burst of
 git commands does not produce a burst of refs.
 
-### 2. The guard — `guard-git.sh`
+### 2. There is no guard — and that is deliberate
 
-A `PreToolUse` hook that **denies** destructive git commands.
+Earlier versions of this container ran a `PreToolUse` hook that **denied** destructive git
+commands, backed by roughly 1,300 regex patterns across git, cloud and shell categories.
+It is gone. Nothing is refused; nothing prompts.
 
-**Denied only while the tree is dirty** (allowed on a clean tree, where the reflog has you
-covered):
+A blocklist is the wrong shape for this problem, in both directions at once.
 
-| Command | Why |
-| --- | --- |
-| `git rebase` (any form) | The one that caused every real incident |
-| `git reset` (any form) | Discards tracked changes |
-| `git checkout <ref> -- <path>`, `git checkout .` | Silently overwrites that file |
-| `git checkout -f` / `git switch --discard-changes` | Forced overwrite |
-| `git restore` | Overwrites from another revision |
-| `git stash` | Easy to forget to pop; load-bearing in past incidents |
-| `git branch -f` | Silent ref clobber |
+**Too broad.** It has to guess which spellings are dangerous from the command text, and it
+guesses wrong constantly. The last revision of it had to be taught that `rm -rf ./dist`,
+`rm -rf node_modules`, `sudo apt-get install`, `pip uninstall`, `docker image prune -a`,
+`git worktree remove` and `git stash create` are all routine — and it only learned because
+a test suite went looking. `docker image prune -a` is the command this repo's own disk
+warning tells you to run. `git stash create` is the mechanism the snapshot layer is built
+on: the guard was blocking its own safety net.
 
-**Always denied**, tree state irrelevant:
+**Too narrow.** Anything not on the list passes. The same `git reset --hard` invoked from a
+shell script, a Makefile target, a `subprocess.run(...)` call or a tool that shells out is
+completely invisible to a hook that inspects Bash command strings. A blocklist protects
+against the spelling, not the operation.
 
-| Command | Why |
-| --- | --- |
-| `git clean -f/-d/-x` | Deletes untracked files — the one thing snapshots *don't* cover |
-| `git add .` / `-A` / `--all` | Stages build output, secrets, scratch files. One incident staged 4,648 files |
-| `git push --force` / `--force-with-lease` | Rewrites the shared remote |
-| `git filter-branch` / `filter-repo` | Destroys objects *and* the snapshot refs |
-| `git reflog expire/delete`, `git gc --prune`, `git prune` | Destroys the recovery path itself |
-| `git stash drop` / `clear` | Permanently deletes stashed work |
+The first failure mode is the one that actually cost protection. A guard that fires on
+routine work gets switched off — and switching it off takes the snapshot layer with it,
+because they were the same plugin. That is not hypothetical: this repo previously enabled a
+safety plugin that warned on ~30 git patterns via "ask", and it had been **disabled** in
+`settings.json`, protecting nothing at the moment it was needed. A control you turn off is
+worse than no control, because you think you have one.
+
+So the design is now: **one mechanism that cannot be wrong, plus an explicit briefing.**
+The snapshot layer does not need to predict which command is dangerous, or notice that git
+was invoked from Python — by the time anything runs, the work is already a git object. What
+it cannot do is stop the damage, which is why the bundled `CLAUDE.md` states the rules
+directly and says that nothing will refuse them.
 
 ### 3. The verifier — `verify-safety-net.sh`
 
-The two layers above ship in the [kokko-safety](https://github.com/kokko-ng/kokko-cmds)
-plugin rather than in this repo, so they are versioned, tested in CI, and usable outside
-this container. The cost is that they arrive via `claude plugin install`, which needs
-network and a signed-in CLI — and `post-create.sh` is deliberately allowed to continue when
-that fails, so a transient outage cannot break the container build.
+With no guard, snapshots are the *only* mechanism between a rebase and permanently lost
+work — so it matters much more that they are verified rather than assumed.
+
+They ship in the [kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin rather than
+in this repo, so they are versioned, tested in CI, and usable outside this container. The
+cost is that they arrive via `claude plugin install`, which needs network and a signed-in
+CLI — and `post-create.sh` is deliberately allowed to continue when that fails, so a
+transient outage cannot break the container build.
 
 That trade would be unacceptable on its own, because a safety net that fails silently is
 worse than none. So this repo keeps one small hook that does not depend on the plugin
 install succeeding. `verify-safety-net.sh` is wired by the bundled `settings.json` and runs
-at every session start. It locates the plugin's guard, feeds it `git clean -fd`, and
-confirms the answer comes back `deny`. If the plugin is missing, or present but broken, it
-tells Claude in no uncertain terms that the safety net is down and every git command must be
-treated as unguarded.
+at every session start.
 
-A behavioural canary rather than a file-exists check: a guard whose regex broke, or whose
-`lib/` failed to install, would pass the latter and protect nothing.
+It is a **behavioural** canary, not a file-exists check: a snapshot hook whose `jq`
+dependency is missing, or whose git calls are failing on a bind-mount ownership refusal,
+exits 0 and prints nothing — indistinguishable from a clean tree. So the verifier builds a
+throwaway repository with one known uncommitted line, runs the real hook against it, and
+confirms a ref appeared under `refs/snapshots/` containing that line. If the plugin is
+missing, or present but not working, it tells Claude the net is down and that committing is
+the only protection available.
 
 ### 4. Git config
 
@@ -129,43 +145,39 @@ exact objects a recovery needs. Disk is cheaper than the work.
 
 ## Two design decisions worth knowing
 
-**Deny, not ask.** Agents run unattended under `acceptEdits`. An "ask" either blocks a
-long-running task forever or gets clicked through — and every incident involved an agent
-that was *confident*, following a workflow that listed the rebase as a normal step. It
-would have answered "yes".
+**Recover, don't predict.** A blocklist has to know in advance which command will destroy
+your work. A snapshot does not: it makes the work durable before anything runs, so it is
+equally effective against `git reset`, a shell script, a Python subprocess, and a command
+nobody thought of. One mechanism, no enumeration, no false positives.
 
-**Dirty-gated, not blanket.** These commands are only catastrophic against a dirty tree,
-so that is when they are blocked. This is not leniency — it is what keeps the guard alive.
-A guard that fires on every routine rebase is noise, and noise gets switched off. That is
-not speculation: this repo previously enabled a safety plugin that warned on ~30 git
-patterns via "ask", and it had been **disabled** in `settings.json` — protecting nothing at
-the moment it was needed. A control you turn off is worse than no control, because you
-think you have one.
+**Brief, don't block.** With no guard, the advisory layer *is* the control, so it is
+written to be acted on rather than skimmed: it states that nothing will refuse a command,
+names the specific commands and the specific checks, and says what to do instead. Two
+copies exist so that neither can silently vanish — the bundled `CLAUDE.md`, and the
+plugin's `session-context` hook, which does not depend on a file the user might replace
+with their own.
 
 ---
 
-## Override
+## Turning it off
 
-```bash
-CLAUDE_GIT_GUARD=off git rebase main    # per command
-```
+There is nothing to bypass — no command is refused, so no override exists. The
+`CLAUDE_GIT_GUARD` escape hatch was removed along with the guard.
 
-Deliberately verbose and greppable. It is for **humans**, not agents — the bundled
-`CLAUDE.md` tells Claude that a block means commit or ask the user, never work around it.
-
-Because snapshots run independently of the guard, even an overridden command is still
-recoverable. That is the point of having two layers.
-
-To disable entirely, set `kokko-safety@kokko-ng-kokko-cmds` to `false` in
+To disable the snapshots themselves, set `kokko-safety@kokko-ng-kokko-cmds` to `false` in
 `~/.claude/settings.json` *after* a config refresh — `merge-hooks.jq` force-enables that one
 key on merge, because the value it is correcting was this bundle's own former default rather
-than a considered choice. Please consider not doing that.
+than a considered choice.
+
+That leaves nothing at all between an agent and your uncommitted work. Please consider not
+doing that.
 
 ---
 
 ## If work has gone missing
 
 1. **`snaps`** — look here first, before any archaeology, and before concluding it is lost.
+   If `snaps` is not on PATH: `git for-each-ref refs/snapshots/`.
 2. `snaps show <ref>` to confirm you have the right checkpoint.
 3. Commit or park anything currently in the tree, then `snaps restore <ref>`.
 4. If it predates the snapshot hooks: check `git fsck --lost-found` and `git reflog` for
@@ -181,15 +193,13 @@ In the **kokko-safety** plugin ([kokko-ng/kokko-cmds](https://github.com/kokko-n
 | File | Role |
 | --- | --- |
 | `hooks/git-snapshot.sh` | Checkpoints the tree |
-| `hooks/guard-git.sh` | Blocks destructive git commands |
-| `hooks/guard-cloud.sh`, `hooks/guard-bash.sh` | Block destructive cloud and shell commands |
 | `hooks/session-context.sh` | States the rules and the project context at session start |
 
 In this repo:
 
 | Path | Role |
 | --- | --- |
-| `.devcontainer/config/claude/hooks/verify-safety-net.sh` | Proves the plugin's guard is installed and working |
+| `.devcontainer/config/claude/hooks/verify-safety-net.sh` | Proves the snapshot hook is installed and working |
 | `.devcontainer/config/claude/settings.json` | Wires the verifier and declares the plugin roster |
 | `.devcontainer/config/claude/merge-hooks.jq` | Splices that wiring into an existing `settings.json` |
 | `.devcontainer/config/bin/snaps` | Browse/restore snapshots |

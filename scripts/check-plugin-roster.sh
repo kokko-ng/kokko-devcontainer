@@ -131,11 +131,12 @@ if [ "$enabled_count" -eq 0 ]; then
 fi
 
 # kokko-safety is the git safety net. Anything else missing costs a slash
-# command; this costs uncommitted work.
+# command; this costs uncommitted work -- and since nothing blocks destructive
+# commands, the snapshot it provides is the only recovery path there is.
 safety="$(jq -r '(.enabledPlugins // {}) | to_entries[] | select(.key | startswith("kokko-safety@")) | .value' "$SETTINGS")"
 if [ "$safety" != "true" ]; then
-    echo "ERROR: kokko-safety is not enabled. It provides git-snapshot.sh and guard-git.sh,"
-    echo "       which are the enforcement layer for everything GIT-SAFETY.md promises."
+    echo "ERROR: kokko-safety is not enabled. It provides git-snapshot.sh, which is the only"
+    echo "       thing making uncommitted work recoverable - see GIT-SAFETY.md."
     FAIL=1
 fi
 

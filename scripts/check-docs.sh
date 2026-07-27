@@ -73,6 +73,33 @@ for doc in "${DOCS[@]}"; do
     done < <(grep -oE '\.devcontainer/config/claude/hooks/(git-snapshot|guard-git|session-git-safety)\.sh' "$doc" | sort -u)
 done
 
+# There is no deterministic guard any more. Documentation that promises commands
+# are blocked, or offers an override for a guard that no longer exists, actively
+# misleads the reader into thinking they have a control they do not have.
+#
+# GIT-SAFETY.md is exempt: it documents at length why the guard was removed, so
+# it necessarily mentions it.
+for doc in "${DOCS[@]}"; do
+    [ -f "$doc" ] || continue
+    [ "$doc" = "GIT-SAFETY.md" ] && continue
+    while read -r stale; do
+        echo "ERROR: $doc refers to \`$stale\`, but the guards and their overrides were removed"
+        FAIL=1
+    done < <(grep -oE 'CLAUDE_(GIT|CLOUD|BASH)_GUARD|guard-(git|cloud|bash)\.sh|dangerous-patterns' "$doc" | sort -u)
+done
+
+# And the bundled CLAUDE.md must not promise blocking either -- it is the
+# advisory layer, and with no guard it is doing most of the work.
+CLAUDE_MD=".devcontainer/config/claude/CLAUDE.md"
+if [ -f "$CLAUDE_MD" ]; then
+    claim "CLAUDE.md states that nothing blocks destructive commands" \
+        grep -qi 'nothing stops you' "$CLAUDE_MD"
+    if grep -qE 'blocked (against|outright)|the guard blocks you' "$CLAUDE_MD"; then
+        echo "ERROR: $CLAUDE_MD still tells Claude that commands are blocked"
+        FAIL=1
+    fi
+fi
+
 # GIT-SAFETY.md documents the recovery path. If it names a command, that command
 # must be one that exists.
 if [ -f GIT-SAFETY.md ]; then

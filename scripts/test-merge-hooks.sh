@@ -66,6 +66,8 @@ cat > "$TMP/legacy.json" <<'EOF'
       {"matcher": "Bash", "hooks": [
         {"type": "command", "command": "/home/vscode/.claude/hooks/git-snapshot.sh"},
         {"type": "command", "command": "/home/vscode/.claude/hooks/guard-git.sh"},
+        {"type": "command", "command": "/home/vscode/.claude/hooks/guard-bash.sh"},
+        {"type": "command", "command": "/home/vscode/.claude/hooks/guard-cloud.sh"},
         {"type": "command", "command": "/home/vscode/keep-me.sh"}
       ]}
     ],
@@ -124,8 +126,14 @@ check "marketplaces are registered" "true" \
 check "superseded snapshot hook is unwired" "0" \
     "$(merge "$TMP/legacy.json" | jq '[.. | .command? // empty | select(endswith("git-snapshot.sh"))] | length')"
 
-check "superseded guard hook is unwired" "0" \
+check "removed git guard is unwired" "0" \
     "$(merge "$TMP/legacy.json" | jq '[.. | .command? // empty | select(endswith("/.claude/hooks/guard-git.sh"))] | length')"
+
+check "removed bash guard is unwired" "0" \
+    "$(merge "$TMP/legacy.json" | jq '[.. | .command? // empty | select(endswith("guard-bash.sh"))] | length')"
+
+check "removed cloud guard is unwired" "0" \
+    "$(merge "$TMP/legacy.json" | jq '[.. | .command? // empty | select(endswith("guard-cloud.sh"))] | length')"
 
 check "superseded session hook is unwired" "0" \
     "$(merge "$TMP/legacy.json" | jq '[.. | .command? // empty | select(endswith("session-git-safety.sh"))] | length')"
@@ -135,6 +143,15 @@ check "a user hook alongside the superseded ones survives" "1" \
 
 check "a stale kokko-safety=false is corrected to true" "true" \
     "$(merge "$TMP/legacy.json" | jq -r '.enabledPlugins["kokko-safety@kokko-ng-kokko-cmds"]')"
+
+# The bundle must not wire any PreToolUse hook of its own any more. The only
+# hook this repo ships is the SessionStart verifier; a PreToolUse entry here
+# would mean a guard had crept back in.
+check "the bundle wires no PreToolUse hook" "0" \
+    "$(jq '[(.hooks.PreToolUse // [])[]] | length' "$BUNDLED")"
+
+check "the bundle wires exactly one hook, at SessionStart" "1" \
+    "$(jq '[.hooks[][].hooks[]] | length' "$BUNDLED")"
 
 # --- Idempotence ------------------------------------------------------------
 merge "$TMP/user.json" > "$TMP/once.json"

@@ -15,9 +15,11 @@ and `git fsck` will not find it. It is simply gone.
 This has destroyed hours of real work on projects using this container, more than once,
 always the same way: an agent rewrote history while uncommitted work sat in the tree.
 
-Two automatic safety nets run in this container. **Neither is an excuse to be casual.**
+**Nothing stops you.** There is no guard hook, no blocked command list, and no
+confirmation prompt. Every destructive git command will run exactly as typed. The rules
+below are the only control, and you are the one enforcing them.
 
-### 1. Snapshots (`snaps`)
+### The one safety net: snapshots (`snaps`)
 
 Before any git command, and on every prompt, uncommitted tracked changes are checkpointed
 to `refs/snapshots/<timestamp>` — real git commits that survive every destructive command.
@@ -30,22 +32,23 @@ snaps restore <ref>      # apply it back (refuses if the tree is dirty)
 ```
 
 If work disappears, **look here first** — before conducting any archaeology, and before
-telling the user it is lost. Snapshots cover tracked changes only; untracked files are
-not captured, because the destructive commands do not touch untracked paths (`git clean`
-is the exception, which is why it is blocked outright).
+telling the user it is lost.
 
-### 2. The git guard
+**This is a recovery mechanism, not a control.** It cannot stop you doing the damage; it
+only gives the user something to recover from afterwards, and only if it was working at
+the time. Two limits matter:
 
-Destructive git commands are **blocked against a dirty tree** and allowed against a clean
-one. So a rebase on a clean tree just works; the same rebase with uncommitted changes
-present is refused.
+- **Tracked changes only.** Untracked files are never captured, so `git clean` has **no
+  recovery path whatsoever**. Delete specific files with `rm` after confirming what they
+  are; never `git clean -fd`.
+- **It can be down.** A SessionStart check will tell you loudly if the snapshot hook is
+  not installed or not functioning. If you see that warning, treat committing as the only
+  protection you have.
 
-**If the guard blocks you, it is right and you are wrong.** Do not look for a way around
-it. Commit the work — commits are cheap, reversible and visible — then retry. If you
-genuinely believe the block is wrong, **stop and ask the user**. The override exists for
-humans, not for you.
+Its existence is not permission to be casual. Recovering from a snapshot costs the user a
+confusing conversation and a manual restore; not needing to costs nothing.
 
-### Rules that hold regardless of the safety nets
+### The rules
 
 - **Check the tree before your first edit:** `git status --short --untracked-files=no`.
   Not empty and not yours? **Stop and ask.** Never tidy, stash, or assume it is junk.
@@ -62,12 +65,15 @@ humans, not for you.
 - **Use `cp` to back up and restore files**, never `git checkout -- <path>`.
 - **A rejected push is usually correct.** Report it and stop; do not work around it.
 - **Push only when the user asks.** Never on your own initiative.
+- **Never `git clean`.** It is the one destructive command with no recovery path at all.
 - **Pass these rules on to any subagent you spawn** that may touch git. Subagents inherit
-  the hooks, but not your judgement — and several past incidents came from an agent
-  following a workflow that listed "rebase and push" as a routine step.
+  the snapshot hook, but not your judgement — and several past incidents came from an agent
+  following a workflow that listed "rebase and push" as a routine step. Since nothing
+  blocks them either, the briefing is the only thing travelling with them.
 
 If you catch yourself reasoning toward *"I'll just rebase quickly"* or *"I'll stash this
-first"* — that is precisely the thought that preceded every incident. Stop and ask.
+first"* — that is precisely the thought that preceded every incident. It will not be
+refused. Commit instead, or stop and ask.
 
 ---
 

@@ -140,31 +140,36 @@ report_warnings() {
 # =====================
 # Git safety net (see .devcontainer/config/claude/CLAUDE.md)
 # =====================
-# The snapshot and guard hooks themselves now ship in the kokko-safety plugin
-# (kokko-ng/kokko-cmds), so they are versioned, tested in CI, and usable outside
+# The snapshot hook itself now ships in the kokko-safety plugin
+# (kokko-ng/kokko-cmds), so it is versioned, tested in CI, and usable outside
 # this container. What stays here is the part that must not depend on a
-# successful plugin install: verify-safety-net.sh, which asserts at every
-# session start that the plugin's guard is present AND denies a known-
-# destructive canary, and shouts if it does not.
+# successful plugin install: verify-safety-net.sh, which asserts at every session
+# start that the snapshot hook is present AND actually checkpoints a throwaway
+# dirty repo, and shouts if it does not.
+#
+# There is no command guard any more -- nothing is blocked. That makes the
+# snapshot layer the only recovery path, and this verifier correspondingly more
+# important. See GIT-SAFETY.md.
 #
 # Deliberately NOT gated on "unless a file already exists", unlike the two
-# copies above. This is the enforcement layer's tripwire, and the setup most
-# likely to skip it -- a host-mounted ~/.claude -- is exactly the setup where a
-# long-lived project has work worth protecting. Always refresh it, and merge
-# the hook wiring into whatever settings.json is present rather than replacing
-# it, so a user's own settings survive.
+# copies above. This is the tripwire on the only remaining safety mechanism, and
+# the setup most likely to skip it -- a host-mounted ~/.claude -- is exactly the
+# setup where a long-lived project has work worth protecting. Always refresh it,
+# and merge the hook wiring into whatever settings.json is present rather than
+# replacing it, so a user's own settings survive.
 install_git_safety_hooks() {
     echo "=== Installing git safety hooks ==="
 
-    # Hooks this repo used to install, now shipped by the kokko-safety plugin.
+    # Hooks this repo used to install: git-snapshot.sh moved to the kokko-safety
+    # plugin, and the two guards were removed outright.
     # merge-hooks.jq unwires them from settings.json, but the files themselves
     # would linger in a container provisioned by an older version of this
     # script -- dead scripts on disk that read as protection. Remove them.
     local stale
-    for stale in git-snapshot.sh guard-git.sh session-git-safety.sh; do
+    for stale in git-snapshot.sh guard-git.sh guard-bash.sh guard-cloud.sh session-git-safety.sh; do
         if [[ -f "$CLAUDE_DIR/hooks/$stale" ]]; then
             rm -f "$CLAUDE_DIR/hooks/$stale"
-            echo "  Removed superseded hook: $stale (now provided by kokko-safety)"
+            echo "  Removed superseded hook: $stale"
         fi
     done
 

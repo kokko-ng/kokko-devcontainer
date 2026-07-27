@@ -30,11 +30,12 @@ def ours: "/home/vscode/\\.claude/hooks/";
 # to it.
 #
 # kokko-safety shipped as `false` in this bundle for as long as it was a set of
-# noisy "ask" hooks that fired on routine commands. The `false` in an existing
-# settings.json is therefore almost certainly THIS bundle's old default rather
-# than a considered user preference — and it now disables the git snapshot and
-# guard hooks, which used to be installed unconditionally by post-create.sh and
-# are the enforcement layer for everything GIT-SAFETY.md promises.
+# noisy "ask" hooks that fired on routine commands. Those hooks are gone; what
+# the plugin ships now is the git snapshot layer, which used to be installed
+# unconditionally by post-create.sh and is the ONLY thing making uncommitted work
+# recoverable. The `false` in an existing settings.json is therefore almost
+# certainly THIS bundle's old default rather than a considered user preference,
+# and honouring it would disable the last remaining safety mechanism.
 #
 # Deferring to the stale `false` would silently downgrade every existing
 # container from "protected" to "unprotected" on the next config refresh. So

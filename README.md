@@ -54,17 +54,23 @@ every uncommitted change to a tracked file is **destroyed silently and unrecover
 that work was never a git object, so there is no reflog entry and `git fsck` will not find
 it. This has cost real projects hours of work.
 
-The container ships three layers, on by default:
+**Nothing here blocks a command.** There is no guard hook and no blocked-command list.
+A blocklist has to enumerate every spelling of every dangerous command, which makes it both
+too broad (the last one blocked `rm -rf ./dist` and `docker image prune -a`) and too narrow
+(it never saw `git reset --hard` invoked from a script). What ships instead:
 
 | Layer | What it does |
 | --- | --- |
-| **Snapshots** | Uncommitted tracked changes are checkpointed to `refs/snapshots/` before every git command and on every prompt. Run `snaps` to list, `snaps restore <ref>` to get work back. |
-| **Guard** | Destructive git commands are **blocked while the tree is dirty**, and allowed while it is clean — so a rebase on a clean tree just works. |
-| **Verifier** | Checks at every session start that the first two are actually running, and says so loudly if they are not. |
+| **Snapshots** | Uncommitted tracked changes are checkpointed to `refs/snapshots/` before every git command and on every prompt. Run `snaps` to list, `snaps restore <ref>` to get work back. Recovery, not prevention. |
+| **Briefing** | The bundled `CLAUDE.md` and a SessionStart hook both state the rules and say plainly that nothing will refuse a destructive command. |
+| **Verifier** | Runs the real snapshot hook against a throwaway dirty repo at every session start and shouts if no snapshot appears — a snapshot hook that has stopped working is otherwise indistinguishable from a clean tree. |
 
-The first two ship in the [kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin,
-which `post-create.sh` installs. The verifier stays in this repo precisely so that a failed
-plugin install cannot leave you unprotected without knowing it.
+Snapshots and the briefing ship in the
+[kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin, which `post-create.sh`
+installs. The verifier stays in this repo precisely so that a failed plugin install cannot
+leave you unprotected without knowing it.
+
+Untracked files are never snapshotted, so `git clean` has no recovery path at all.
 
 Plus `gc.reflogExpire=never` and `gc.pruneExpire=never`, so git stops deleting the objects
 recovery depends on.
@@ -75,8 +81,7 @@ snaps show <ref>      # what's in it
 snaps restore <ref>   # put it back
 ```
 
-See [GIT-SAFETY.md](GIT-SAFETY.md) for the design, the full list of blocked commands, and
-the override.
+See [GIT-SAFETY.md](GIT-SAFETY.md) for the design and for why there is no guard.
 
 ## Quick start
 
