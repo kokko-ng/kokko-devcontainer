@@ -71,6 +71,31 @@ first"* — that is precisely the thought that preceded every incident. Stop and
 
 ---
 
+## Pre-commit hooks
+
+**If `.pre-commit-config.yaml` exists in the repo, pre-commit runs on every commit you
+make. No exceptions.**
+
+- **Never pass `--no-verify` or `-n` to `git commit`**, and never set `PRE_COMMIT_ALLOW_NO_CONFIG`
+  or otherwise disable the hooks. If you are reaching for a bypass, you are about to
+  commit something the repo has decided is not acceptable.
+- **If the hooks are not installed**, install them before committing: `uv run pre-commit install`
+  (or `pre-commit install` where uv is not in use). A config file with no installed hook
+  is a silent no-op, so verify `.git/hooks/pre-commit` exists rather than assuming.
+- **When hooks fail, fix the cause.** Read the output, correct the code, and commit again.
+  Do not work around the check, loosen the rule, or add per-file ignores to make it pass
+  unless the user asks for exactly that.
+- **When hooks rewrite files** (formatters like black, ruff, prettier), the commit aborts
+  with the fixes left in the working tree. Re-stage the **explicit file paths** — never
+  `git add -u` or `git add .`, per the git rules above — and commit again. Check the diff
+  the hook produced before re-staging; it is a real change to your work.
+- **Run hooks early on large changes** rather than discovering everything at commit time:
+  `pre-commit run --files <paths>`.
+- **A failing hook is information, not an obstacle.** Report what failed and what you did
+  about it; do not silently retry until something goes through.
+
+---
+
 ## Communication Style
 
 - Never use emojis in any communication, code, comments, or documentation
