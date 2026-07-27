@@ -280,14 +280,31 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
 4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@latest`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). Skips if `playwright-cli` is already on `PATH`.
 5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
-6. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
-7. Runs `uv sync` if `pyproject.toml` exists.
-8. Installs Playwright Chromium (Python package) if `pyproject.toml` exists.
-9. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists.
-10. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
-11. Copies `.env.example` to `.env` if no `.env` exists.
+6. Installs the git safety hooks and the `snaps` helper, then merges the hook wiring and plugin roster into the live `settings.json` (see [GIT-SAFETY.md](GIT-SAFETY.md)).
+7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the bundled `settings.json`. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI.
+8. Configures git for recoverability (`safe.directory`, reflog and prune retention, `rerere`).
+9. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
+10. Runs `uv sync` if `pyproject.toml` exists.
+11. Installs Playwright Chromium (Python package) if `pyproject.toml` exists.
+12. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists.
+13. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+14. Copies `.env.example` to `.env` if no `.env` exists.
 
 The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything — no `sed` needed when forking.
+
+#### Refreshing config without a rebuild
+
+Steps 5 to 9 are the bundled config, and they can be re-applied to a container that is already running:
+
+```bash
+bash .devcontainer/post-create.sh --config-only
+```
+
+That skips every tool install and every project dependency step, so it takes seconds. Use it after pulling newer `.devcontainer/config/` files, or after adding a plugin to the roster.
+
+The `/devcontainer-update` command in [kokko-ng/kokko-cmds](https://github.com/kokko-ng/kokko-cmds) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
+
+What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, and `init-host-certs.sh` (which runs on the host). Those still need `devcontainer up --remove-existing-container`.
 
 ---
 
@@ -526,14 +543,14 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 8 of 9 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`) | Remove or replace with your own plugin marketplaces and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 9 of 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
 | ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
 | Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
 | Docker-in-Docker feature | `.devcontainer/devcontainer.json` | `docker-in-docker:2` | Remove if you never build/run containers inside the devcontainer; it costs disk (see MANAGING.md) |
-| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, how tasks end and decisions are presented, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
+| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, customer-facing document rules, how tasks end and decisions are presented, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
 
 ### Quick checklist
 
