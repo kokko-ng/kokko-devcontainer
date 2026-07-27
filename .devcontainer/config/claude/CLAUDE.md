@@ -103,6 +103,30 @@ make. No exceptions.**
 - Provide direct, clear technical communication without unnecessary elaboration
 - Focus on facts and technical accuracy over conversational language
 
+## Technical documents for customers
+
+When drafting or writing a technical document a customer will read — as-built
+documentation, solution designs, runbooks, handover packs, proposals, reports — reference
+only artifacts and terminology the customer actually receives.
+
+- **Never cite an internal artifact the customer will not be given.** Internal
+  specification identifiers (`SPEC-01`, `SPEC-014` and similar), ticket and epic numbers,
+  branch or repo paths, internal wiki links, and project-internal codenames must not
+  appear. An as-built document that says "as per SPEC-01" is unusable to a reader who has
+  never seen SPEC-01, and it advertises a document they cannot request.
+- **Replace the pointer with what it points at.** "Configured as specified in SPEC-01"
+  becomes the actual configuration, stated in full. If the reference exists because the
+  detail is long, reproduce the detail in an appendix rather than citing the internal doc.
+- **Ask when the audience is unclear.** If it is not obvious whether a document,
+  identifier, term, or diagram is shared with the customer, **ask the user which artifacts
+  the customer sees before writing** — do not guess, and do not silently drop content that
+  may in fact be shared. One question up front is cheaper than a rewrite.
+- **Use the customer's vocabulary** for systems, environments, teams, and roles wherever it
+  differs from the internal name.
+- **Check the finished draft for leakage** before handing it over: search it for internal
+  identifier patterns, internal hostnames, and internal tool names, and report anything you
+  removed or need a decision on.
+
 ## Finishing a task
 
 Never end a task with only a summary of what was done. Every completed task ends with a
