@@ -533,7 +533,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 | ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
 | Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
 | Docker-in-Docker feature | `.devcontainer/devcontainer.json` | `docker-in-docker:2` | Remove if you never build/run containers inside the devcontainer; it costs disk (see MANAGING.md) |
-| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
+| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, how tasks end and decisions are presented, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
 
 ### Quick checklist
 
