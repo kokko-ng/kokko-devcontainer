@@ -1,0 +1,19 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # shellcheck-py, not koalaman/shellcheck-precommit: the latter runs shellcheck
+  # in a container, so every `pre-commit run` needs a working Docker daemon.
+  # This one ships the same binary as a Python wheel. Same shellcheck version,
+  # no daemon.
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
