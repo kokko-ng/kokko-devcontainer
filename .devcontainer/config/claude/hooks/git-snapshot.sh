@@ -24,18 +24,6 @@ set -uo pipefail
 input=$(cat 2>/dev/null || true)
 
 command -v jq >/dev/null 2>&1 || exit 0
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-    # Distinguish "not a repo" (fine, stay silent) from "git refuses to
-    # operate" (dubious ownership on a host-uid bind mount). The latter means
-    # NOTHING is being checkpointed — a safety net that fails silently is
-    # worse than none, because everyone assumes it is working. Say so on
-    # stdout: for UserPromptSubmit hooks that lands in Claude's context, so
-    # the broken state gets surfaced instead of discovered after data loss.
-    err=$(git rev-parse --git-dir 2>&1 >/dev/null || true)
-    printf '%s' "$err" | grep -qi 'dubious ownership' && \
-        echo "WARNING: git-snapshot.sh cannot checkpoint this repository — git reports 'dubious ownership' (workspace owned by a different uid). Uncommitted work is NOT protected until this is fixed: git config --global --add safe.directory <workspace>"
-    exit 0
-fi
 
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // ""' 2>/dev/null || echo "")
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
@@ -47,31 +35,90 @@ if [[ "$event" == "PreToolUse" ]]; then
     printf '%s' "$cmd" | grep -qE '(^|[^[:alnum:]_.-])git([^[:alnum:]_-]|$)' || exit 0
 fi
 
+# The command may target a DIFFERENT repository than the hook's cwd — via a
+# leading `cd <dir> &&`, `git -C <dir>`, or `--git-dir=<dir>`. Snapshot the
+# repo the destructive command is actually about to touch, mirroring the
+# target resolution in guard-git.sh.
+extract_cd_target() {
+    printf '%s' "$cmd" | sed -nE \
+        's/^[[:space:]]*cd[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+))[[:space:]]*(&&|;).*/\2\3\4/p' | head -1
+}
+extract_dash_c_target() {
+    printf '%s' "$cmd" | sed -nE \
+        's/.*git[^;&|]*[[:space:]]-C[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
+}
+extract_git_dir_target() {
+    printf '%s' "$cmd" | sed -nE \
+        's/.*--git-dir=("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
+}
+
+cd_t=$(extract_cd_target || true)
+c_t=$(extract_dash_c_target || true)
+gd_t=$(extract_git_dir_target || true)
+
+target=""
+if [[ -n "$c_t" ]]; then
+    if [[ -n "$cd_t" && "$c_t" != /* && "$c_t" != "~"* ]]; then
+        target="$cd_t/$c_t"
+    else
+        target="$c_t"
+    fi
+elif [[ -n "$gd_t" ]]; then
+    target="$gd_t"
+    [[ "$target" == */.git ]] && target="${target%/.git}"
+elif [[ -n "$cd_t" ]]; then
+    target="$cd_t"
+fi
+target="${target/#\~/$HOME}"
+
+# All git calls below run against the targeted repo (or the cwd when the
+# command names none).
+gitc() {
+    if [[ -n "$target" ]]; then
+        git -C "$target" "$@"
+    else
+        git "$@"
+    fi
+}
+
+if ! gitc rev-parse --git-dir >/dev/null 2>&1; then
+    # Distinguish "not a repo" (fine, stay silent) from "git refuses to
+    # operate" (dubious ownership on a host-uid bind mount). The latter means
+    # NOTHING is being checkpointed — a safety net that fails silently is
+    # worse than none, because everyone assumes it is working. Say so on
+    # stdout: for UserPromptSubmit hooks that lands in Claude's context, so
+    # the broken state gets surfaced instead of discovered after data loss.
+    err=$(gitc rev-parse --git-dir 2>&1 >/dev/null || true)
+    printf '%s' "$err" | grep -qi 'dubious ownership' && \
+        echo "WARNING: git-snapshot.sh cannot checkpoint this repository — git reports 'dubious ownership' (workspace owned by a different uid). Uncommitted work is NOT protected until this is fixed: git config --global --add safe.directory <workspace>"
+    exit 0
+fi
+
 # stash create needs at least one commit to base the snapshot on.
-git rev-parse --verify -q HEAD >/dev/null 2>&1 || exit 0
+gitc rev-parse --verify -q HEAD >/dev/null 2>&1 || exit 0
 
 # Empty output means a clean tree: nothing to checkpoint.
-snap=$(git stash create "claude-snapshot" 2>/dev/null) || exit 0
+snap=$(gitc stash create "claude-snapshot" 2>/dev/null) || exit 0
 [[ -n "$snap" ]] || exit 0
 
 # Skip if the tree is byte-identical to the newest snapshot, so a burst of git
 # commands does not create a burst of duplicate refs.
-newest=$(git for-each-ref --sort=-refname --count=1 --format='%(objectname)' refs/snapshots/ 2>/dev/null || true)
+newest=$(gitc for-each-ref --sort=-refname --count=1 --format='%(objectname)' refs/snapshots/ 2>/dev/null || true)
 if [[ -n "$newest" ]]; then
-    new_tree=$(git rev-parse "$snap^{tree}" 2>/dev/null || true)
-    old_tree=$(git rev-parse "$newest^{tree}" 2>/dev/null || true)
+    new_tree=$(gitc rev-parse "$snap^{tree}" 2>/dev/null || true)
+    old_tree=$(gitc rev-parse "$newest^{tree}" 2>/dev/null || true)
     [[ -n "$new_tree" && "$new_tree" == "$old_tree" ]] && exit 0
 fi
 
 # The object id suffix keeps two snapshots taken within the same second from
 # silently overwriting one another; the timestamp prefix keeps refname sort
 # order chronological.
-git update-ref "refs/snapshots/$(date -u +%Y%m%dT%H%M%SZ)-${snap:0:7}" "$snap" 2>/dev/null || true
+gitc update-ref "refs/snapshots/$(date -u +%Y%m%dT%H%M%SZ)-${snap:0:7}" "$snap" 2>/dev/null || true
 
 # Retain the most recent 200. Snapshots are cheap (one commit object reusing
 # existing blobs), but unbounded refs slow every ref walk down.
-git for-each-ref --sort=-refname --format='%(refname)' refs/snapshots/ 2>/dev/null \
+gitc for-each-ref --sort=-refname --format='%(refname)' refs/snapshots/ 2>/dev/null \
     | tail -n +201 \
-    | while read -r ref; do git update-ref -d "$ref" 2>/dev/null || true; done
+    | while read -r ref; do gitc update-ref -d "$ref" 2>/dev/null || true; done
 
 exit 0

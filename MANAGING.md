@@ -25,8 +25,8 @@ The typical workflow:
 
 ```bash
 # Copy the devcontainer into each project
-cp -r path/to/devcontainer-starter/.devcontainer ~/projects/alpha/
-cp -r path/to/devcontainer-starter/.devcontainer ~/projects/beta/
+cp -r path/to/kokko-devcontainer/.devcontainer ~/projects/alpha/
+cp -r path/to/kokko-devcontainer/.devcontainer ~/projects/beta/
 ```
 
 Each project's container is identified by its workspace folder path. There is no shared state between instances unless you explicitly mount host directories.
@@ -71,12 +71,16 @@ Options when running multiple instances concurrently:
 
 Then forward on demand from the VS Code Ports panel or with `docker port`.
 
-**Use `portsAttributes` to avoid collisions** by letting VS Code assign random host ports:
+**Silence auto-forwarding with `portsAttributes`** when you would rather forward by hand.
+Note that `"onAutoForward": "notify"` does **not** assign random host ports — it only
+changes the notification behavior when VS Code forwards the usual port. To avoid
+collisions you either give each project distinct `forwardPorts` (first option above) or
+tell VS Code not to auto-forward at all and forward manually from the Ports panel:
 
 ```jsonc
 "portsAttributes": {
-  "8000": { "label": "Backend", "onAutoForward": "notify" },
-  "5173": { "label": "Frontend", "onAutoForward": "notify" }
+  "8000": { "label": "Backend", "onAutoForward": "ignore" },
+  "5173": { "label": "Frontend", "onAutoForward": "ignore" }
 }
 ```
 
@@ -191,6 +195,24 @@ docker image prune -a
 
 # Stopped containers
 docker container prune
+```
+
+### Snapshot refs grow too (inside each repo)
+
+The git safety layer keeps up to 200 working-tree snapshots per repository under
+`refs/snapshots/`, and `post-create.sh` sets `gc.reflogExpire`/`gc.pruneExpire` to
+`never` — so unreachable objects in busy repos accumulate indefinitely by design. That is
+usually megabytes, not gigabytes, but on a long-lived repo with large files it adds up.
+Prune old snapshots by hand when a repo's `.git` gets heavy:
+
+```bash
+# Drop snapshots older than a date prefix (they are named <UTC timestamp>-<oid>)
+git for-each-ref --format='%(refname)' refs/snapshots/ \
+  | awk -F/ '$3 < "20250101" {print}' \
+  | while read -r ref; do git update-ref -d "$ref"; done
+
+# Then, if you really need the space back (this removes the recovery net!):
+git -c gc.reflogExpire=90.days -c gc.pruneExpire=2.weeks gc
 ```
 
 ### Do not use `--volumes`

@@ -1,4 +1,4 @@
-# devcontainer-starter
+# kokko-devcontainer
 
 A portable development container for FastAPI + Vue projects, designed to run on macOS with Colima as the Docker runtime.
 
@@ -40,6 +40,9 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
         └── merge-hooks.jq
 ghostty/
 └── config                # Host-side Ghostty terminal config
+tests/
+└── guard-git-tests.sh    # Regression tests for the git safety layer (run in CI)
+.github/                  # CI workflow (tests, shellcheck, hadolint, build, gitleaks)
 .gitignore                # Ignores extracted host CA certs, secrets, build artifacts
 GIT-SAFETY.md             # How the git safety net works
 INSTRUCTIONS.md           # Full setup walkthrough
@@ -87,7 +90,7 @@ colima start --cpu 8 --memory 16 --disk 150
 
 # 3. Clone this repo into your project and open it
 cd your-project
-cp -r path/to/devcontainer-starter/.devcontainer .
+cp -r path/to/kokko-devcontainer/.devcontainer .
 
 # 4. Open with VS Code
 code .

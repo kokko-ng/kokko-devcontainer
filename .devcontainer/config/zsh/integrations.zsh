@@ -44,12 +44,27 @@ fi
 # ===================
 # fzf (Fuzzy Finder)
 # ===================
+# fzf and fd-find are installed by the Dockerfile via apt. Debian quirks:
+# the fd binary ships as `fdfind`, and bookworm's fzf predates the `--zsh`
+# flag — fall back to the packaged keybinding scripts in that case.
 if command -v fzf &>/dev/null; then
-    source <(fzf --zsh) 2>/dev/null || true
-    export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border"
-    if command -v fd &>/dev/null; then
-        export FZF_DEFAULT_COMMAND="fd --type f --hidden --follow --exclude .git"
-        export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
-        export FZF_ALT_C_COMMAND="fd --type d --hidden --follow --exclude .git"
+    if fzf --zsh &>/dev/null; then
+        source <(fzf --zsh)
+    else
+        [[ -f /usr/share/doc/fzf/examples/key-bindings.zsh ]] && source /usr/share/doc/fzf/examples/key-bindings.zsh
+        [[ -f /usr/share/doc/fzf/examples/completion.zsh ]] && source /usr/share/doc/fzf/examples/completion.zsh
     fi
+    export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border"
+    FD_BIN=""
+    if command -v fd &>/dev/null; then
+        FD_BIN="fd"
+    elif command -v fdfind &>/dev/null; then
+        FD_BIN="fdfind"
+    fi
+    if [[ -n "$FD_BIN" ]]; then
+        export FZF_DEFAULT_COMMAND="$FD_BIN --type f --hidden --follow --exclude .git"
+        export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+        export FZF_ALT_C_COMMAND="$FD_BIN --type d --hidden --follow --exclude .git"
+    fi
+    unset FD_BIN
 fi
