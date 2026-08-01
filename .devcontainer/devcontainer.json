@@ -24,7 +24,7 @@
     // the Colima VM's disk fills. Prune it from INSIDE the container with
     // `docker system prune -a`, and delete the volume by name when retiring a
     // project. See MANAGING.md -> Disk management.
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
