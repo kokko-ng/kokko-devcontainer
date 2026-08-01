@@ -21,6 +21,11 @@
 # absent, so a user's explicit choices — including disabling a plugin with
 # `false` — always win, while new plugins added to the bundle reach
 # long-lived host-mounted setups that would otherwise never see them.
+#
+# The same only-when-absent policy applies to the bundled non-hook settings
+# (attribution, permissions.defaultMode, alwaysThinkingEnabled,
+# skipDangerousModePermissionPrompt): a fresh settings.json gets the bundled
+# defaults, while any value the user has set — whatever it is — wins.
 
 def ours: "/home/vscode/\\.claude/hooks/";
 
@@ -45,4 +50,16 @@ def strip_ours:
   else . end
 | if (($new.extraKnownMarketplaces // {}) | length) > 0
   then .extraKnownMarketplaces = (($new.extraKnownMarketplaces // {}) + (.extraKnownMarketplaces // {}))
+  else . end
+| if (has("attribution") | not) and ($new | has("attribution"))
+  then .attribution = $new.attribution
+  else . end
+| if ((.permissions // {}) | has("defaultMode") | not) and (($new.permissions // {}) | has("defaultMode"))
+  then .permissions = ((.permissions // {}) + { defaultMode: $new.permissions.defaultMode })
+  else . end
+| if (has("alwaysThinkingEnabled") | not) and ($new | has("alwaysThinkingEnabled"))
+  then .alwaysThinkingEnabled = $new.alwaysThinkingEnabled
+  else . end
+| if (has("skipDangerousModePermissionPrompt") | not) and ($new | has("skipDangerousModePermissionPrompt"))
+  then .skipDangerousModePermissionPrompt = $new.skipDangerousModePermissionPrompt
   else . end
