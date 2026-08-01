@@ -10,6 +10,7 @@
       "HOST_USER": "${localEnv:USER}"
     }
   },
+  "remoteUser": "vscode",
   "features": {
     // Azure CLI — remove if not using Azure
     "ghcr.io/devcontainers/features/azure-cli:1": {},
@@ -44,36 +45,56 @@
     "COLORTERM": "truecolor"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  // Capture provisioning output — post-create failures are otherwise lost in
+  // the container creation log. See /tmp/post-create.log inside the container.
+  "postCreateCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh 2>&1 | tee /tmp/post-create.log'",
+  // Re-apply bundled config on every start, so a container that pulled newer
+  // .devcontainer/config/ files picks them up without a manual step.
+  "postStartCommand": "bash .devcontainer/post-create.sh --config-only",
   // FastAPI default port (8000) and Vite dev server (5173)
   "forwardPorts": [8000, 5173],
   "runArgs": [
     // Chromium (used by the Playwright CLI) spawns many short-lived processes.
     // 512 is too low — raise to 1024 to avoid EAGAIN errors.
-    "--pids-limit=1024"
+    "--pids-limit=1024",
+    // Chromium renderers share memory via /dev/shm; Docker's 64MB default
+    // makes headless pages crash with cryptic tab errors.
+    "--shm-size=1g"
   ],
-  // Optional mounts — uncomment blocks you need.
+  // Named volumes: package caches survive rebuilds (a rebuild otherwise
+  // re-downloads every wheel and npm tarball), and zsh history persists
+  // across containers. post-create.sh chowns these on first use.
+  "mounts": [
+    "source=devcontainer-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    "source=devcontainer-npm-cache,target=/home/vscode/.npm,type=volume",
+    "source=devcontainer-zsh-history,target=/commandhistory,type=volume"
+  ],
+  // Optional bind mounts — add entries to "mounts" above as needed.
   // Shell config and Claude Code settings are bundled in .devcontainer/config/
   // and installed by post-create.sh, so no host mounts are required by default.
   //
-  // "mounts": [
   //   // Azure CLI session — keeps you logged in across rebuilds
   //   "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind",
   //
   //   // Claude Code state — persists conversation history across rebuilds
   //   // (post-create.sh will not overwrite settings.json if this is mounted)
   //   "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
-  // ],
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "charliermarsh.ruff",
         "Vue.volar",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
         "ms-azuretools.vscode-docker"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        }
       }
     }
   }

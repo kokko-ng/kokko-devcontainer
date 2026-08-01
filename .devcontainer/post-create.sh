@@ -27,12 +27,72 @@ case "${1:-}" in
         ;;
 esac
 
+# The Claude CLI installs to ~/.local/bin, which is NOT on PATH during
+# postCreateCommand itself (only interactive shells add it) — without this the
+# plugin bootstrap below silently skips on the very first build.
+export PATH="$HOME/.local/bin:$PATH"
+
 # Resolve the bundled config directory relative to this script so it works
 # regardless of the workspace folder name.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLED_CONFIG_DIR="$SCRIPT_DIR/config"
-CLAUDE_DIR="/home/vscode/.claude"
+CLAUDE_DIR="$HOME/.claude"
 BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"
+
+# Failed provisioning steps are recorded here instead of killing the build —
+# one transient npm/curl failure must not abort the whole container.
+PROVISION_STATUS="$HOME/.devcontainer-provision-status"
+
+# =====================
+# Retry / degrade helpers
+# =====================
+retry() {
+    local name="$1" attempt
+    shift
+    for attempt in 1 2 3; do
+        "$@" && return 0
+        echo "  attempt $attempt/3 failed: $name"
+        [[ $attempt -lt 3 ]] && sleep $((attempt * 5))
+    done
+    return 1
+}
+
+# step <name> <cmd...> — run with retry; on final failure warn loudly and
+# record the step in $PROVISION_STATUS rather than dying under set -e.
+step() {
+    local name="$1"; shift
+    if retry "$name" "$@"; then
+        return 0
+    fi
+    echo "  WARNING: step '$name' failed after 3 attempts — continuing without it."
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: $name" >> "$PROVISION_STATUS"
+    return 0
+}
+
+provision_summary() {
+    echo ""
+    if [[ -s "$PROVISION_STATUS" ]]; then
+        echo "=== WARNING: some provisioning steps FAILED ==="
+        sed 's/^/  /' "$PROVISION_STATUS"
+        echo "  Fix connectivity and re-run: bash .devcontainer/post-create.sh"
+    else
+        echo "=== All provisioning steps completed ==="
+    fi
+}
+
+# =====================
+# Named-volume mount points
+# =====================
+# Docker creates named-volume mount points root-owned on first use; make the
+# cache and history volumes writable by the container user.
+fix_volume_ownership() {
+    local d
+    for d in "$HOME/.cache/uv" "$HOME/.npm" /commandhistory; do
+        [[ -d "$d" && ! -w "$d" ]] || continue
+        sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
+            echo "  WARNING: $d is not writable and could not be chowned"
+    done
+}
 
 # =====================
 # Shell config (zsh aliases from dotfiles)
@@ -45,7 +105,7 @@ clone_zsh_plugin() {
         echo "  $name already present, skipping"
     else
         rm -rf "$dest"
-        git clone --depth=1 "$repo" "$dest"
+        step "zsh-plugin-$name" git clone --depth=1 "$repo" "$dest"
     fi
 }
 
@@ -60,7 +120,7 @@ install_claude_cli() {
     if command -v claude >/dev/null 2>&1; then
         echo "  Claude Code already installed at $(command -v claude)"
     else
-        curl -fsSL https://claude.ai/install.sh | bash
+        step "claude-cli" bash -c 'curl -fsSL https://claude.ai/install.sh | bash'
     fi
 }
 
@@ -71,7 +131,7 @@ install_copilot_cli() {
     if command -v copilot >/dev/null 2>&1; then
         echo "  Copilot CLI already installed at $(command -v copilot)"
     elif command -v npm >/dev/null 2>&1; then
-        npm install -g @github/copilot
+        step "copilot-cli" npm install -g @github/copilot
     else
         echo "  npm not available — skipping Copilot CLI install"
     fi
@@ -83,20 +143,31 @@ install_playwright_cli() {
     if command -v playwright-cli >/dev/null 2>&1; then
         echo "  Playwright CLI already installed at $(command -v playwright-cli)"
     elif command -v npm >/dev/null 2>&1; then
-        npm install -g @playwright/cli@latest
-        playwright-cli install-browser --with-deps
-        playwright-cli install --skills
+        step "playwright-cli" bash -c '
+            npm install -g @playwright/cli@latest \
+            && playwright-cli install-browser --with-deps \
+            && playwright-cli install --skills'
     else
         echo "  npm not available — skipping Playwright CLI install"
     fi
+}
+
+# The bundled settings.json and merge-hooks.jq ship /home/vscode literals;
+# render them against the actual $HOME at install time so a different
+# container user (or remoteUser) still gets working hook paths.
+RENDER_DIR=""
+render_bundled_claude() {
+    RENDER_DIR="$(mktemp -d)"
+    sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/settings.json" > "$RENDER_DIR/settings.json"
+    sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" > "$RENDER_DIR/merge-hooks.jq"
 }
 
 configure_claude() {
     echo "=== Configuring Claude Code ==="
     mkdir -p "$CLAUDE_DIR"
     # Copy bundled settings unless a host mount already provides one
-    if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$BUNDLED_CLAUDE_DIR/settings.json" ]]; then
-        cp "$BUNDLED_CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json"
+    if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$RENDER_DIR/settings.json" ]]; then
+        cp "$RENDER_DIR/settings.json" "$CLAUDE_DIR/settings.json"
         echo "  Copied bundled settings.json"
     fi
     if [[ ! -f "$CLAUDE_DIR/CLAUDE.md" && -f "$BUNDLED_CLAUDE_DIR/CLAUDE.md" ]]; then
@@ -120,7 +191,7 @@ install_git_safety_hooks() {
         mkdir -p "$CLAUDE_DIR/hooks"
         cp "$BUNDLED_CLAUDE_DIR"/hooks/*.sh "$CLAUDE_DIR/hooks/"
         chmod +x "$CLAUDE_DIR"/hooks/*.sh
-        echo "  Installed: $(cd "$CLAUDE_DIR/hooks" && echo *.sh)"
+        echo "  Installed: $(cd "$CLAUDE_DIR/hooks" && echo ./*.sh)"
     fi
 
     if [[ -f "$BUNDLED_CONFIG_DIR/bin/snaps" ]]; then
@@ -137,16 +208,32 @@ install_git_safety_hooks() {
 # Splice the hook wiring into the live settings.json. See merge-hooks.jq: this
 # preserves the user's own hooks and is safe to re-run on every rebuild.
 merge_claude_settings() {
-    if command -v jq >/dev/null 2>&1 \
-        && [[ -f "$BUNDLED_CLAUDE_DIR/settings.json" && -f "$CLAUDE_DIR/settings.json" ]]; then
+    # jq is a hard dependency of the entire safety layer: every hook needs it
+    # to parse tool payloads, and without it guard-git.sh fails CLOSED on git
+    # commands. A container without jq is misconfigured — say so and stop.
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "" >&2
+        echo "FATAL: jq is not installed, and the git safety layer cannot work without it." >&2
+        echo "       The hooks need jq to parse tool payloads; guard-git.sh fails CLOSED on" >&2
+        echo "       git commands when it is missing. jq is installed by the Dockerfile —" >&2
+        echo "       rebuild the container, or run: sudo apt-get update && sudo apt-get install -y jq" >&2
+        echo "" >&2
+        exit 1
+    fi
+    if [[ -f "$RENDER_DIR/settings.json" && -f "$CLAUDE_DIR/settings.json" ]]; then
         if jq -e . "$CLAUDE_DIR/settings.json" >/dev/null 2>&1; then
-            cp "$CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json.bak"
-            if jq -s -f "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" \
-                "$CLAUDE_DIR/settings.json" "$BUNDLED_CLAUDE_DIR/settings.json" \
+            # Timestamped backups; keep the 5 most recent.
+            local bak
+            bak="$CLAUDE_DIR/settings.json.bak.$(date -u +%Y%m%dT%H%M%SZ)"
+            cp "$CLAUDE_DIR/settings.json" "$bak"
+            # shellcheck disable=SC2012  # our own timestamped names: safe for ls
+            ls -1t "$CLAUDE_DIR"/settings.json.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f --
+            if jq -s -f "$RENDER_DIR/merge-hooks.jq" \
+                "$CLAUDE_DIR/settings.json" "$RENDER_DIR/settings.json" \
                 > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
                 && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
                 mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-                echo "  Merged git safety hooks and plugin roster into settings.json (backup: settings.json.bak)"
+                echo "  Merged git safety hooks and plugin roster into settings.json (backup: $(basename "$bak"))"
             else
                 rm -f "$CLAUDE_DIR/settings.json.tmp"
                 echo "  WARNING: hook merge failed — settings.json left unchanged."
@@ -229,8 +316,13 @@ configure_git() {
     # ownership" -- which also silently kills the snapshot hook (its git calls
     # fail, so nothing is ever checkpointed and the safety net protects nothing).
     # postCreateCommand runs with the workspace folder as cwd, so $PWD is right.
-    git config --global --add safe.directory "$PWD"
-    echo "  safe.directory: $PWD"
+    # Guard against re-adding on every run -- --add appends unconditionally.
+    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$PWD"; then
+        echo "  safe.directory already contains: $PWD"
+    else
+        git config --global --add safe.directory "$PWD"
+        echo "  safe.directory: $PWD"
+    fi
     git config --global gc.reflogExpire never
     git config --global gc.reflogExpireUnreachable never
     git config --global gc.pruneExpire never
@@ -247,19 +339,19 @@ report_plugin_paths() {
 
 link_shell_config() {
     echo "=== Setting up shell config ==="
-    local dotfiles_dir="/home/vscode/.dotfiles"
+    local dotfiles_dir="$HOME/.dotfiles"
     local bundled_zsh_dir="$BUNDLED_CONFIG_DIR/zsh"
     if [[ -d "$dotfiles_dir/zsh" ]]; then
-        mkdir -p /home/vscode/.config
-        ln -sfn "$dotfiles_dir/zsh" /home/vscode/.config/zsh
+        mkdir -p "$HOME/.config"
+        ln -sfn "$dotfiles_dir/zsh" "$HOME/.config/zsh"
     elif [[ -d "$bundled_zsh_dir" ]]; then
-        mkdir -p /home/vscode/.config
-        ln -sfn "$bundled_zsh_dir" /home/vscode/.config/zsh
+        mkdir -p "$HOME/.config"
+        ln -sfn "$bundled_zsh_dir" "$HOME/.config/zsh"
     fi
     if [[ -f "$dotfiles_dir/.zshrc" ]]; then
-        ln -sfn "$dotfiles_dir/.zshrc" /home/vscode/.zshrc
+        ln -sfn "$dotfiles_dir/.zshrc" "$HOME/.zshrc"
     elif [[ -f "$bundled_zsh_dir/.zshrc" ]]; then
-        ln -sfn "$bundled_zsh_dir/.zshrc" /home/vscode/.zshrc
+        ln -sfn "$bundled_zsh_dir/.zshrc" "$HOME/.zshrc"
     fi
 }
 
@@ -269,7 +361,7 @@ link_shell_config() {
 install_python_deps() {
     if [[ -f pyproject.toml ]]; then
         echo "=== Installing Python dependencies ==="
-        uv sync
+        step "uv-sync" uv sync
     else
         echo "=== Skipping Python dependencies (no pyproject.toml) ==="
     fi
@@ -285,8 +377,7 @@ install_python_deps() {
 install_playwright_browsers() {
     if [[ -f pyproject.toml ]] && uv run python -c "import playwright" >/dev/null 2>&1; then
         echo "=== Installing Playwright Chromium ==="
-        uv run playwright install --with-deps chromium || \
-            echo "  WARNING: playwright install failed — browsers not provisioned"
+        step "playwright-chromium" uv run playwright install --with-deps chromium
     elif [[ -f pyproject.toml ]]; then
         echo "=== Skipping Playwright Chromium (playwright not in the synced environment) ==="
     else
@@ -300,7 +391,13 @@ install_playwright_browsers() {
 install_frontend_deps() {
     if [[ -d ui ]]; then
         echo "=== Installing frontend dependencies ==="
-        (cd ui && npm ci --legacy-peer-deps)
+        if [[ -f ui/package-lock.json ]]; then
+            step "frontend-deps" bash -c 'cd ui && npm ci --legacy-peer-deps'
+        else
+            # `npm ci` hard-fails without a lockfile; fall back to install.
+            echo "  no ui/package-lock.json — using npm install instead of npm ci"
+            step "frontend-deps" bash -c 'cd ui && npm install --legacy-peer-deps'
+        fi
     else
         echo "=== Skipping frontend dependencies (no ui/ directory) ==="
     fi
@@ -312,7 +409,15 @@ install_frontend_deps() {
 install_precommit_hooks() {
     if [[ -f .pre-commit-config.yaml ]]; then
         echo "=== Installing pre-commit hooks ==="
-        uv run pre-commit install 2>/dev/null || true
+        # CLAUDE.md mandates pre-commit, so failures here must be visible —
+        # no stderr suppression, and verify the hook actually landed.
+        if ! uv run pre-commit install; then
+            echo "  WARNING: 'uv run pre-commit install' failed."
+        fi
+        if [[ ! -f .git/hooks/pre-commit ]]; then
+            echo "  WARNING: .git/hooks/pre-commit is missing — the pre-commit config is a"
+            echo "           silent no-op. Install it before committing: uv run pre-commit install"
+        fi
     else
         echo "=== Skipping pre-commit hooks (no config found) ==="
     fi
@@ -323,6 +428,7 @@ install_precommit_hooks() {
 # =====================
 create_env_file() {
     if [[ ! -f .env ]]; then
+        # shellcheck disable=SC2015  # the || true is a deliberate never-fail
         cp .env.example .env 2>/dev/null && echo "Created .env from .env.example" || true
     fi
 }
@@ -368,9 +474,18 @@ check_vm_disk() {
 # Every step here is idempotent, which is what makes --config-only safe to run
 # against a live container to pick up newer bundled config without a rebuild.
 apply_bundled_config() {
+    render_bundled_claude
     configure_claude
-    install_git_safety_hooks
-    merge_claude_settings
+    # The documented off switch for the git safety layer (see GIT-SAFETY.md).
+    # Removing the hooks block from ~/.claude/settings.json alone is NOT
+    # enough: this script re-merges it on every rebuild and container start.
+    if [[ "${KOKKO_NO_GIT_HOOKS:-}" == "1" ]]; then
+        echo "=== KOKKO_NO_GIT_HOOKS=1: git safety hooks NOT installed or merged ==="
+        echo "    (existing hook entries in ~/.claude/settings.json are left as-is)"
+    else
+        install_git_safety_hooks
+        merge_claude_settings
+    fi
     bootstrap_claude_plugins || true
     configure_git
     link_shell_config
@@ -378,6 +493,7 @@ apply_bundled_config() {
 
 if [[ "$MODE" == "config" ]]; then
     echo "=== Refreshing bundled config (no rebuild) ==="
+    fix_volume_ownership
     apply_bundled_config
     echo ""
     echo "=== Config refreshed ==="
@@ -390,6 +506,10 @@ if [[ "$MODE" == "config" ]]; then
     exit 0
 fi
 
+# Full provision: start with a clean failure ledger for this run.
+: > "$PROVISION_STATUS"
+
+fix_volume_ownership
 install_zsh_plugins
 install_claude_cli
 install_copilot_cli
@@ -414,4 +534,5 @@ echo "  Claude:    claude"
 echo "  Azure:     az account show"
 echo ""
 
+provision_summary
 check_vm_disk || true
