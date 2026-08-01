@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard-git-tests:
+    name: git safety layer regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Table-tests the ACTUAL hooks with real PreToolUse JSON payloads:
+      # wrapper-token bypasses, clean/push force forms, cd/-C/--git-dir
+      # target resolution, fail-closed behavior, the recovery whitelist,
+      # false positives, jq-missing handling, and merge-hooks.jq
+      # idempotency. Needs only bash, jq, git.
+      - name: Run guard-git table tests
+        run: bash tests/guard-git-tests.sh
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: shellcheck
+        run: |
+          shellcheck --severity=info \
+            .devcontainer/post-create.sh \
+            .devcontainer/init-host-certs.sh \
+            .devcontainer/config/bin/snaps \
+            .devcontainer/config/claude/hooks/*.sh \
+            tests/guard-git-tests.sh
+
+  hadolint:
+    name: hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: .devcontainer/Dockerfile
+
+  devcontainer-build:
+    name: devcontainer build smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Builds the image and runs postCreateCommand — this is what catches a
+      # Dockerfile or post-create.sh regression before a human hits it.
+      # Requires .devcontainer/certs/.gitkeep to be committed so the COPY
+      # succeeds on a fresh clone.
+      - uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: |
+            jq --version
+            command -v snaps
+            test -x "$HOME/.claude/hooks/guard-git.sh"
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

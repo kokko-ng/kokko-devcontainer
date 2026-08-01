@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # GitHub Actions pins in .github/workflows/
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Base image digest in .devcontainer/Dockerfile
+  - package-ecosystem: docker
+    directory: /.devcontainer
+    schedule:
+      interval: weekly
+
+  # Feature versions in .devcontainer/devcontainer.json
+  - package-ecosystem: devcontainers
+    directory: /
+    schedule:
+      interval: weekly

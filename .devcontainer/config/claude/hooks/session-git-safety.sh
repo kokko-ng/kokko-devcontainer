@@ -7,8 +7,25 @@
 # silently vanish. This hook does not depend on any file the user might replace.
 set -uo pipefail
 
-git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
+
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    # Distinguish "not a repo" (fine, stay silent) from "git refuses to
+    # operate" (dubious ownership on a host-uid bind mount). In the latter
+    # case BOTH safety layers are silently non-functional — the snapshot
+    # hook's git calls fail identically — so say so at session start instead
+    # of letting the broken state be discovered after data loss.
+    err=$(git rev-parse --git-dir 2>&1 >/dev/null || true)
+    if printf '%s' "$err" | grep -qi 'dubious ownership'; then
+        jq -n '{
+            hookSpecificOutput: {
+                hookEventName: "SessionStart",
+                additionalContext: "WARNING: git reports \"dubious ownership\" for this workspace (it is owned by a different uid than the container user). The git safety layer is NON-FUNCTIONAL: nothing is being snapshotted and the guard cannot verify tree state (it will fail closed). Fix before any git work: git config --global --add safe.directory <workspace>, then verify `snaps` works."
+            }
+        }'
+    fi
+    exit 0
+fi
 
 dirty_note=""
 if [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null | head -1)" ]]; then

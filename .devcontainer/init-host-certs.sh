@@ -4,35 +4,42 @@
 # corporate proxy CAs without disabling SSL verification.
 #
 # Splits into individual .crt files so update-ca-certificates processes
-# them without rehash warnings.
+# them without rehash warnings. Expired certificates are dropped when
+# openssl is available to check them.
 set -euo pipefail
 
-CERT_DIR=".devcontainer/certs"
-rm -rf "$CERT_DIR"
+# Derive the certs directory from this script's own location — a relative
+# path silently depends on the caller's cwd, which is exactly the kind of
+# thing you do not want feeding a delete-and-recreate.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CERT_DIR="$SCRIPT_DIR/certs"
 mkdir -p "$CERT_DIR"
+# Remove only our own previous output; .gitkeep stays so the directory always
+# exists in git and plain `docker build` works.
+rm -f "$CERT_DIR"/host-ca-*.crt
 
 extract_individual_certs() {
     local bundle="$1"
-    local idx=0
-    local current=""
-    local in_cert=false
+    awk -v dir="$CERT_DIR" '
+        /-----BEGIN CERTIFICATE-----/ { n++; f = dir "/host-ca-" (n - 1) ".crt" }
+        f { print > f }
+        /-----END CERTIFICATE-----/ { close(f); f = "" }
+        END { printf "  Extracted %d certificates\n", n }
+    ' "$bundle"
+}
 
-    while IFS= read -r line; do
-        if [[ "$line" == "-----BEGIN CERTIFICATE-----" ]]; then
-            in_cert=true
-            current="$line"$'\n'
-        elif [[ "$line" == "-----END CERTIFICATE-----" ]]; then
-            current+="$line"$'\n'
-            printf '%s' "$current" > "$CERT_DIR/host-ca-${idx}.crt"
-            idx=$((idx + 1))
-            in_cert=false
-            current=""
-        elif $in_cert; then
-            current+="$line"$'\n'
+prune_expired_certs() {
+    command -v openssl >/dev/null 2>&1 || return 0
+    local f removed=0
+    for f in "$CERT_DIR"/host-ca-*.crt; do
+        [[ -e "$f" ]] || continue
+        if ! openssl x509 -checkend 0 -noout -in "$f" >/dev/null 2>&1; then
+            rm -f "$f"
+            removed=$((removed + 1))
         fi
-    done < "$bundle"
-
-    echo "  Extracted $idx certificates"
+    done
+    [[ $removed -gt 0 ]] && echo "  Dropped $removed expired certificate(s)"
+    return 0
 }
 
 echo "=== Extracting host CA certificates ==="
@@ -51,9 +58,9 @@ fi
 
 if [[ -s "$TMPBUNDLE" ]]; then
     extract_individual_certs "$TMPBUNDLE"
+    prune_expired_certs
 else
-    echo "  No certificates found, creating empty placeholder"
-    touch "$CERT_DIR/.keep"
+    echo "  No certificates found; leaving $CERT_DIR empty (.gitkeep keeps it present)"
 fi
 
 echo "=== Host CA certificates extracted to $CERT_DIR ==="
