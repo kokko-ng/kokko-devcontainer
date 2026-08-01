@@ -211,9 +211,15 @@ devcontainer up --workspace-folder . --remove-existing-container
 ├── Dockerfile          # Base image and system-level dependencies
 ├── init-host-certs.sh  # Extracts host CA certs (runs before build)
 ├── post-create.sh      # Runs once after the container is created
+├── certs/              # Host CA certs extracted by init-host-certs.sh
+│                       # (gitignored except .gitkeep)
 └── config/
-    ├── zsh/            # Bundled shell config (symlinked by post-create.sh)
-    └── claude/         # Bundled Claude Code settings and CLAUDE.md
+    ├── bin/
+    │   └── snaps         # Browse/restore working-tree snapshots
+    ├── zsh/              # Bundled shell config (symlinked by post-create.sh)
+    └── claude/           # Bundled Claude Code settings and CLAUDE.md
+        ├── hooks/        # Git safety hooks (see GIT-SAFETY.md)
+        └── merge-hooks.jq  # Splices hooks into an existing settings.json
 .gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
 
@@ -222,15 +228,17 @@ devcontainer up --workspace-folder . --remove-existing-container
 Abridged for readability — comments are condensed and some flags omitted. `.devcontainer/Dockerfile` is the source of truth.
 
 ```dockerfile
-FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
+# Pinned by digest for reproducibility; Dependabot proposes digest bumps
+FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:...
 
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir uv==<pinned>
 
-# ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL)
+# ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
+# jq (required by the git safety hooks), fzf + fd-find for the shell config
 RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev jq fzf fd-find \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Symlink so macOS absolute paths in Claude plugin configs resolve.
@@ -285,10 +293,19 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 8. Configures git for recoverability (`safe.directory`, reflog and prune retention, `rerere`).
 9. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
 10. Runs `uv sync` if `pyproject.toml` exists.
-11. Installs Playwright Chromium (Python package) if `pyproject.toml` exists.
-12. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists.
-13. Installs pre-commit hooks if `.pre-commit-config.yaml` exists.
+11. Installs Playwright Chromium (Python package) if `pyproject.toml` exists **and**
+    `uv run python -c "import playwright"` succeeds in the synced environment — a
+    `pyproject.toml` that does not actually pull in playwright is skipped.
+12. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists (falls back
+    to `npm install --legacy-peer-deps` when `ui/package-lock.json` is missing, since
+    `npm ci` hard-fails without a lockfile).
+13. Installs pre-commit hooks if `.pre-commit-config.yaml` exists, and warns if
+    `.git/hooks/pre-commit` is still missing afterwards.
 14. Copies `.env.example` to `.env` if no `.env` exists.
+
+Network install steps retry 3 times with backoff; a step that still fails is recorded in
+`~/.devcontainer-provision-status` and summarized at the end instead of aborting the
+build. Re-run `bash .devcontainer/post-create.sh` after fixing connectivity.
 
 The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything — no `sed` needed when forking.
 
@@ -493,8 +510,11 @@ Configure your git author identity so commits are attributed correctly:
 
 ```bash
 git config --global user.name "$(gh api user --jq .name)"
-git config --global user.email "$(gh api user --jq .email)"
+git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary) | .email')"
 ```
+
+(`gh api user --jq .email` returns the literal string `null` when your email is set to
+private on GitHub — the `user/emails` endpoint always has the real primary address.)
 
 This pulls your name and email from your authenticated GitHub account. Verify with:
 
@@ -543,7 +563,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 9 of 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 10 of 11 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |

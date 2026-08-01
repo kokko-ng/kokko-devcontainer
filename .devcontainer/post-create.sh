@@ -476,8 +476,16 @@ check_vm_disk() {
 apply_bundled_config() {
     render_bundled_claude
     configure_claude
-    install_git_safety_hooks
-    merge_claude_settings
+    # The documented off switch for the git safety layer (see GIT-SAFETY.md).
+    # Removing the hooks block from ~/.claude/settings.json alone is NOT
+    # enough: this script re-merges it on every rebuild and container start.
+    if [[ "${KOKKO_NO_GIT_HOOKS:-}" == "1" ]]; then
+        echo "=== KOKKO_NO_GIT_HOOKS=1: git safety hooks NOT installed or merged ==="
+        echo "    (existing hook entries in ~/.claude/settings.json are left as-is)"
+    else
+        install_git_safety_hooks
+        merge_claude_settings
+    fi
     bootstrap_claude_plugins || true
     configure_git
     link_shell_config
