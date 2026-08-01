@@ -1,6 +1,9 @@
 # Host-specific CA certificates extracted by initializeCommand.
 # init-host-certs.sh writes real CA certs from the host keychain here.
-.devcontainer/certs/
+# The .gitkeep is committed so the directory exists on fresh clones and
+# plain `docker build .devcontainer` works (the Dockerfile COPYs certs/).
+.devcontainer/certs/*
+!.devcontainer/certs/.gitkeep
 
 # Playwright CLI runtime artifacts (browsers, profiles, traces).
 # post-create.sh installs @playwright/cli, which creates these in the workspace.
