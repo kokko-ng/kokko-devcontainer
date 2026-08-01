@@ -6,6 +6,9 @@ FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:d4ffe02682e0960
 # Install uv globally, pinned (npm/node not available yet - added by features layer)
 RUN pip install --no-cache-dir uv==0.12.1
 
+# Fail piped RUN commands if any pipeline stage fails (hadolint DL4006).
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
 # jq (a HARD dependency of the git safety hooks — without it they cannot parse
 # tool payloads), and fzf + fd-find for the bundled shell config.
