@@ -53,6 +53,7 @@
     "kokko-env@kokko-ng-kokko-cmds": true,
     "kokko-git@kokko-ng-kokko-cmds": true,
     "kokko-infra@kokko-ng-kokko-cmds": true,
+    "kokko-learning@kokko-ng-kokko-cmds": true,
     "kokko-notifications@kokko-ng-kokko-cmds": true,
     "kokko-safety@kokko-ng-kokko-cmds": false,
     "kokko-validation@kokko-ng-kokko-cmds": true,
