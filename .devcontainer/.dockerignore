@@ -1,0 +1,5 @@
+# The Dockerfile only COPYs certs/ — keep everything else out of the build
+# context so config edits do not invalidate layers and secrets never reach
+# the daemon.
+*
+!certs/
