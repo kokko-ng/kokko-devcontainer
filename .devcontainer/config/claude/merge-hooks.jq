@@ -12,9 +12,13 @@
 #      appending would stack duplicate hook entries until every Bash call ran
 #      the guard a dozen times.
 #
-# So: drop any entry pointing at our own hooks directory (a previous install of
-# these same hooks), then append the current bundled set. User hooks never match
-# that path and survive untouched.
+# So: drop any entry pointing at one of OUR OWN hook scripts (a previous
+# install of these same hooks), then append the current bundled set. "Ours" is
+# matched by basename — only the three bundled scripts under a .claude/hooks/
+# path — NOT by directory: ~/.claude/hooks/ is the natural home for a user's
+# own hooks too, and a directory-wide match silently deleted them on every
+# container start. The match is path-prefix agnostic because post-create.sh
+# seds /home/vscode to the actual $HOME before running this filter.
 #
 # It also ADDITIVELY merges the bundled plugin roster (enabledPlugins,
 # extraKnownMarketplaces): bundled entries are added only when the key is
@@ -27,7 +31,7 @@
 # skipDangerousModePermissionPrompt): a fresh settings.json gets the bundled
 # defaults, while any value the user has set — whatever it is — wins.
 
-def ours: "/home/vscode/\\.claude/hooks/";
+def ours: "\\.claude/hooks/(guard-git|git-snapshot|session-git-safety)\\.sh$";
 
 def strip_ours:
     map(.hooks |= map(select((.command // "") | test(ours) | not)))
