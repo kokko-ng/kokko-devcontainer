@@ -87,7 +87,7 @@ provision_summary() {
 # cache and history volumes writable by the container user.
 fix_volume_ownership() {
     local d
-    for d in "$HOME/.cache/uv" "$HOME/.npm" /commandhistory; do
+    for d in "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory; do
         [[ -d "$d" && ! -w "$d" ]] || continue
         sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
@@ -123,6 +123,9 @@ install_zsh_plugins() {
 
 install_claude_cli() {
     echo "=== Installing Claude Code CLI ==="
+    # The Dockerfile now bakes the binary into the image, so this normally
+    # just reports the existing install. It stays as a fallback for images
+    # built before that layer existed.
     if command -v claude >/dev/null 2>&1; then
         echo "  Claude Code already installed at $(command -v claude)"
     else
@@ -146,18 +149,28 @@ install_copilot_cli() {
 install_playwright_cli() {
     echo "=== Installing Playwright CLI ==="
     # https://playwright.dev/agent-cli/installation
+    if ! command -v npm >/dev/null 2>&1 && ! command -v playwright-cli >/dev/null 2>&1; then
+        echo "  npm not available — skipping Playwright CLI install"
+        return 0
+    fi
     if command -v playwright-cli >/dev/null 2>&1; then
         echo "  Playwright CLI already installed at $(command -v playwright-cli)"
-    elif command -v npm >/dev/null 2>&1; then
+    else
         # Pinned (was @latest). Dependabot cannot see this pin — bump it
         # manually (npm view @playwright/cli version); see MANAGING.md -> Pin audit.
-        step "playwright-cli" bash -c '
-            npm install -g @playwright/cli@0.1.17 \
-            && playwright-cli install-browser --with-deps \
-            && playwright-cli install --skills'
-    else
-        echo "  npm not available — skipping Playwright CLI install"
+        step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
+    command -v playwright-cli >/dev/null 2>&1 || return 0
+    # Browsers persist in the pw-browsers named volume (PLAYWRIGHT_BROWSERS_PATH,
+    # see devcontainer.json), so the expensive --with-deps download only runs
+    # when the volume is still empty — first creation pays, rebuilds are fast.
+    local browsers_dir="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+    if [[ -d "$browsers_dir" && -n "$(ls -A "$browsers_dir" 2>/dev/null)" ]]; then
+        echo "  Playwright browsers already present in $browsers_dir — skipping download"
+    else
+        step "playwright-browsers" playwright-cli install-browser --with-deps
+    fi
+    step "playwright-skills" playwright-cli install --skills
 }
 
 # The bundled settings.json and merge-hooks.jq ship /home/vscode literals;
@@ -166,6 +179,10 @@ install_playwright_cli() {
 RENDER_DIR=""
 render_bundled_claude() {
     RENDER_DIR="$(mktemp -d)"
+    # This runs on EVERY container start (postStartCommand --config-only), so
+    # an uncleaned mktemp dir accumulates one orphan per start. The trap keeps
+    # exactly one lifetime: this run's.
+    trap 'rm -rf "$RENDER_DIR"' EXIT
     sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/settings.json" > "$RENDER_DIR/settings.json"
     sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" > "$RENDER_DIR/merge-hooks.jq"
 }
@@ -323,13 +340,17 @@ configure_git() {
     # Without safe.directory git refuses every command with "detected dubious
     # ownership" -- which also silently kills the snapshot hook (its git calls
     # fail, so nothing is ever checkpointed and the safety net protects nothing).
-    # postCreateCommand runs with the workspace folder as cwd, so $PWD is right.
+    # The workspace root is derived from this script's own location (the parent
+    # of the .devcontainer dir), NOT from $PWD -- a --config-only run invoked
+    # from some other directory would otherwise whitelist the wrong path.
     # Guard against re-adding on every run -- --add appends unconditionally.
-    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$PWD"; then
-        echo "  safe.directory already contains: $PWD"
+    local workspace_root
+    workspace_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$workspace_root"; then
+        echo "  safe.directory already contains: $workspace_root"
     else
-        git config --global --add safe.directory "$PWD"
-        echo "  safe.directory: $PWD"
+        git config --global --add safe.directory "$workspace_root"
+        echo "  safe.directory: $workspace_root"
     fi
     git config --global gc.reflogExpire never
     git config --global gc.reflogExpireUnreachable never
