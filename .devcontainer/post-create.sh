@@ -173,9 +173,11 @@ install_playwright_cli() {
     step "playwright-skills" playwright-cli install --skills
 }
 
-# The bundled settings.json and merge-hooks.jq ship /home/vscode literals;
-# render them against the actual $HOME at install time so a different
-# container user (or remoteUser) still gets working hook paths.
+# The bundled settings.json ships /home/vscode literals; render it against
+# the actual $HOME at install time so a different container user (or
+# remoteUser) still gets working hook paths. merge-hooks.jq gets the same
+# treatment defensively, although its "ours" match is now basename-based and
+# path-prefix agnostic.
 RENDER_DIR=""
 render_bundled_claude() {
     RENDER_DIR="$(mktemp -d)"
