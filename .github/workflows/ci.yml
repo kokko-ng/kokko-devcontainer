@@ -26,6 +26,17 @@ jobs:
       - name: Run guard-git table tests
         run: bash tests/guard-git-tests.sh
 
+  actionlint:
+    name: actionlint (workflow lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned docker form: the linter version is explicit, not whatever a
+      # marketplace action resolves to.
+      - uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color
+
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
