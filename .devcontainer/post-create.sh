@@ -99,10 +99,13 @@ fix_volume_ownership() {
 # =====================
 ZSH_CUSTOM_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 clone_zsh_plugin() {
-    local repo="$1" name="$2"
+    local repo="$1" name="$2" tag="${3:-}"
     local dest="$ZSH_CUSTOM_DIR/plugins/$name"
     if [[ -d "$dest/.git" ]]; then
         echo "  $name already present, skipping"
+    elif [[ -n "$tag" ]]; then
+        rm -rf "$dest"
+        step "zsh-plugin-$name" git clone --depth=1 --branch "$tag" "$repo" "$dest"
     else
         rm -rf "$dest"
         step "zsh-plugin-$name" git clone --depth=1 "$repo" "$dest"
@@ -111,8 +114,11 @@ clone_zsh_plugin() {
 
 install_zsh_plugins() {
     echo "=== Installing zsh plugins ==="
-    clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions
-    clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting
+    # Pinned to release tags so a rebuild cannot silently pick up an untested
+    # HEAD. Dependabot cannot see these pins — check for newer tags manually
+    # (git ls-remote --tags <repo>); see MANAGING.md -> Pin audit.
+    clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions v0.7.1
+    clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting 0.8.0
 }
 
 install_claude_cli() {
@@ -143,8 +149,10 @@ install_playwright_cli() {
     if command -v playwright-cli >/dev/null 2>&1; then
         echo "  Playwright CLI already installed at $(command -v playwright-cli)"
     elif command -v npm >/dev/null 2>&1; then
+        # Pinned (was @latest). Dependabot cannot see this pin — bump it
+        # manually (npm view @playwright/cli version); see MANAGING.md -> Pin audit.
         step "playwright-cli" bash -c '
-            npm install -g @playwright/cli@latest \
+            npm install -g @playwright/cli@0.1.17 \
             && playwright-cli install-browser --with-deps \
             && playwright-cli install --skills'
     else
