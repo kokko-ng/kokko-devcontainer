@@ -13,7 +13,8 @@ A guide to running and managing multiple instances of this devcontainer across d
 5. [CLI targeting](#cli-targeting)
 6. [Colima resource allocation](#colima-resource-allocation)
 7. [Disk management](#disk-management)
-8. [Cleanup](#cleanup)
+8. [Pin audit](#pin-audit)
+9. [Cleanup](#cleanup)
 
 ---
 
@@ -305,6 +306,27 @@ colima ssh -- sudo rm -rf /var/lib/docker/overlay2
 colima ssh -- sudo systemctl reset-failed containerd docker
 colima ssh -- sudo systemctl start containerd docker
 ```
+
+---
+
+## Pin audit
+
+Dependabot watches this repo's GitHub Actions and the Dockerfile's `FROM` digest — and
+nothing else. The following pins are **invisible to it** and need a manual check
+(quarterly is a reasonable cadence):
+
+| Pin | Where | How to check |
+|---|---|---|
+| `uv==<version>` | `.devcontainer/Dockerfile` | `curl -s https://pypi.org/pypi/uv/json \| jq -r .info.version` |
+| `@playwright/cli@<version>` | `.devcontainer/post-create.sh` | `npm view @playwright/cli version` |
+| zsh plugin release tags | `.devcontainer/post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/zsh-autosuggestions` (and `zsh-syntax-highlighting`) |
+| Feature option versions (e.g. node `"version": "22"`) | `.devcontainer/devcontainer.json` | Node release schedule; bump when the pinned major approaches EOL |
+
+Devcontainer **feature MAJOR tags** (`azure-cli:1`, `node:1`, `docker-in-docker:2`, ...)
+float deliberately: they resolve to the latest release within the major on every build,
+which keeps features patched without churn here. The trade-off is accepted — a feature
+release can change behavior between rebuilds — because features are maintained by the
+devcontainers org and the CI build smoke test catches breakage.
 
 ---
 

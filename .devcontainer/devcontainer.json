@@ -15,7 +15,8 @@
     // Azure CLI — remove if not using Azure
     "ghcr.io/devcontainers/features/azure-cli:1": {},
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
+      // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
+      "version": "22"
     },
     // Docker-in-Docker — a second Docker daemon inside the container.
     // Its image store lives in a named `dind-var-lib-docker-*` volume that

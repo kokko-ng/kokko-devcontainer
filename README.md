@@ -7,7 +7,7 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | Tool | Purpose |
 |------|---------|
 | Python 3.12 + uv | Backend runtime and dependency management |
-| Node 20 | Frontend build tooling |
+| Node 22 | Frontend build tooling |
 | Azure CLI | Azure resource management |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc |
 | GitHub CLI | Repository and PR workflows |
