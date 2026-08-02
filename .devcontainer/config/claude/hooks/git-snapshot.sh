@@ -44,7 +44,7 @@ fi
 # guard-git.sh is the layer that fails closed.
 SNAP_LIB="$(dirname "${BASH_SOURCE[0]}")/lib-git-target.sh"
 [[ -f "$SNAP_LIB" ]] || exit 0
-# shellcheck source=lib-git-target.sh
+# shellcheck disable=SC1090,SC1091  # lib path is runtime-relative; the lib is linted separately
 source "$SNAP_LIB"
 
 resolve_git_target "$cmd"

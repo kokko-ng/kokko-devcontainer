@@ -13,6 +13,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pre-commit:
+    name: pre-commit (all files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run pre-commit on all files
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   guard-git-tests:
     name: git safety layer regression tests
     runs-on: ubuntu-latest
@@ -65,6 +78,11 @@ jobs:
   devcontainer-build:
     name: devcontainer build smoke test
     runs-on: ubuntu-latest
+    # devcontainer.json passes this through to containerEnv, so the
+    # post-create run inside the build skips the 11 plugin-install network
+    # calls that need a signed-in CLI and are doomed in CI anyway.
+    env:
+      KOKKO_SKIP_PLUGINS: "1"
     steps:
       - uses: actions/checkout@v4
       # Builds the image and runs postCreateCommand — this is what catches a
@@ -75,9 +93,20 @@ jobs:
         with:
           push: never
           runCmd: |
+            set -e
             jq --version
             command -v snaps
+            command -v claude   # baked into the image by the Dockerfile
             test -x "$HOME/.claude/hooks/guard-git.sh"
+            test -f "$HOME/.claude/hooks/lib-git-target.sh"
+            # Hooks present on disk is not enough — verify they are WIRED
+            # into the live settings.json the merge produced.
+            jq -e '[.hooks.PreToolUse[].hooks[].command] | map(test("guard-git\\.sh")) | any' "$HOME/.claude/settings.json"
+            jq -e '[.hooks.PreToolUse[].hooks[].command] | map(test("git-snapshot\\.sh")) | any' "$HOME/.claude/settings.json"
+            jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | map(test("git-snapshot\\.sh")) | any' "$HOME/.claude/settings.json"
+            jq -e '[.hooks.SessionStart[].hooks[].command] | map(test("session-git-safety\\.sh")) | any' "$HOME/.claude/settings.json"
+            # Idempotence smoke: a second --config-only run must succeed.
+            KOKKO_SKIP_PLUGINS=1 bash .devcontainer/post-create.sh --config-only
 
   gitleaks:
     name: gitleaks (secret scan)
