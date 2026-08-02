@@ -305,7 +305,7 @@ cat > "$USER_SETTINGS" <<'EOF'
                    { "type": "command", "command": "/home/vscode/.claude/hooks/my-own-hook.sh" } ] }
     ]
   },
-  "enabledPlugins": { "kokko-safety@kokko-ng-kokko-cmds": true }
+  "enabledPlugins": { "kokko-safety@kokko-ng-kokko-cmds": false }
 }
 EOF
 m1=$(jq -s -f "$MERGE_JQ" "$USER_SETTINGS" "$BUNDLED_SETTINGS")
@@ -337,8 +337,9 @@ if [[ "$guards1" == "1" ]]; then
 else
     FAIL=$((FAIL + 1)); FAILED_CASES+=("merge-hooks: guard hook duplicated after double merge (count=$guards1)")
 fi
+# The bundle ships kokko-safety as true; the user disabled it — false must win.
 check "user's explicit plugin choice wins" \
-    '.enabledPlugins["kokko-safety@kokko-ng-kokko-cmds"] == true' "$m1"
+    '.enabledPlugins["kokko-safety@kokko-ng-kokko-cmds"] == false' "$m1"
 check "bundled plugins added when absent" \
     '.enabledPlugins["kokko-git@kokko-ng-kokko-cmds"] == true' "$m1"
 check "user's permissions.defaultMode is preserved" \

@@ -160,6 +160,29 @@ think you have one.
 
 ---
 
+## Division of labor with kokko-safety
+
+The [kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin is enabled, with its
+git hook switched off. The split:
+
+| Layer | Owns |
+|---|---|
+| `guard-git.sh` (this repo) | **All git safety**: deny rules, dirty-gating, target resolution, snapshots |
+| `kokko-safety` plugin | **Everything non-git**: destructive bash (`rm -rf`, `chmod`, ...), cloud deletes (`az`/`aws`/`gcloud` destroy operations), and branch protection — which guard-git deliberately lacks |
+
+The wiring is `KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`'s
+`containerEnv`: kokko-safety honors that variable (comma/space-separated hook tokens —
+`destructive-git`, `branch-protection`, `cloud-ops`, `destructive-bash`; a listed hook
+allows everything silently), so its git rules step aside for the stronger dirty-gated
+guard here instead of double-prompting on every git command.
+
+Why this matters: previously the plugin was **fully disabled**, which left non-git
+destructive commands ungoverned under `bypassPermissions` — the exact "control you turned
+off" failure mode described above, just aimed at `rm -rf` and cloud resources instead of
+git.
+
+---
+
 ## Override
 
 ```bash
@@ -217,10 +240,11 @@ deliberately accepted:
 The bundled setup leans hard on this hook layer. The `ccc` alias runs Claude with
 `--permission-mode bypassPermissions`, and the bundled `settings.json` sets
 `skipDangerousModePermissionPrompt`, so the permission system is **out of the loop** —
-PreToolUse hooks are the *only* automated control on git commands. The container also has
-docker-in-docker, and the optional `~/.azure` mount hands it live cloud credentials.
-Combine all of that and a misbehaving agent is one hook bug away from acting on your
-remotes and your cloud. Keep the optional mounts off unless you need them, and treat the
+PreToolUse hooks are the *only* automated control on git commands, and the kokko-safety
+plugin's hooks are the only one on destructive bash and cloud operations. The container
+also has docker-in-docker, and the optional `~/.azure` mount hands it live cloud
+credentials. Combine all of that and a misbehaving agent is one hook bug away from acting
+on your remotes and your cloud. Keep the optional mounts off unless you need them, and treat the
 hook layer as a seatbelt, not a roll cage: commits, pushes-on-request-only, and small
 blast radii are still the real controls.
 
