@@ -218,8 +218,9 @@ devcontainer up --workspace-folder . --remove-existing-container
     │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Bundled shell config (symlinked by post-create.sh)
     └── claude/           # Bundled Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks (see GIT-SAFETY.md)
-        └── merge-hooks.jq  # Splices hooks into an existing settings.json
+        ├── hooks/        # Git safety hooks + shared lib (see GIT-SAFETY.md)
+        ├── merge-hooks.jq   # Splices hooks into an existing settings.json
+        └── prune-roster.jq  # Prunes roster entries the bundle no longer ships
 .gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
 
@@ -618,11 +619,11 @@ Available tags: [mcr.microsoft.com/devcontainers/python](https://mcr.microsoft.c
 
 ### Changing the Node version
 
-Update the `version` in the Node feature:
+Update the `version` in the Node feature (the default is `22`):
 
 ```jsonc
 "ghcr.io/devcontainers/features/node:1": {
-  "version": "22"
+  "version": "24"
 }
 ```
 

@@ -36,14 +36,19 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
     │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Shell config (bundled into container)
     └── claude/           # Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks (see "Git safety" below)
-        └── merge-hooks.jq
+        ├── hooks/        # Git safety hooks + shared lib (see "Git safety" below)
+        ├── merge-hooks.jq   # Splices hook wiring into a live settings.json
+        └── prune-roster.jq  # Removes roster entries the bundle dropped
 ghostty/
 └── config                # Host-side Ghostty terminal config
 tests/
 └── guard-git-tests.sh    # Regression tests for the git safety layer (run in CI)
-.github/                  # CI workflow (tests, shellcheck, hadolint, build, gitleaks)
+.github/                  # CI workflow (pre-commit, tests, shellcheck, actionlint,
+                          # hadolint, build, gitleaks) + release workflow
 .gitignore                # Ignores extracted host CA certs, secrets, build artifacts
+VERSION                   # Drives the v<version> tag published by release.yml
+CLAUDE.md                 # For agents working ON this repo (tests, layout, rules)
+CONTRIBUTING.md           # Test command, pre-commit setup, release flow
 GIT-SAFETY.md             # How the git safety net works
 INSTRUCTIONS.md           # Full setup walkthrough
 MANAGING.md               # Multi-instance management guide
