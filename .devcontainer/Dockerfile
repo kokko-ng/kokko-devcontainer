@@ -38,3 +38,18 @@ RUN HU="${HOST_USER:-vscode}"; mkdir -p /Users && ln -sfn /home/vscode "/Users/$
 # before init-host-certs.sh has populated it.
 COPY certs/ /usr/local/share/ca-certificates/host/
 RUN update-ca-certificates
+
+# Claude Code native binary, baked into the image so every rebuild does not
+# re-download it in post-create (it needs no node — the installer drops a
+# standalone binary in ~/.local/bin, owned by vscode, hence the USER switch).
+# Placed after the CA layer so corporate-proxy certs are already trusted.
+# post-create.sh keeps its `command -v claude` fallback for images built
+# before this layer existed. The npm-based CLIs (copilot, playwright) CANNOT
+# move here: node arrives via a devcontainer feature, which layers after this
+# Dockerfile.
+USER vscode
+RUN curl -fsSL https://claude.ai/install.sh | bash
+# Devcontainer features and any later build steps expect to run as root
+# (remoteUser=vscode handles the runtime switch).
+# hadolint ignore=DL3002
+USER root

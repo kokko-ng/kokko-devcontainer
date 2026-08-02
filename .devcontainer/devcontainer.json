@@ -50,7 +50,11 @@
     // NON-git the plugin protects (rm -rf, cloud deletes, chmod, branch
     // protection) stays active — previously the whole plugin was disabled,
     // leaving those ungoverned under bypassPermissions.
-    "KOKKO_SAFETY_SKIP": "destructive-git"
+    "KOKKO_SAFETY_SKIP": "destructive-git",
+    // Playwright browsers live in the pw-browsers named volume (see "mounts")
+    // so a rebuild does not re-download ~400MB of Chromium; post-create skips
+    // the install when this directory is already populated.
+    "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   // Capture provisioning output — post-create failures are otherwise lost in
@@ -75,7 +79,10 @@
   "mounts": [
     "source=devcontainer-uv-cache,target=/home/vscode/.cache/uv,type=volume",
     "source=devcontainer-npm-cache,target=/home/vscode/.npm,type=volume",
-    "source=devcontainer-zsh-history,target=/commandhistory,type=volume"
+    "source=devcontainer-zsh-history,target=/commandhistory,type=volume",
+    // Playwright browsers: first creation pays the download, every rebuild
+    // after is fast. Target must match PLAYWRIGHT_BROWSERS_PATH above.
+    "source=pw-browsers,target=/home/vscode/.cache/ms-playwright,type=volume"
   ],
   // Optional bind mounts — add entries to "mounts" above as needed.
   // Shell config and Claude Code settings are bundled in .devcontainer/config/

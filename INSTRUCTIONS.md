@@ -286,10 +286,10 @@ Key sections:
 
 Runs once after the container is first created. Steps are idempotent so a rebuild does not fail on already-installed components. It:
 
-1. Installs zsh plugins (autosuggestions, syntax highlighting). Skips if already cloned.
-2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Skips if `claude` is already on `PATH`.
+1. Installs zsh plugins (autosuggestions, syntax highlighting), pinned to release tags. Skips if already cloned.
+2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Normally a no-op: the Dockerfile bakes the binary into the image, and this step only fires as a fallback for images built before that layer existed.
 3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
-4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@latest`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). Skips if `playwright-cli` is already on `PATH`.
+4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@<pinned>`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). The browsers live in the `pw-browsers` named volume (`PLAYWRIGHT_BROWSERS_PATH`), so the download is skipped on every rebuild after the first.
 5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
 6. Installs the git safety hooks and the `snaps` helper, then merges the hook wiring and plugin roster into the live `settings.json` (see [GIT-SAFETY.md](GIT-SAFETY.md)).
 7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the bundled `settings.json`. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI.
