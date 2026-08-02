@@ -54,7 +54,11 @@
     // Playwright browsers live in the pw-browsers named volume (see "mounts")
     // so a rebuild does not re-download ~400MB of Chromium; post-create skips
     // the install when this directory is already populated.
-    "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright"
+    "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
+    // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
+    // post-create skips the plugin bootstrap (11 network calls that need a
+    // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
+    "KOKKO_SKIP_PLUGINS": "${localEnv:KOKKO_SKIP_PLUGINS}"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   // Capture provisioning output — post-create failures are otherwise lost in
