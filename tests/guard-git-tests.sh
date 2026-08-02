@@ -12,6 +12,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GUARD="$ROOT/.devcontainer/config/claude/hooks/guard-git.sh"
 SNAPSHOT="$ROOT/.devcontainer/config/claude/hooks/git-snapshot.sh"
+SESSION="$ROOT/.devcontainer/config/claude/hooks/session-git-safety.sh"
+SNAPS="$ROOT/.devcontainer/config/bin/snaps"
 MERGE_JQ="$ROOT/.devcontainer/config/claude/merge-hooks.jq"
 BUNDLED_SETTINGS="$ROOT/.devcontainer/config/claude/settings.json"
 
@@ -397,6 +399,70 @@ check "user's own plugin (never bundled) survives the prune" \
     '.enabledPlugins["own-plugin@mkt"] == true' "$pruned"
 check "removed marketplace is pruned" \
     '.extraKnownMarketplaces | has("dead-mkt") | not' "$pruned"
+
+# ===========================================================================
+# 11c. session-git-safety.sh — SessionStart smoke test
+# ===========================================================================
+# In a repo with dirty tracked files, the hook must emit valid JSON whose
+# additionalContext states the dirty-file count.
+SESSREPO="$WORK/sessrepo"; mkrepo "$SESSREPO" dirty
+echo two > "$SESSREPO/second.txt"
+git -C "$SESSREPO" add second.txt
+git -C "$SESSREPO" commit -qm second
+echo changed2 > "$SESSREPO/second.txt"   # now 2 dirty tracked files
+OUT=$(cd "$SESSREPO" && printf '%s' '{"hook_event_name":"SessionStart"}' | bash "$SESSION" 2>/dev/null)
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: output is not valid SessionStart JSON: $OUT")
+fi
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("2 uncommitted tracked file")' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: additionalContext does not mention the dirty-file count (2)")
+fi
+# In a clean repo the context must NOT carry the ATTENTION dirty-tree warning.
+OUT=$(cd "$CLEAN" && printf '%s' '{"hook_event_name":"SessionStart"}' | bash "$SESSION" 2>/dev/null)
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("ATTENTION") | not' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: clean repo output carries the dirty-tree ATTENTION note")
+fi
+
+# ===========================================================================
+# 11d. snaps roundtrip — snapshot hook ref, snaps list, refuse-then-restore
+# ===========================================================================
+ROUND="$WORK/roundtrip"; mkrepo "$ROUND" dirty
+payload=$(jq -n '{hook_event_name: "PreToolUse", tool_input: {command: "git rebase main"}}')
+(cd "$ROUND" && printf '%s' "$payload" | bash "$SNAPSHOT" >/dev/null 2>&1)
+snapref=$(git -C "$ROUND" for-each-ref --format='%(refname)' refs/snapshots/ | head -1)
+if [[ -n "$snapref" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("snaps roundtrip: git-snapshot.sh created no refs/snapshots/ ref")
+fi
+# Capture, then grep: `snaps | grep -q` would race grep's early exit against
+# snaps' trailing output under pipefail (SIGPIPE flake).
+snaps_out=$(cd "$ROUND" && bash "$SNAPS" 2>/dev/null)
+if printf '%s' "$snaps_out" | grep -q "refs/snapshots/"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("snaps roundtrip: 'snaps' does not list the snapshot: $snaps_out")
+fi
+# restore over the still-dirty tree must REFUSE (exit non-zero)...
+if (cd "$ROUND" && bash "$SNAPS" restore "$snapref" >/dev/null 2>&1); then
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("snaps roundtrip: restore succeeded over a dirty tree (must refuse)")
+else
+    PASS=$((PASS + 1))
+fi
+# ...and succeed once the tree is clean, bringing the dirty content back.
+git -C "$ROUND" checkout -- file.txt
+if (cd "$ROUND" && bash "$SNAPS" restore "$snapref" >/dev/null 2>&1) \
+    && [[ "$(cat "$ROUND/file.txt")" == "changed" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("snaps roundtrip: restore on a clean tree did not bring the snapshot back")
+fi
 
 # ===========================================================================
 # 12. Bundled settings.json is valid JSON
