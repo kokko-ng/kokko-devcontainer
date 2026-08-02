@@ -205,7 +205,7 @@ if [[ ! -f "$GUARD_LIB" ]]; then
     fi
     exit 0
 fi
-# shellcheck source=lib-git-target.sh
+# shellcheck disable=SC1090,SC1091  # lib path is runtime-relative; the lib is linted separately
 source "$GUARD_LIB"
 
 resolve_git_target "$cmd"
