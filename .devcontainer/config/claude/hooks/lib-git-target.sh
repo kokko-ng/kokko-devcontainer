@@ -18,8 +18,12 @@ extract_cd_target() {
         's/^[[:space:]]*cd[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+))[[:space:]]*(&&|;).*/\2\3\4/p' | head -1
 }
 extract_dash_c_target() {
+    # Only a -C in git's GLOBAL-option position (before the subcommand) names
+    # a target repo. Between `git` and `-C`, tolerate other dash options and
+    # name=value arguments (`git -c k=v -C <dir> ...`) but NOT a bare word —
+    # otherwise `git switch -C topic` reads "topic" as a repository path.
     printf '%s' "$cmd" | sed -nE \
-        's/.*git[^;&|]*[[:space:]]-C[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
+        's/.*git[[:space:]]+((-[^[:space:]]+|[^[:space:]]+=[^[:space:]]*)[[:space:]]+)*-C[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\4\5\6/p' | head -1
 }
 extract_git_dir_target() {
     # [=[:space:]] accepts both `--git-dir=<dir>` and `--git-dir <dir>` — the

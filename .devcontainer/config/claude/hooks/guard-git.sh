@@ -76,12 +76,15 @@ deny() {
 # half visible and is still denied.
 # ---------------------------------------------------------------------------
 scmd="$cmd"
+# Terminators here (and in the deny patterns below, as $E) include closing
+# quotes: a wrapped command ends in one (`sh -lc 'git rebase --abort'`), and
+# without it the whitelist misses — or a deny pattern misses — on the quote.
 # A conflicted rebase is dirty by definition — the abort/continue/skip/quit
 # forms are the ONLY exit from it and destroy nothing that matters.
-scmd=$(printf '%s' "$scmd" | sed -E 's/rebase[[:space:]]+--(abort|continue|skip|quit)([[:space:];&|)]|$)/__RECOVERY__\2/g')
+scmd=$(printf '%s' "$scmd" | sed -E 's/rebase[[:space:]]+--(abort|continue|skip|quit)([[:space:];&|)"'"'"']|$)/__RECOVERY__\2/g')
 # stash list/show are read-only; stash apply is the documented snapshot
 # recovery path (snaps restore == git stash apply refs/snapshots/...).
-scmd=$(printf '%s' "$scmd" | sed -E 's/stash[[:space:]]+(list|show|apply)([[:space:];&|)]|$)/__RECOVERY__\2/g')
+scmd=$(printf '%s' "$scmd" | sed -E 's/stash[[:space:]]+(list|show|apply)([[:space:];&|)"'"'"']|$)/__RECOVERY__\2/g')
 # restore --staged only touches the index — unless --worktree/-W is also
 # present, in which case leave it visible for the restore deny below.
 if ! printf '%s' "$scmd" | grep -qE -- '--worktree|(^|[[:space:]])-W([[:space:]]|$)'; then
@@ -90,29 +93,40 @@ fi
 # git clean dry-runs delete nothing. Only the form with -n/--dry-run as the
 # first argument is recognized (`git clean -n`, `-nd`, `--dry-run`); putting
 # the dry-run flag later still trips the deny, which errs on the safe side.
-scmd=$(printf '%s' "$scmd" | sed -E 's/clean[[:space:]]+(-[a-zA-Z]*n[a-zA-Z]*|--dry-run)([[:space:];&|)]|$)/__RECOVERY__\2/g')
+scmd=$(printf '%s' "$scmd" | sed -E 's/clean[[:space:]]+(-[a-zA-Z]*n[a-zA-Z]*|--dry-run)([[:space:];&|)"'"'"']|$)/__RECOVERY__\2/g')
 
 matches() { printf '%s' "$scmd" | grep -qE "$1"; }
 
-# `git` at a COMMAND position — start of a line, after a shell operator, or
-# quoted behind `sh -c`. Anchoring here is not pedantry: an unanchored `git`
-# matches inside string literals (`echo "never git reset --hard"`) and, worse,
-# inside other words — `digit restore` contains "git restore". A guard that
-# cries wolf on documentation gets switched off.
-CMDPOS='(^|[;&|(){}]|[[:space:]]-c[[:space:]]+["'"'"']?)[[:space:]]*'
+# End-of-token for the deny patterns: whitespace, a shell operator, a closing
+# quote (wrapped commands end in one: `sh -lc 'git reset --hard'`), or end of
+# string. Without the quotes, the closing quote masked the match.
+E='([[:space:];&|)"'"'"']|$)'
+
+# `git` at a COMMAND position — start of a line, after a shell operator,
+# quoted behind `sh -c` (including short-option clusters like `sh -lc` /
+# `bash -exc`, where the -c rides along with other flags), or behind `eval`.
+# Anchoring here is not pedantry: an unanchored `git` matches inside string
+# literals (`echo "never git reset --hard"`) and, worse, inside other words —
+# `digit restore` contains "git restore". A guard that cries wolf on
+# documentation gets switched off.
+CMDPOS='(^|[;&|(){}]|[[:space:]]-[a-zA-Z]*c[a-zA-Z]*[[:space:]]+["'"'"']?|(^|[;&|(){}[:space:]])eval[[:space:]]+["'"'"']?)[[:space:]]*'
 
 # Leading wrapper tokens that still end up running git: sudo/env/command/...,
-# VAR=val assignments, and their own flags/arguments (`nice -n 10`,
+# eval, VAR=val assignments, and their own flags/arguments (`nice -n 10`,
 # `sudo -u vscode`). Without this, `sudo git rebase` and `env git reset --hard`
 # sailed straight past the anchor. Once the FIRST token is a wrapper or an
 # assignment, anything up to the next shell operator may precede git.
-WRAP='((sudo|env|command|time|nohup|xargs|nice|stdbuf|[A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*)[[:space:]]+([^;&|]*[[:space:]])?)?'
+# (Quoted eval — `eval "git rebase"` — is handled by CMDPOS above, because the
+# quote sits between the wrapper and the git word.)
+WRAP='((sudo|env|command|eval|time|nohup|xargs|nice|stdbuf|[A-Za-z_][A-Za-z_0-9]*=[^[:space:]]*)[[:space:]]+([^;&|]*[[:space:]])?)?'
 
-# git itself may be invoked by absolute path (`/usr/bin/git rebase`).
-GITWORD='([^[:space:]]*/)?git[[:space:]]+'
+# git itself may be invoked by absolute path (`/usr/bin/git rebase`) or with
+# the alias-skipping backslash prefix (`\git rebase`).
+GITWORD='\\?([^[:space:]]*/)?git[[:space:]]+'
 
 # ...tolerating the global options that legitimately precede a subcommand.
-G="${CMDPOS}${WRAP}${GITWORD}"'((-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--git-dir=[^[:space:]]+|--work-tree=[^[:space:]]+)[[:space:]]+)*'
+# --git-dir/--work-tree accept both the `=` and the space-separated form.
+G="${CMDPOS}${WRAP}${GITWORD}"'((-C[[:space:]]+[^[:space:]]+|-c[[:space:]]+[^[:space:]]+|--git-dir(=|[[:space:]]+)[^[:space:]]+|--work-tree(=|[[:space:]]+)[^[:space:]]+)[[:space:]]+)*'
 
 RECOVER='Uncommitted tracked changes are present. git-snapshot.sh has checkpointed them (run `snaps`), but do not rely on that: commit the work instead, then retry.'
 
@@ -124,7 +138,7 @@ RECOVER='Uncommitted tracked changes are present. git-snapshot.sh has checkpoint
 # is the one case with no safety net, so every non-dry-run form is denied
 # unconditionally (the whitelist above has already hidden `git clean -n` /
 # `--dry-run` forms).
-matches "${G}clean([[:space:];&|)]|$)" && \
+matches "${G}clean${E}" && \
     deny "BLOCKED: \`git clean\` deletes untracked files. Snapshots only cover TRACKED changes, so there is no recovery path for this one. A dry run (\`git clean -n\` / \`git clean --dry-run\`, dry-run flag first) is allowed; delete specific files with \`rm\` instead, after confirming what they are."
 
 # These destroy the history and the snapshot refs themselves — the safety net.
@@ -132,22 +146,39 @@ matches "${G}(filter-branch|filter-repo)" && \
     deny "BLOCKED: history rewriting destroys objects and the refs/snapshots/ safety net. Ask the user first."
 matches "${G}reflog[[:space:]]+(expire|delete)" && \
     deny "BLOCKED: the reflog is the recovery path for committed work. Do not expire it."
-matches "${G}(gc[[:space:]]+.*--prune|prune([[:space:]]|$))" && \
+matches "${G}(gc[[:space:]]+.*--prune|prune${E})" && \
     deny "BLOCKED: pruning deletes unreachable objects, which is exactly what recovery depends on."
 matches "${G}update-ref[[:space:]]+-d[[:space:]]+refs/snapshots" && \
     deny "BLOCKED: refs/snapshots/ is the working-tree safety net. Never delete it by hand."
 
 # A force flag anywhere among push's arguments (not just immediately after
 # `push`), plus the `+refspec` force form.
-matches "${G}push[^;&|]*[[:space:]](--force[^[:space:];&|]*|-[a-zA-Z]*f[a-zA-Z]*)([[:space:];&|)]|$)" && \
+matches "${G}push[^;&|]*[[:space:]](--force[^[:space:];&|]*|-[a-zA-Z]*f[a-zA-Z]*)${E}" && \
     deny "BLOCKED: force-push rewrites the shared remote. Push additively; if a push is rejected, leave it rejected and tell the user."
 matches "${G}push[^;&|]*[[:space:]][\"']?\+[^[:space:]]" && \
     deny "BLOCKED: a \`+refspec\` push (\`git push origin +branch\`) is a force-push in disguise. Push additively; if a push is rejected, leave it rejected and tell the user."
 
+# Remote branch deletion, in both spellings. The remote's reflog is not yours
+# to recover from, and anyone else tracking the branch loses it too.
+matches "${G}push[^;&|]*[[:space:]](--delete|-[a-zA-Z]*d[a-zA-Z]*)${E}" && \
+    deny "BLOCKED: \`git push --delete\` removes a branch from the shared remote — for everyone, with no local reflog to recover it from. Ask the user first."
+matches "${G}push[^;&|]*[[:space:]][\"']?:[^[:space:]]" && \
+    deny "BLOCKED: pushing an empty refspec (\`git push <remote> :<ref>\`) deletes that ref on the shared remote — it is \`push --delete\` in disguise. Ask the user first."
+
+# A force-removed worktree takes its uncommitted (and untracked) changes with
+# it — that tree's work was never a git object, so nothing can bring it back.
+matches "${G}worktree[[:space:]]+remove[^;&|]*[[:space:]](--force[^[:space:];&|]*|-[a-zA-Z]*f[a-zA-Z]*)${E}" && \
+    deny "BLOCKED: \`git worktree remove --force\` deletes the worktree ALONG WITH its uncommitted changes. Plain \`git worktree remove\` is allowed — it refuses when the tree is dirty, which is the point."
+
+# -D (== --delete --force) drops a branch regardless of merge state, and the
+# branch's reflog is deleted with it — so the usual recovery path dies too.
+matches "${G}branch[^;&|]*[[:space:]](-[a-zA-Z]*D[a-zA-Z]*|--delete[[:space:]]+--force|--force[[:space:]]+--delete)${E}" && \
+    deny "BLOCKED: \`git branch -D\` force-deletes a branch AND its reflog — the reflog for a deleted branch is deleted with it, so unmerged commits become unreachable with no easy way back. Use \`git branch -d\`, which refuses on unmerged work; if -d refuses, ask the user."
+
 # The dot must be a COMPLETE argument (`.` or `./`), not a prefix — otherwise
 # legitimate dotted paths (`git add .claude/settings.json`, `.gitignore`)
 # false-positive as `git add .`.
-matches "${G}add[[:space:]]+(\.[/]?([[:space:]]|$)|-A([[:space:]]|$)|--all([[:space:]]|$))" && \
+matches "${G}add[[:space:]]+(\.[/]?${E}|-A${E}|--all${E})" && \
     deny "BLOCKED: \`git add .\` stages everything, including build output, secrets and scratch files. Stage explicit file paths. Note a directory add also sweeps in any UNTRACKED files inside it — prefer naming files."
 
 matches "${G}stash[[:space:]]+(drop|clear)" && \
@@ -220,30 +251,43 @@ fi
 
 [[ "$treat_dirty" -eq 1 ]] || exit 0
 
-matches "${G}rebase([[:space:]]|$)" && \
+matches "${G}rebase${E}" && \
     deny "BLOCKED: \`git rebase\` over a dirty tree silently discards every uncommitted change to a tracked file, with no prompt and no way back. (\`git rebase --abort/--continue/--skip/--quit\` are allowed.) $RECOVER"
 
 # Index-only resets (--soft/--mixed/no flag) never touch the working tree and
 # are the standard way to unstage — only the tree-clobbering modes are denied.
-matches "${G}reset[^;&|]*[[:space:]]--(hard|merge|keep)([[:space:];&|)]|$)" && \
+matches "${G}reset[^;&|]*[[:space:]]--(hard|merge|keep)${E}" && \
     deny "BLOCKED: \`git reset --hard/--merge/--keep\` over a dirty tree discards uncommitted tracked changes. An index-only reset (no mode flag, or --soft/--mixed) is allowed. $RECOVER"
 
-matches "${G}(checkout|switch)[^;&|]*[[:space:]](-f([[:space:]]|$)|--force([[:space:]]|$)|--discard-changes)" && \
+matches "${G}(checkout|switch)[^;&|]*[[:space:]](-f${E}|--force${E}|--discard-changes)" && \
     deny "BLOCKED: a forced checkout/switch overwrites uncommitted tracked changes. $RECOVER"
 
 matches "${G}checkout([[:space:]]+[^[:space:]-][^[:space:]]*)*[[:space:]]+--[[:space:]]" && \
     deny "BLOCKED: \`git checkout <ref> -- <path>\` silently overwrites that file's uncommitted changes. To keep a copy, use \`cp\`. $RECOVER"
 
-matches "${G}checkout[[:space:]]+\.([[:space:]]|$)" && \
+matches "${G}checkout[[:space:]]+\.${E}" && \
     deny "BLOCKED: \`git checkout .\` discards all uncommitted tracked changes. $RECOVER"
 
-matches "${G}restore([[:space:]]|$)" && \
+# -B / -C force-move an EXISTING branch to a new start point while switching —
+# a ref clobber plus a tree switch in one step, over work in progress.
+# (Lower-case -b / -c create-only forms are allowed: they refuse to clobber.)
+matches "${G}checkout[^;&|]*[[:space:]]-[a-zA-Z]*B[a-zA-Z]*${E}" && \
+    deny "BLOCKED: \`git checkout -B\` moves an existing branch ref and switches onto it over uncommitted work. Use \`git checkout -b\` (create-only) or commit first. $RECOVER"
+matches "${G}switch[^;&|]*[[:space:]](-[a-zA-Z]*C[a-zA-Z]*${E}|--force-create${E})" && \
+    deny "BLOCKED: \`git switch -C\` moves an existing branch ref and switches onto it over uncommitted work. Use \`git switch -c\` (create-only) or commit first. $RECOVER"
+
+# git rm without -f refuses to remove a file whose content differs from HEAD;
+# -f overrides exactly that check and deletes the modified file from disk.
+matches "${G}rm[^;&|]*[[:space:]](--force${E}|-[a-zA-Z]*f[a-zA-Z]*${E})" && \
+    deny "BLOCKED: \`git rm -f\` deletes locally-modified files from disk — the -f exists only to override git's own refusal. Plain \`git rm\` (which refuses on modified files) or \`git rm --cached\` (index-only) are allowed. $RECOVER"
+
+matches "${G}restore${E}" && \
     deny "BLOCKED: \`git restore\` overwrites uncommitted changes from another revision. (\`git restore --staged <path>\` without --worktree is allowed — it only touches the index.) Use \`cp\` to back up and restore files. $RECOVER"
 
-matches "${G}stash([[:space:]]|$)" && \
+matches "${G}stash${E}" && \
     deny "BLOCKED: \`git stash\` was load-bearing in past data-loss incidents and is easy to forget to pop. (\`git stash list/show/apply\` are allowed.) Commit instead — commits are cheap, reversible, and visible."
 
-matches "${G}branch[[:space:]]+(-f|--force)([[:space:]]|$)" && \
+matches "${G}branch[[:space:]]+(-f|--force)${E}" && \
     deny "BLOCKED: \`git branch -f\` silently moves a ref. Ask the user first. $RECOVER"
 
 exit 0

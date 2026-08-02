@@ -84,6 +84,20 @@ t deny  "$DIRTY" 'stdbuf -o0 git rebase main'
 t deny  "$DIRTY" '/usr/bin/git rebase main'
 t deny  "$DIRTY" 'GIT_DIR=.git git rebase main'
 t deny  "$DIRTY" 'sudo -u vscode env FOO=bar /usr/bin/git reset --hard'
+# Shell wrappers with -c in a short-option cluster (bare `-c` was recognized,
+# `-lc`/`-exc` slipped through), backslash alias-skip, and eval.
+t deny  "$DIRTY" "sh -lc 'git rebase main'"
+t deny  "$DIRTY" 'bash -exc "git rebase main"'
+t deny  "$DIRTY" 'zsh -xec "git reset --hard"'
+t deny  "$DIRTY" '\git rebase main'
+t deny  "$DIRTY" '\git reset --hard'
+t deny  "$DIRTY" 'eval "git rebase main"'
+t deny  "$DIRTY" "eval 'git reset --hard'"
+t deny  "$DIRTY" 'eval git rebase main'
+# ...benign look-alikes must not fire:
+t allow "$DIRTY" 'tar -cf out.tar somedir'
+t allow "$DIRTY" 'ls -lc gitdir'
+t allow "$DIRTY" 'echo "see eval git usage docs"'
 
 # ===========================================================================
 # 2. git clean — all forms denied except dry runs
@@ -125,6 +139,9 @@ t deny  "$CLEAN" "git -C $OTHER reset --hard"
 t deny  "$PLAIN" "git -C $OTHER rebase main"
 t allow "$CLEAN" "git -C $CLEAN rebase main"
 t deny  "$PLAIN" "git --git-dir=$DIRTY/.git rebase main"
+# The space-separated --git-dir form is equally valid git and must resolve too.
+t deny  "$PLAIN" "git --git-dir $DIRTY/.git rebase main"
+t allow "$PLAIN" "git --git-dir $CLEAN/.git rebase main"
 t deny  "$PLAIN" "cd $WORK/does-not-exist && git rebase main"   # unresolvable: closed
 t allow "$PLAIN" 'ls -la'                             # non-git commands untouched
 t allow "$PLAIN" 'echo git'
@@ -179,6 +196,40 @@ t allow "$DIRTY" 'git add .claude/settings.json'
 t allow "$DIRTY" 'git add .gitignore'
 t deny  "$DIRTY" 'git add .'
 t deny  "$DIRTY" 'git add -A'
+
+# ===========================================================================
+# 6b. New always-denied rules: remote deletion, worktree/branch force-delete
+# ===========================================================================
+t deny  "$DIRTY" 'git push origin :feature'
+t deny  "$CLEAN" 'git push origin :refs/heads/feature'
+t deny  "$CLEAN" 'git push --delete origin feature'
+t deny  "$DIRTY" 'git push -d origin feature'
+t deny  "$CLEAN" 'git worktree remove --force ../wt'
+t deny  "$CLEAN" 'git worktree remove -f ../wt'
+t deny  "$CLEAN" 'git branch -D feature'
+t deny  "$DIRTY" 'git branch --delete --force feature'
+# ...their benign look-alikes stay allowed:
+t allow "$CLEAN" 'git worktree remove ../wt'      # refuses on dirty trees itself
+t allow "$CLEAN" 'git branch -d feature'          # refuses on unmerged work
+t allow "$CLEAN" 'git branch --delete feature'
+t allow "$DIRTY" 'git push origin HEAD:main'      # colon mid-refspec, no deletion
+t allow "$DIRTY" 'git push --dry-run origin main'
+
+# ===========================================================================
+# 6c. New dirty-gated rules: ref-moving switches and forced rm
+# ===========================================================================
+t deny  "$DIRTY" 'git checkout -B main'
+t deny  "$DIRTY" 'git switch -C main'
+t deny  "$DIRTY" 'git switch --force-create main'
+t deny  "$DIRTY" 'git rm -f file.txt'
+t deny  "$DIRTY" 'git rm -rf dir'
+t deny  "$DIRTY" 'git rm --force file.txt'
+t allow "$CLEAN" 'git checkout -B main'
+t allow "$CLEAN" 'git switch -C topic'
+t allow "$CLEAN" 'git rm -f file.txt'
+t allow "$DIRTY" 'git switch -c topic'            # create-only, never clobbers
+t allow "$DIRTY" 'git rm --cached file.txt'       # index-only
+t allow "$DIRTY" 'git rm file.txt'                # refuses on modified files itself
 
 # ===========================================================================
 # 7. False positives that must NOT fire
