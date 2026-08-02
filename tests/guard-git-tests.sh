@@ -351,6 +351,54 @@ check "empty user file gets bundled defaultMode" \
     '.permissions.defaultMode == "acceptEdits"' "$m3"
 
 # ===========================================================================
+# 11b. prune-roster.jq — a plugin removed from the bundle is pruned from the
+# live settings, but only if the user never overrode its value
+# ===========================================================================
+PRUNE_JQ="$ROOT/.devcontainer/config/claude/prune-roster.jq"
+# Previous bundle shipped three plugins; the new bundle drops two of them.
+cat > "$WORK/prev-roster.json" <<'EOF'
+{
+  "enabledPlugins": {
+    "keep-me@mkt": true,
+    "removed-untouched@mkt": true,
+    "removed-overridden@mkt": true
+  },
+  "extraKnownMarketplaces": {
+    "dead-mkt": { "source": { "source": "github", "repo": "x/dead" } }
+  }
+}
+EOF
+cat > "$WORK/new-bundle.json" <<'EOF'
+{ "enabledPlugins": { "keep-me@mkt": true }, "extraKnownMarketplaces": {} }
+EOF
+# Live settings: the user flipped removed-overridden@mkt to false (override),
+# left removed-untouched@mkt at the bundled value, and has own-plugin@mkt.
+cat > "$WORK/live.json" <<'EOF'
+{
+  "enabledPlugins": {
+    "keep-me@mkt": true,
+    "removed-untouched@mkt": true,
+    "removed-overridden@mkt": false,
+    "own-plugin@mkt": true
+  },
+  "extraKnownMarketplaces": {
+    "dead-mkt": { "source": { "source": "github", "repo": "x/dead" } }
+  }
+}
+EOF
+pruned=$(jq -s -f "$PRUNE_JQ" "$WORK/prev-roster.json" "$WORK/new-bundle.json" "$WORK/live.json")
+check "removed-and-untouched plugin is pruned" \
+    '.enabledPlugins | has("removed-untouched@mkt") | not' "$pruned"
+check "removed-but-user-overridden plugin survives" \
+    '.enabledPlugins["removed-overridden@mkt"] == false' "$pruned"
+check "still-bundled plugin survives the prune" \
+    '.enabledPlugins["keep-me@mkt"] == true' "$pruned"
+check "user's own plugin (never bundled) survives the prune" \
+    '.enabledPlugins["own-plugin@mkt"] == true' "$pruned"
+check "removed marketplace is pruned" \
+    '.extraKnownMarketplaces | has("dead-mkt") | not' "$pruned"
+
+# ===========================================================================
 # 12. Bundled settings.json is valid JSON
 # ===========================================================================
 if jq -e . "$BUNDLED_SETTINGS" >/dev/null 2>&1; then

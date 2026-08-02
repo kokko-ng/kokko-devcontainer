@@ -120,6 +120,15 @@ owns git safety, while the plugin covers everything non-git — `rm -rf`, cloud 
 `chmod`, and branch protection. See
 [GIT-SAFETY.md](GIT-SAFETY.md#division-of-labor-with-kokko-safety).
 
+The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you disable
+locally stays disabled. Its network calls run at most once per 24 hours (stamp:
+`~/.claude/.plugin-bootstrap-stamp`); two environment variables control it:
+
+| Variable | Effect |
+|---|---|
+| `KOKKO_PLUGIN_REFRESH=1` | Force a marketplace/plugin refresh now, ignoring the 24h stamp |
+| `KOKKO_SKIP_PLUGINS=1` | Skip the plugin bootstrap entirely (used by CI) |
+
 ## Updating a running container
 
 Bundled config changes — `CLAUDE.md`, `settings.json`, the git safety hooks, `snaps`, zsh
