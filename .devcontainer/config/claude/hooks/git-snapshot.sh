@@ -37,39 +37,17 @@ fi
 
 # The command may target a DIFFERENT repository than the hook's cwd — via a
 # leading `cd <dir> &&`, `git -C <dir>`, or `--git-dir=<dir>`. Snapshot the
-# repo the destructive command is actually about to touch, mirroring the
-# target resolution in guard-git.sh.
-extract_cd_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/^[[:space:]]*cd[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+))[[:space:]]*(&&|;).*/\2\3\4/p' | head -1
-}
-extract_dash_c_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/.*git[^;&|]*[[:space:]]-C[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
-}
-extract_git_dir_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/.*--git-dir=("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
-}
+# repo the destructive command is actually about to touch. Resolution is
+# shared with guard-git.sh via lib-git-target.sh so the repo being snapshotted
+# is always the repo being guarded. Snapshotting is best-effort by design, so
+# a missing lib degrades to "no snapshot" rather than blocking anything —
+# guard-git.sh is the layer that fails closed.
+SNAP_LIB="$(dirname "${BASH_SOURCE[0]}")/lib-git-target.sh"
+[[ -f "$SNAP_LIB" ]] || exit 0
+# shellcheck source=lib-git-target.sh
+source "$SNAP_LIB"
 
-cd_t=$(extract_cd_target || true)
-c_t=$(extract_dash_c_target || true)
-gd_t=$(extract_git_dir_target || true)
-
-target=""
-if [[ -n "$c_t" ]]; then
-    if [[ -n "$cd_t" && "$c_t" != /* && "$c_t" != "~"* ]]; then
-        target="$cd_t/$c_t"
-    else
-        target="$c_t"
-    fi
-elif [[ -n "$gd_t" ]]; then
-    target="$gd_t"
-    [[ "$target" == */.git ]] && target="${target%/.git}"
-elif [[ -n "$cd_t" ]]; then
-    target="$cd_t"
-fi
-target="${target/#\~/$HOME}"
+resolve_git_target "$cmd"
 
 # All git calls below run against the targeted repo (or the cwd when the
 # command names none).
