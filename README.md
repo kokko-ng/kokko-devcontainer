@@ -141,7 +141,12 @@ bash .devcontainer/post-create.sh --config-only
 `/devcontainer-update` (from `kokko-env` in
 [kokko-cmds](https://github.com/kokko-ng/kokko-cmds)) does the whole job: diff this
 project's `.devcontainer/` against the latest upstream, update the files, run the refresh,
-and report what still needs a rebuild. Dockerfile and `devcontainer.json`
+and report what still needs a rebuild.
+
+Releases are tagged: the `VERSION` file at the repo root drives a `v<version>` tag and
+GitHub release, published automatically once CI passes on `main`. That means
+`/devcontainer-update --ref v1.0.0` can pin a project to a known-good version instead of
+tracking `main`. Dockerfile and `devcontainer.json`
 `features`/`containerEnv`/`runArgs` changes always need one.
 
 ## Caveats
