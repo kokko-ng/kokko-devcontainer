@@ -162,39 +162,22 @@ matches "${G}stash[[:space:]]+(drop|clear)" && \
 # targets a repo whose state cannot be verified, fail CLOSED.
 # ---------------------------------------------------------------------------
 
-extract_cd_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/^[[:space:]]*cd[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+))[[:space:]]*(&&|;).*/\2\3\4/p' | head -1
-}
-extract_dash_c_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/.*git[^;&|]*[[:space:]]-C[[:space:]]+("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
-}
-extract_git_dir_target() {
-    printf '%s' "$cmd" | sed -nE \
-        's/.*--git-dir=("([^"]+)"|'\''([^'\'']+)'\''|([^[:space:];&|]+)).*/\2\3\4/p' | head -1
-}
-
-cd_t=$(extract_cd_target || true)
-c_t=$(extract_dash_c_target || true)
-gd_t=$(extract_git_dir_target || true)
-
-target=""
-if [[ -n "$c_t" ]]; then
-    # A relative -C path resolves against a leading cd, if there is one.
-    if [[ -n "$cd_t" && "$c_t" != /* && "$c_t" != "~"* ]]; then
-        target="$cd_t/$c_t"
-    else
-        target="$c_t"
+# Target resolution is shared with git-snapshot.sh via lib-git-target.sh so
+# the two hooks can never disagree about which repo a command touches. If the
+# lib is missing the guard cannot resolve targets — fail CLOSED for git-looking
+# commands (same policy as missing jq), stay silent for everything else.
+GUARD_LIB="$(dirname "${BASH_SOURCE[0]}")/lib-git-target.sh"
+if [[ ! -f "$GUARD_LIB" ]]; then
+    if printf '%s' "$cmd" | grep -q 'git'; then
+        echo "guard-git.sh: $GUARD_LIB is missing, so the target repository of this git command cannot be resolved. Failing closed. Re-run: bash .devcontainer/post-create.sh --config-only" >&2
+        exit 2
     fi
-elif [[ -n "$gd_t" ]]; then
-    # --git-dir points at the .git directory; the working tree is its parent.
-    target="$gd_t"
-    [[ "$target" == */.git ]] && target="${target%/.git}"
-elif [[ -n "$cd_t" ]]; then
-    target="$cd_t"
+    exit 0
 fi
-target="${target/#\~/$HOME}"
+# shellcheck source=lib-git-target.sh
+source "$GUARD_LIB"
+
+resolve_git_target "$cmd"
 
 treat_dirty=1  # fail closed until proven otherwise
 if [[ -n "$target" ]]; then
