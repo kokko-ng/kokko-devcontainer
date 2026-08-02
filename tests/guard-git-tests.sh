@@ -250,7 +250,8 @@ cat > "$USER_SETTINGS" <<'EOF'
   "hooks": {
     "PreToolUse": [
       { "matcher": "Bash",
-        "hooks": [ { "type": "command", "command": "/home/vscode/my-own-hook.sh" } ] }
+        "hooks": [ { "type": "command", "command": "/home/vscode/my-own-hook.sh" },
+                   { "type": "command", "command": "/home/vscode/.claude/hooks/my-own-hook.sh" } ] }
     ]
   },
   "enabledPlugins": { "kokko-safety@kokko-ng-kokko-cmds": true }
@@ -269,6 +270,12 @@ check() { # <desc> <jq-bool-expr> <json>
 }
 check "synthetic user hook survives the merge" \
     '[.hooks.PreToolUse[].hooks[].command] | index("/home/vscode/my-own-hook.sh") != null' "$m1"
+# A user's OWN hook living in ~/.claude/hooks/ — the most natural location —
+# must survive too: "ours" matches the three bundled basenames, not the dir.
+check "user hook inside .claude/hooks/ survives the merge" \
+    '[.hooks.PreToolUse[].hooks[].command] | index("/home/vscode/.claude/hooks/my-own-hook.sh") != null' "$m1"
+check "user hook inside .claude/hooks/ survives a second merge" \
+    '[.hooks.PreToolUse[].hooks[].command] | index("/home/vscode/.claude/hooks/my-own-hook.sh") != null' "$m2"
 check "bundled guard hook is present after merge" \
     '[.hooks.PreToolUse[].hooks[].command] | map(test("guard-git")) | any' "$m1"
 check "second merge equals first (idempotent)" \
