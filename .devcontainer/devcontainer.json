@@ -42,7 +42,14 @@
     // Code's orange becomes ANSI red, which the bundled Ghostty palette
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
-    "COLORTERM": "truecolor"
+    "COLORTERM": "truecolor",
+    // Division of labor with the kokko-safety plugin: guard-git.sh owns git
+    // safety (deny + dirty-gating + snapshots — see GIT-SAFETY.md), so its
+    // destructive-git hook is skipped to avoid double prompts. Everything
+    // NON-git the plugin protects (rm -rf, cloud deletes, chmod, branch
+    // protection) stays active — previously the whole plugin was disabled,
+    // leaving those ungoverned under bypassPermissions.
+    "KOKKO_SAFETY_SKIP": "destructive-git"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   // Capture provisioning output — post-create failures are otherwise lost in

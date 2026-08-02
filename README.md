@@ -109,10 +109,16 @@ plugin set to `true` in `enabledPlugins`, both read from
 plugin that is already installed, so without this step a fresh container comes up with an
 empty plugin directory.
 
-The default roster is the `kokko-ng` plugins across
+The default roster is all 11 `kokko-ng` plugins across
 [kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
 [kokko-janitor](https://github.com/kokko-ng/kokko-janitor). Edit `enabledPlugins` to change
 it; a plugin set to `false` is never installed.
+
+`kokko-safety` is enabled with its git hook switched off
+(`KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`): the bundled `guard-git.sh`
+owns git safety, while the plugin covers everything non-git — `rm -rf`, cloud deletes,
+`chmod`, and branch protection. See
+[GIT-SAFETY.md](GIT-SAFETY.md#division-of-labor-with-kokko-safety).
 
 ## Updating a running container
 
