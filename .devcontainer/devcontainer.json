@@ -14,7 +14,7 @@
   "features": {
     // Azure CLI — remove if not using Azure
     "ghcr.io/devcontainers/features/azure-cli:1": {},
-    "ghcr.io/devcontainers/features/node:1": {
+    "ghcr.io/devcontainers/features/node:2": {
       // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
       "version": "22"
     },
