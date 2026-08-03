@@ -1,0 +1,59 @@
+name: Release
+
+# release.yml is the SOLE publisher of GitHub releases: it fires after the CI
+# workflow succeeds on main (or on manual dispatch). The version lives in the
+# VERSION file at the repo root; bumping it and merging to main is the whole
+# release flow — no one runs `gh release create` by hand.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v1.0.0); created at the dispatched ref if it does not exist"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    # Only publish when dispatched manually or when CI concluded successfully
+    # on main. A failed or cancelled CI run publishes nothing.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Create GitHub release for the current version (if missing)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # inputs.tag is passed through env, never interpolated into the
+          # script, so a crafted tag cannot inject shell syntax.
+          INPUT_TAG: ${{ inputs.tag }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="v$(tr -d '[:space:]' < VERSION)"
+          fi
+          if [ "$TAG" = "v" ]; then
+            echo "ERROR: VERSION file is empty and no tag input was given"
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists - nothing to do"
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --target "$TARGET_SHA" \
+            --title "$TAG" \
+            --generate-notes

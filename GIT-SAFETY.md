@@ -70,11 +70,15 @@ git commands does not produce a burst of refs.
 ### 2. The guard — `guard-git.sh`
 
 A `PreToolUse` hook that **denies** destructive git commands. It matches `git` behind
-wrapper commands (`sudo git`, `env git`, `command git`, `time`, `nohup`, `xargs`, `nice`,
-`stdbuf`), behind `VAR=val` prefixes, and by absolute path (`/usr/bin/git`).
+wrapper commands (`sudo git`, `env git`, `command git`, `eval`, `time`, `nohup`, `xargs`,
+`nice`, `stdbuf`), behind `VAR=val` prefixes, behind shell wrappers with `-c` in a
+short-option cluster (`sh -lc '...'`, `bash -exc "..."`), by absolute path
+(`/usr/bin/git`), and with the alias-skipping backslash prefix (`\git`).
 
 The dirty check runs against the repository the command **actually targets**: a leading
-`cd <dir> &&`, a `git -C <dir>`, or a `--git-dir=<dir>` is resolved and checked there. If a
+`cd <dir> &&`, a `git -C <dir>`, or a `--git-dir=<dir>` / `--git-dir <dir>` is resolved
+and checked there (the resolution logic is shared with the snapshot hook via
+`lib-git-target.sh`, so the repo being guarded is always the repo being snapshotted). If a
 destructive command's repository cannot be resolved at all (the hook's cwd is not a repo
 and the command names none), the guard **fails closed** and denies with an explanation.
 
@@ -87,9 +91,11 @@ covered):
 | `git reset --hard` / `--merge` / `--keep` | Discards tracked changes (index-only resets are allowed) |
 | `git checkout <ref> -- <path>`, `git checkout .` | Silently overwrites that file |
 | `git checkout -f` / `git switch --discard-changes` | Forced overwrite |
+| `git checkout -B` / `git switch -C` | Moves an existing branch ref and switches onto it over work in progress (`-b`/`-c` create-only forms are allowed) |
 | `git restore` | Overwrites from another revision (`--staged` without `--worktree` is allowed) |
 | `git stash` (incl. `push`, `pop`) | Easy to forget to pop; load-bearing in past incidents |
 | `git branch -f` | Silent ref clobber |
+| `git rm -f` | The `-f` exists only to override git's refusal to delete a locally-modified file (`git rm` and `git rm --cached` are allowed) |
 
 **Always denied**, tree state irrelevant:
 
@@ -98,6 +104,9 @@ covered):
 | `git clean` (every form except a dry run) | Deletes untracked files — the one thing snapshots *don't* cover. `git clean --force` and long/short flag mixes are all caught |
 | `git add .` / `-A` / `--all` | Stages build output, secrets, scratch files. One incident staged 4,648 files |
 | `git push` with a force flag **anywhere** among its args (`-f`, `--force`, `--force-with-lease`), and the `+refspec` form (`git push origin +main`) | Rewrites the shared remote |
+| `git push --delete` / `-d`, and the empty-refspec form (`git push origin :branch`) | Deletes a branch on the shared remote — for everyone, with no local reflog to recover from |
+| `git worktree remove --force` / `-f` | Deletes the worktree along with its uncommitted changes (the plain form is allowed — it refuses on a dirty tree) |
+| `git branch -D` (and `--delete --force`) | The reflog for a deleted branch is deleted with it, so unmerged commits become unreachable. Use `-d`, which refuses on unmerged work |
 | `git filter-branch` / `filter-repo` | Destroys objects *and* the snapshot refs |
 | `git reflog expire/delete`, `git gc --prune`, `git prune` | Destroys the recovery path itself |
 | `git stash drop` / `clear` | Permanently deletes stashed work |
@@ -148,6 +157,29 @@ not speculation: this repo previously enabled a safety plugin that warned on ~30
 patterns via "ask", and it had been **disabled** in `settings.json` — protecting nothing at
 the moment it was needed. A control you turn off is worse than no control, because you
 think you have one.
+
+---
+
+## Division of labor with kokko-safety
+
+The [kokko-safety](https://github.com/kokko-ng/kokko-cmds) plugin is enabled, with its
+git hook switched off. The split:
+
+| Layer | Owns |
+|---|---|
+| `guard-git.sh` (this repo) | **All git safety**: deny rules, dirty-gating, target resolution, snapshots |
+| `kokko-safety` plugin | **Everything non-git**: destructive bash (`rm -rf`, `chmod`, ...), cloud deletes (`az`/`aws`/`gcloud` destroy operations), and branch protection — which guard-git deliberately lacks |
+
+The wiring is `KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`'s
+`containerEnv`: kokko-safety honors that variable (comma/space-separated hook tokens —
+`destructive-git`, `branch-protection`, `cloud-ops`, `destructive-bash`; a listed hook
+allows everything silently), so its git rules step aside for the stronger dirty-gated
+guard here instead of double-prompting on every git command.
+
+Why this matters: previously the plugin was **fully disabled**, which left non-git
+destructive commands ungoverned under `bypassPermissions` — the exact "control you turned
+off" failure mode described above, just aimed at `rm -rf` and cloud resources instead of
+git.
 
 ---
 
@@ -208,10 +240,11 @@ deliberately accepted:
 The bundled setup leans hard on this hook layer. The `ccc` alias runs Claude with
 `--permission-mode bypassPermissions`, and the bundled `settings.json` sets
 `skipDangerousModePermissionPrompt`, so the permission system is **out of the loop** —
-PreToolUse hooks are the *only* automated control on git commands. The container also has
-docker-in-docker, and the optional `~/.azure` mount hands it live cloud credentials.
-Combine all of that and a misbehaving agent is one hook bug away from acting on your
-remotes and your cloud. Keep the optional mounts off unless you need them, and treat the
+PreToolUse hooks are the *only* automated control on git commands, and the kokko-safety
+plugin's hooks are the only one on destructive bash and cloud operations. The container
+also has docker-in-docker, and the optional `~/.azure` mount hands it live cloud
+credentials. Combine all of that and a misbehaving agent is one hook bug away from acting
+on your remotes and your cloud. Keep the optional mounts off unless you need them, and treat the
 hook layer as a seatbelt, not a roll cage: commits, pushes-on-request-only, and small
 blast radii are still the real controls.
 
@@ -234,6 +267,7 @@ blast radii are still the real controls.
 |---|---|
 | `.devcontainer/config/claude/hooks/git-snapshot.sh` | Checkpoints the tree |
 | `.devcontainer/config/claude/hooks/guard-git.sh` | Blocks destructive commands |
+| `.devcontainer/config/claude/hooks/lib-git-target.sh` | Shared target-repo resolution, sourced by both hooks (not a hook itself) |
 | `.devcontainer/config/claude/hooks/session-git-safety.sh` | States the rules at session start |
 | `.devcontainer/config/claude/merge-hooks.jq` | Splices hooks into an existing `settings.json` |
 | `.devcontainer/config/bin/snaps` | Browse/restore snapshots |
