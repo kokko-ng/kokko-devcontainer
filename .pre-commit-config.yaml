@@ -7,6 +7,10 @@ repos:
       - id: end-of-file-fixer
       - id: mixed-line-ending
         args: [--fix=lf]
+      # devcontainer.json is JSONC (the devcontainer spec allows comments), so
+      # it must be excluded from a strict-JSON check.
+      - id: check-json
+        exclude: ^\.devcontainer/devcontainer\.json$
 
   # shellcheck-py, not koalaman/shellcheck-precommit: the latter runs shellcheck
   # in a container, so every `pre-commit run` needs a working Docker daemon.
@@ -16,4 +20,9 @@ repos:
     rev: v0.11.0.1
     hooks:
       - id: shellcheck
-        args: [--severity=warning]
+        # info matches CI (.github/workflows/ci.yml) — a weaker local severity
+        # would let commits pass locally and then fail in CI.
+        args: [--severity=info]
+        # shellcheck cannot parse zsh; CI lints the same explicit bash file
+        # list and has never included the bundled zsh config either.
+        exclude: ^\.devcontainer/config/zsh/

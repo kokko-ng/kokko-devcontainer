@@ -87,7 +87,7 @@ provision_summary() {
 # cache and history volumes writable by the container user.
 fix_volume_ownership() {
     local d
-    for d in "$HOME/.cache/uv" "$HOME/.npm" /commandhistory; do
+    for d in "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory; do
         [[ -d "$d" && ! -w "$d" ]] || continue
         sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
@@ -99,10 +99,13 @@ fix_volume_ownership() {
 # =====================
 ZSH_CUSTOM_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
 clone_zsh_plugin() {
-    local repo="$1" name="$2"
+    local repo="$1" name="$2" tag="${3:-}"
     local dest="$ZSH_CUSTOM_DIR/plugins/$name"
     if [[ -d "$dest/.git" ]]; then
         echo "  $name already present, skipping"
+    elif [[ -n "$tag" ]]; then
+        rm -rf "$dest"
+        step "zsh-plugin-$name" git clone --depth=1 --branch "$tag" "$repo" "$dest"
     else
         rm -rf "$dest"
         step "zsh-plugin-$name" git clone --depth=1 "$repo" "$dest"
@@ -111,12 +114,18 @@ clone_zsh_plugin() {
 
 install_zsh_plugins() {
     echo "=== Installing zsh plugins ==="
-    clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions
-    clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting
+    # Pinned to release tags so a rebuild cannot silently pick up an untested
+    # HEAD. Dependabot cannot see these pins — check for newer tags manually
+    # (git ls-remote --tags <repo>); see MANAGING.md -> Pin audit.
+    clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions v0.7.1
+    clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting 0.8.0
 }
 
 install_claude_cli() {
     echo "=== Installing Claude Code CLI ==="
+    # The Dockerfile now bakes the binary into the image, so this normally
+    # just reports the existing install. It stays as a fallback for images
+    # built before that layer existed.
     if command -v claude >/dev/null 2>&1; then
         echo "  Claude Code already installed at $(command -v claude)"
     else
@@ -140,24 +149,42 @@ install_copilot_cli() {
 install_playwright_cli() {
     echo "=== Installing Playwright CLI ==="
     # https://playwright.dev/agent-cli/installation
+    if ! command -v npm >/dev/null 2>&1 && ! command -v playwright-cli >/dev/null 2>&1; then
+        echo "  npm not available — skipping Playwright CLI install"
+        return 0
+    fi
     if command -v playwright-cli >/dev/null 2>&1; then
         echo "  Playwright CLI already installed at $(command -v playwright-cli)"
-    elif command -v npm >/dev/null 2>&1; then
-        step "playwright-cli" bash -c '
-            npm install -g @playwright/cli@latest \
-            && playwright-cli install-browser --with-deps \
-            && playwright-cli install --skills'
     else
-        echo "  npm not available — skipping Playwright CLI install"
+        # Pinned (was @latest). Dependabot cannot see this pin — bump it
+        # manually (npm view @playwright/cli version); see MANAGING.md -> Pin audit.
+        step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
+    command -v playwright-cli >/dev/null 2>&1 || return 0
+    # Browsers persist in the pw-browsers named volume (PLAYWRIGHT_BROWSERS_PATH,
+    # see devcontainer.json), so the expensive --with-deps download only runs
+    # when the volume is still empty — first creation pays, rebuilds are fast.
+    local browsers_dir="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
+    if [[ -d "$browsers_dir" && -n "$(ls -A "$browsers_dir" 2>/dev/null)" ]]; then
+        echo "  Playwright browsers already present in $browsers_dir — skipping download"
+    else
+        step "playwright-browsers" playwright-cli install-browser --with-deps
+    fi
+    step "playwright-skills" playwright-cli install --skills
 }
 
-# The bundled settings.json and merge-hooks.jq ship /home/vscode literals;
-# render them against the actual $HOME at install time so a different
-# container user (or remoteUser) still gets working hook paths.
+# The bundled settings.json ships /home/vscode literals; render it against
+# the actual $HOME at install time so a different container user (or
+# remoteUser) still gets working hook paths. merge-hooks.jq gets the same
+# treatment defensively, although its "ours" match is now basename-based and
+# path-prefix agnostic.
 RENDER_DIR=""
 render_bundled_claude() {
     RENDER_DIR="$(mktemp -d)"
+    # This runs on EVERY container start (postStartCommand --config-only), so
+    # an uncleaned mktemp dir accumulates one orphan per start. The trap keeps
+    # exactly one lifetime: this run's.
+    trap 'rm -rf "$RENDER_DIR"' EXIT
     sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/settings.json" > "$RENDER_DIR/settings.json"
     sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" > "$RENDER_DIR/merge-hooks.jq"
 }
@@ -170,9 +197,42 @@ configure_claude() {
         cp "$RENDER_DIR/settings.json" "$CLAUDE_DIR/settings.json"
         echo "  Copied bundled settings.json"
     fi
-    if [[ ! -f "$CLAUDE_DIR/CLAUDE.md" && -f "$BUNDLED_CLAUDE_DIR/CLAUDE.md" ]]; then
-        cp "$BUNDLED_CLAUDE_DIR/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
+    refresh_claude_md
+}
+
+# Bundled CLAUDE.md updates must reach existing containers, but never at the
+# cost of clobbering a user's edits. (settings.json needs no such treatment:
+# the jq merge handles it.) Hash tracking: the bundled file's sha256 is
+# stamped at copy time, and later runs overwrite the live file only while its
+# hash still equals the stamp — i.e. the user never touched it.
+refresh_claude_md() {
+    local bundled="$BUNDLED_CLAUDE_DIR/CLAUDE.md"
+    local live="$CLAUDE_DIR/CLAUDE.md"
+    local stamp="$CLAUDE_DIR/.claude-md.bundled-sha256"
+    [[ -f "$bundled" ]] || return 0
+    local bundled_sha live_sha stored_sha
+    bundled_sha=$(sha256sum "$bundled" | awk '{print $1}')
+    if [[ ! -f "$live" ]]; then
+        cp "$bundled" "$live"
+        printf '%s\n' "$bundled_sha" > "$stamp"
         echo "  Copied bundled CLAUDE.md"
+        return 0
+    fi
+    live_sha=$(sha256sum "$live" | awk '{print $1}')
+    stored_sha=$(cat "$stamp" 2>/dev/null || true)
+    if [[ "$live_sha" == "$bundled_sha" ]]; then
+        # Already current — just make sure the stamp exists for next time.
+        printf '%s\n' "$bundled_sha" > "$stamp"
+    elif [[ "$live_sha" == "$stored_sha" ]]; then
+        # Byte-identical to what a previous run installed: the user never
+        # edited it, so the newer bundle can replace it safely.
+        cp "$bundled" "$live"
+        printf '%s\n' "$bundled_sha" > "$stamp"
+        echo "  Refreshed CLAUDE.md from the bundle (previous copy was unmodified)"
+    else
+        # User-edited, or predates hash tracking: hands off, tell them how to
+        # reconcile instead.
+        echo "  NOTE: ~/.claude/CLAUDE.md differs from the bundle and was left alone. Compare with: diff '$bundled' '$live'"
     fi
 }
 
@@ -234,6 +294,7 @@ merge_claude_settings() {
                 && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
                 mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
                 echo "  Merged git safety hooks and plugin roster into settings.json (backup: $(basename "$bak"))"
+                prune_removed_roster_entries
             else
                 rm -f "$CLAUDE_DIR/settings.json.tmp"
                 echo "  WARNING: hook merge failed — settings.json left unchanged."
@@ -243,6 +304,32 @@ merge_claude_settings() {
             echo "           Add the 'hooks' block from $BUNDLED_CLAUDE_DIR/settings.json by hand."
         fi
     fi
+}
+
+# The merge above is ADDITIVE, so a plugin removed from the bundled roster
+# would stay enabled in the live settings forever. prune-roster.jq compares
+# the new bundle against a snapshot of the PREVIOUS bundle and deletes only
+# keys that (a) the old bundle shipped, (b) the new bundle dropped, and
+# (c) the user never overrode. The snapshot is then advanced to the new
+# bundle so the next run has a baseline.
+prune_removed_roster_entries() {
+    local roster_snap="$CLAUDE_DIR/.kokko-bundled-roster.json"
+    local prune_jq="$BUNDLED_CLAUDE_DIR/prune-roster.jq"
+    if [[ -f "$roster_snap" && -f "$prune_jq" ]] \
+        && jq -e . "$roster_snap" >/dev/null 2>&1; then
+        if jq -s -f "$prune_jq" \
+            "$roster_snap" "$RENDER_DIR/settings.json" "$CLAUDE_DIR/settings.json" \
+            > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
+            && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
+            mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
+        else
+            rm -f "$CLAUDE_DIR/settings.json.tmp"
+            echo "  WARNING: roster prune failed — plugins removed from the bundle may stay enabled."
+        fi
+    fi
+    jq '{enabledPlugins: (.enabledPlugins // {}), extraKnownMarketplaces: (.extraKnownMarketplaces // {})}' \
+        "$RENDER_DIR/settings.json" > "$roster_snap" 2>/dev/null \
+        || echo "  WARNING: could not record the bundled roster snapshot."
 }
 
 # =====================
@@ -259,17 +346,43 @@ merge_claude_settings() {
 # plugins, and this step needs both network and a signed-in CLI.
 bootstrap_claude_plugins() {
     echo "=== Installing Claude Code plugins ==="
-    local settings="$BUNDLED_CLAUDE_DIR/settings.json"
+    # For CI and offline work: skip the whole bootstrap (every call here needs
+    # network and a signed-in CLI, so in CI they are all doomed anyway).
+    if [[ "${KOKKO_SKIP_PLUGINS:-}" == "1" ]]; then
+        echo "  KOKKO_SKIP_PLUGINS=1 — skipping plugin bootstrap entirely"
+        return 0
+    fi
+
+    # Read the MERGED live settings when present, not the bundle: a plugin the
+    # user disabled locally must not be reinstalled on every start. The bundle
+    # is only the fallback for a first run where no live file exists yet.
+    local settings="$CLAUDE_DIR/settings.json"
+    [[ -f "$settings" ]] || settings="$BUNDLED_CLAUDE_DIR/settings.json"
 
     if ! command -v claude >/dev/null 2>&1; then
         echo "  claude not on PATH — skipping plugin install"
         return 0
     fi
     if ! command -v jq >/dev/null 2>&1 || [[ ! -f "$settings" ]]; then
-        echo "  jq or bundled settings.json missing — skipping plugin install"
+        echo "  jq or settings.json missing — skipping plugin install"
         return 0
     fi
 
+    # This step hits the network (marketplace + plugin fetches) on EVERY
+    # container start via postStartCommand. A 24h TTL keeps starts fast and
+    # offline-tolerant; KOKKO_PLUGIN_REFRESH=1 forces a refresh now.
+    local stamp="$CLAUDE_DIR/.plugin-bootstrap-stamp"
+    if [[ "${KOKKO_PLUGIN_REFRESH:-}" != "1" && -f "$stamp" ]]; then
+        local now mtime
+        now=$(date +%s)
+        mtime=$(stat -c %Y "$stamp" 2>/dev/null || echo 0)
+        if (( now - mtime < 86400 )); then
+            echo "  plugin roster refreshed less than 24h ago — skipping (KOKKO_PLUGIN_REFRESH=1 forces)"
+            return 0
+        fi
+    fi
+
+    local failed=0
     local name repo
     while read -r name repo; do
         [[ -n "$name" && -n "$repo" ]] || continue
@@ -282,6 +395,7 @@ bootstrap_claude_plugins() {
             echo "  marketplace updated: $name ($repo)"
         else
             echo "  WARNING: could not add or update marketplace $name ($repo)"
+            failed=1
         fi
     done < <(jq -r '
         (.extraKnownMarketplaces // {})
@@ -298,12 +412,19 @@ bootstrap_claude_plugins() {
             echo "  updated: $plugin"
         else
             echo "  WARNING: could not install or update $plugin"
+            failed=1
         fi
     done < <(jq -r '
         (.enabledPlugins // {})
         | to_entries[]
         | select(.value == true)
         | .key' "$settings")
+
+    # Stamp only a fully successful run: a partial failure (offline, expired
+    # auth) must retry on the next start instead of hiding for 24h.
+    if [[ "$failed" -eq 0 ]]; then
+        touch "$stamp"
+    fi
 }
 
 # Never expire the reflog or prune unreachable objects. The default 90/30-day
@@ -315,13 +436,17 @@ configure_git() {
     # Without safe.directory git refuses every command with "detected dubious
     # ownership" -- which also silently kills the snapshot hook (its git calls
     # fail, so nothing is ever checkpointed and the safety net protects nothing).
-    # postCreateCommand runs with the workspace folder as cwd, so $PWD is right.
+    # The workspace root is derived from this script's own location (the parent
+    # of the .devcontainer dir), NOT from $PWD -- a --config-only run invoked
+    # from some other directory would otherwise whitelist the wrong path.
     # Guard against re-adding on every run -- --add appends unconditionally.
-    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$PWD"; then
-        echo "  safe.directory already contains: $PWD"
+    local workspace_root
+    workspace_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$workspace_root"; then
+        echo "  safe.directory already contains: $workspace_root"
     else
-        git config --global --add safe.directory "$PWD"
-        echo "  safe.directory: $PWD"
+        git config --global --add safe.directory "$workspace_root"
+        echo "  safe.directory: $workspace_root"
     fi
     git config --global gc.reflogExpire never
     git config --global gc.reflogExpireUnreachable never

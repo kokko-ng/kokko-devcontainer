@@ -218,8 +218,9 @@ devcontainer up --workspace-folder . --remove-existing-container
     │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Bundled shell config (symlinked by post-create.sh)
     └── claude/           # Bundled Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks (see GIT-SAFETY.md)
-        └── merge-hooks.jq  # Splices hooks into an existing settings.json
+        ├── hooks/        # Git safety hooks + shared lib (see GIT-SAFETY.md)
+        ├── merge-hooks.jq   # Splices hooks into an existing settings.json
+        └── prune-roster.jq  # Prunes roster entries the bundle no longer ships
 .gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
 
@@ -234,9 +235,12 @@ FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:...
 RUN pip install --no-cache-dir uv==<pinned>
 
 # ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
-# jq (required by the git safety hooks), fzf + fd-find for the shell config
-RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" > /etc/apt/sources.list.d/mssql-release.list \
+# jq (required by the git safety hooks), fzf + fd-find for the shell config.
+# The Debian release for the MS repo comes from /etc/os-release, so a base
+# image bump cannot leave it pointing at the wrong codename.
+RUN . /etc/os-release \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/${VERSION_ID}/prod ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev jq fzf fd-find \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -283,13 +287,13 @@ Key sections:
 
 Runs once after the container is first created. Steps are idempotent so a rebuild does not fail on already-installed components. It:
 
-1. Installs zsh plugins (autosuggestions, syntax highlighting). Skips if already cloned.
-2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Skips if `claude` is already on `PATH`.
+1. Installs zsh plugins (autosuggestions, syntax highlighting), pinned to release tags. Skips if already cloned.
+2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Normally a no-op: the Dockerfile bakes the binary into the image, and this step only fires as a fallback for images built before that layer existed.
 3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
-4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@latest`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). Skips if `playwright-cli` is already on `PATH`.
-5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/` (skips each file if one already exists, e.g. from a host mount).
-6. Installs the git safety hooks and the `snaps` helper, then merges the hook wiring and plugin roster into the live `settings.json` (see [GIT-SAFETY.md](GIT-SAFETY.md)).
-7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the bundled `settings.json`. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI.
+4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@<pinned>`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). The browsers live in the `pw-browsers` named volume (`PLAYWRIGHT_BROWSERS_PATH`), so the download is skipped on every rebuild after the first.
+5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/`. `settings.json` is only copied when absent (the merge in step 6 keeps it current); `CLAUDE.md` is refreshed from the bundle whenever the live copy is still byte-identical to what a previous run installed (hash-tracked via `~/.claude/.claude-md.bundled-sha256`) — a user-edited copy is left alone with a notice.
+6. Installs the git safety hooks and the `snaps` helper, then merges the hook wiring and plugin roster into the live `settings.json` (see [GIT-SAFETY.md](GIT-SAFETY.md)). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
+7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the **merged** `~/.claude/settings.json` (falling back to the bundle on a first run) — so a plugin you disabled locally is not reinstalled. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI. Network calls are skipped when the last successful run is under 24h old; `KOKKO_PLUGIN_REFRESH=1` forces a refresh and `KOKKO_SKIP_PLUGINS=1` (used by CI) skips the step entirely.
 8. Configures git for recoverability (`safe.directory`, reflog and prune retention, `rerere`).
 9. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
 10. Runs `uv sync` if `pyproject.toml` exists.
@@ -563,7 +567,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | 10 of 11 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor` (`kokko-safety` is set to `false`). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | All 11 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor`. `kokko-safety` runs with its git hook skipped (`KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`) because the bundled `guard-git.sh` owns git safety; the plugin covers non-git protections (destructive bash, cloud ops, branch protection). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
@@ -615,11 +619,11 @@ Available tags: [mcr.microsoft.com/devcontainers/python](https://mcr.microsoft.c
 
 ### Changing the Node version
 
-Update the `version` in the Node feature:
+Update the `version` in the Node feature (the default is `22`):
 
 ```jsonc
 "ghcr.io/devcontainers/features/node:1": {
-  "version": "22"
+  "version": "24"
 }
 ```
 
