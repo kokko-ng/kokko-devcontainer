@@ -15,7 +15,8 @@
     // Azure CLI — remove if not using Azure
     "ghcr.io/devcontainers/features/azure-cli:1": {},
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "20"
+      // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
+      "version": "22"
     },
     // Docker-in-Docker — a second Docker daemon inside the container.
     // Its image store lives in a named `dind-var-lib-docker-*` volume that
@@ -42,7 +43,22 @@
     // Code's orange becomes ANSI red, which the bundled Ghostty palette
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
-    "COLORTERM": "truecolor"
+    "COLORTERM": "truecolor",
+    // Division of labor with the kokko-safety plugin: guard-git.sh owns git
+    // safety (deny + dirty-gating + snapshots — see GIT-SAFETY.md), so its
+    // destructive-git hook is skipped to avoid double prompts. Everything
+    // NON-git the plugin protects (rm -rf, cloud deletes, chmod, branch
+    // protection) stays active — previously the whole plugin was disabled,
+    // leaving those ungoverned under bypassPermissions.
+    "KOKKO_SAFETY_SKIP": "destructive-git",
+    // Playwright browsers live in the pw-browsers named volume (see "mounts")
+    // so a rebuild does not re-download ~400MB of Chromium; post-create skips
+    // the install when this directory is already populated.
+    "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
+    // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
+    // post-create skips the plugin bootstrap (11 network calls that need a
+    // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
+    "KOKKO_SKIP_PLUGINS": "${localEnv:KOKKO_SKIP_PLUGINS}"
   },
   "initializeCommand": "bash .devcontainer/init-host-certs.sh",
   // Capture provisioning output — post-create failures are otherwise lost in
@@ -67,7 +83,10 @@
   "mounts": [
     "source=devcontainer-uv-cache,target=/home/vscode/.cache/uv,type=volume",
     "source=devcontainer-npm-cache,target=/home/vscode/.npm,type=volume",
-    "source=devcontainer-zsh-history,target=/commandhistory,type=volume"
+    "source=devcontainer-zsh-history,target=/commandhistory,type=volume",
+    // Playwright browsers: first creation pays the download, every rebuild
+    // after is fast. Target must match PLAYWRIGHT_BROWSERS_PATH above.
+    "source=pw-browsers,target=/home/vscode/.cache/ms-playwright,type=volume"
   ],
   // Optional bind mounts — add entries to "mounts" above as needed.
   // Shell config and Claude Code settings are bundled in .devcontainer/config/

@@ -7,7 +7,7 @@ A portable development container for FastAPI + Vue projects, designed to run on 
 | Tool | Purpose |
 |------|---------|
 | Python 3.12 + uv | Backend runtime and dependency management |
-| Node 20 | Frontend build tooling |
+| Node 22 | Frontend build tooling |
 | Azure CLI | Azure resource management |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc |
 | GitHub CLI | Repository and PR workflows |
@@ -36,14 +36,19 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
     │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Shell config (bundled into container)
     └── claude/           # Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks (see "Git safety" below)
-        └── merge-hooks.jq
+        ├── hooks/        # Git safety hooks + shared lib (see "Git safety" below)
+        ├── merge-hooks.jq   # Splices hook wiring into a live settings.json
+        └── prune-roster.jq  # Removes roster entries the bundle dropped
 ghostty/
 └── config                # Host-side Ghostty terminal config
 tests/
 └── guard-git-tests.sh    # Regression tests for the git safety layer (run in CI)
-.github/                  # CI workflow (tests, shellcheck, hadolint, build, gitleaks)
+.github/                  # CI workflow (pre-commit, tests, shellcheck, actionlint,
+                          # hadolint, build, gitleaks) + release workflow
 .gitignore                # Ignores extracted host CA certs, secrets, build artifacts
+VERSION                   # Drives the v<version> tag published by release.yml
+CLAUDE.md                 # For agents working ON this repo (tests, layout, rules)
+CONTRIBUTING.md           # Test command, pre-commit setup, release flow
 GIT-SAFETY.md             # How the git safety net works
 INSTRUCTIONS.md           # Full setup walkthrough
 MANAGING.md               # Multi-instance management guide
@@ -109,10 +114,25 @@ plugin set to `true` in `enabledPlugins`, both read from
 plugin that is already installed, so without this step a fresh container comes up with an
 empty plugin directory.
 
-The default roster is the `kokko-ng` plugins across
+The default roster is all 11 `kokko-ng` plugins across
 [kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
 [kokko-janitor](https://github.com/kokko-ng/kokko-janitor). Edit `enabledPlugins` to change
 it; a plugin set to `false` is never installed.
+
+`kokko-safety` is enabled with its git hook switched off
+(`KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`): the bundled `guard-git.sh`
+owns git safety, while the plugin covers everything non-git — `rm -rf`, cloud deletes,
+`chmod`, and branch protection. See
+[GIT-SAFETY.md](GIT-SAFETY.md#division-of-labor-with-kokko-safety).
+
+The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you disable
+locally stays disabled. Its network calls run at most once per 24 hours (stamp:
+`~/.claude/.plugin-bootstrap-stamp`); two environment variables control it:
+
+| Variable | Effect |
+|---|---|
+| `KOKKO_PLUGIN_REFRESH=1` | Force a marketplace/plugin refresh now, ignoring the 24h stamp |
+| `KOKKO_SKIP_PLUGINS=1` | Skip the plugin bootstrap entirely (used by CI) |
 
 ## Updating a running container
 
@@ -126,7 +146,12 @@ bash .devcontainer/post-create.sh --config-only
 `/devcontainer-update` (from `kokko-env` in
 [kokko-cmds](https://github.com/kokko-ng/kokko-cmds)) does the whole job: diff this
 project's `.devcontainer/` against the latest upstream, update the files, run the refresh,
-and report what still needs a rebuild. Dockerfile and `devcontainer.json`
+and report what still needs a rebuild.
+
+Releases are tagged: the `VERSION` file at the repo root drives a `v<version>` tag and
+GitHub release, published automatically once CI passes on `main`. That means
+`/devcontainer-update --ref v1.0.0` can pin a project to a known-good version instead of
+tracking `main`. Dockerfile and `devcontainer.json`
 `features`/`containerEnv`/`runArgs` changes always need one.
 
 ## Caveats
