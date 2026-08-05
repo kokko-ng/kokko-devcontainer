@@ -210,12 +210,24 @@ source "$GUARD_LIB"
 
 resolve_git_target "$cmd"
 
+# Name the work at risk: a deny that lists the dirty files lets the agent
+# commit exactly those paths next, with no extra status round-trip.
+dirty_recover() { # <porcelain-status> -> sets RECOVER with a file preview
+    local n names
+    n=$(printf '%s\n' "$1" | grep -c .)
+    names=$(printf '%s\n' "$1" | head -n 3 | sed -E 's/^.{3}//' \
+        | awk '{printf "%s%s", (NR>1?", ":""), $0}')
+    [[ "$n" -gt 3 ]] && names="$names, ..."
+    RECOVER="Uncommitted tracked changes are present ($n file(s): $names). git-snapshot.sh has checkpointed them (run \`snaps\`), but do not rely on that: commit the work instead, then retry."
+}
+
 treat_dirty=1  # fail closed until proven otherwise
 if [[ -n "$target" ]]; then
     if git -C "$target" rev-parse --git-dir >/dev/null 2>&1; then
         if st=$(git -C "$target" status --porcelain --untracked-files=no 2>/dev/null); then
             if [[ -n "$(printf '%s' "$st" | head -1)" ]]; then
                 treat_dirty=1
+                dirty_recover "$st"
             else
                 treat_dirty=0
             fi
@@ -226,8 +238,10 @@ if [[ -n "$target" ]]; then
         RECOVER="the command targets '$target', which git cannot read as a repository from here, so the dirty-tree check cannot run. The guard fails closed: verify the path, or run the command from inside that repository."
     fi
 elif git rev-parse --git-dir >/dev/null 2>&1; then
-    if [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null | head -1)" ]]; then
+    if st=$(git status --porcelain --untracked-files=no 2>/dev/null) \
+        && [[ -n "$(printf '%s' "$st" | head -1)" ]]; then
         treat_dirty=1
+        dirty_recover "$st"
     else
         treat_dirty=0
     fi
