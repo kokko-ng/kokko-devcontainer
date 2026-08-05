@@ -452,6 +452,34 @@ if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("2 u
 else
     FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: additionalContext does not mention the dirty-file count (2)")
 fi
+# The dirty note must name the dirty files themselves, not just count them.
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("file\\.txt") and test("second\\.txt")' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: dirty note does not preview the dirty file names")
+fi
+# The stated contract must include the dirty-tree recovery path.
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("into-branch")' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: contract does not mention snaps restore --into-branch")
+fi
+# With more than 3 dirty files the preview truncates with an ellipsis.
+SESSMANY="$WORK/sessmany"; mkrepo "$SESSMANY"
+for n in 1 2 3 4; do
+    echo base > "$SESSMANY/many$n.txt"
+    git -C "$SESSMANY" add "many$n.txt"
+done
+git -C "$SESSMANY" commit -qm many
+for n in 1 2 3 4; do
+    echo changed > "$SESSMANY/many$n.txt"
+done
+OUT=$(cd "$SESSMANY" && printf '%s' '{"hook_event_name":"SessionStart"}' | bash "$SESSION" 2>/dev/null)
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("4 uncommitted tracked file") and test(", \\.\\.\\.")' >/dev/null 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1)); FAILED_CASES+=("session-git-safety: 4-file dirty note does not truncate the preview with an ellipsis")
+fi
 # In a clean repo the context must NOT carry the ATTENTION dirty-tree warning.
 OUT=$(cd "$CLEAN" && printf '%s' '{"hook_event_name":"SessionStart"}' | bash "$SESSION" 2>/dev/null)
 if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.additionalContext | test("ATTENTION") | not' >/dev/null 2>&1; then
