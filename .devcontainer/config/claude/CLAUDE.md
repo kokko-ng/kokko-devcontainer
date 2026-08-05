@@ -192,10 +192,13 @@ All testing artifacts, temporary files, and development scripts should be placed
 
 ## Process Management
 
-**NEVER use `pkill`, `killall`, or broad process termination commands.** These can crash unrelated Mac applications. Instead:
+**Never kill processes by name** — no `pkill <name>`, no `killall <name>`. Name matching
+takes down every match, not just yours: this container's own services, other sessions'
+dev servers, potentially your own session's processes. Instead:
 
-- Ask the user to manually restart services if needed
-- Use specific process IDs with `kill` only for processes you started
+- When you start a long-running process you may need to stop or restart, capture its PID
+  (`$!`, or a pidfile) and `kill` that specific PID.
+- For a process you did not start, report it and ask the user instead of killing it.
 
 ## Validation Output
 
