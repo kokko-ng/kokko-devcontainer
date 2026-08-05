@@ -28,13 +28,20 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
 fi
 
 dirty_note=""
-if [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null | head -1)" ]]; then
-    count=$(git status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')
+dirty_status=$(git status --porcelain --untracked-files=no 2>/dev/null || true)
+if [[ -n "$(printf '%s' "$dirty_status" | head -1)" ]]; then
+    count=$(printf '%s\n' "$dirty_status" | grep -c .)
+    # Name the files, not just the count: the agent then knows at turn zero
+    # which paths are off-limits, with no status round-trip. Same preview
+    # format as the guard's deny messages.
+    preview=$(printf '%s\n' "$dirty_status" | head -n 3 | sed -E 's/^.{3}//' \
+        | awk '{printf "%s%s", (NR>1?", ":""), $0}')
+    [[ "$count" -gt 3 ]] && preview="$preview, ..."
     dirty_note="
 
-ATTENTION: this repo currently has ${count} uncommitted tracked file(s). If that work is not
-yours, STOP and ask the user before editing or running any git command. Do not tidy it,
-do not stash it, do not assume it is junk."
+ATTENTION: this repo currently has ${count} uncommitted tracked file(s) (${preview}). If that
+work is not yours, STOP and ask the user before editing or running any git command. Do not
+tidy it, do not stash it, do not assume it is junk."
 fi
 
 read -r -d '' CONTEXT <<EOF || true
@@ -49,7 +56,8 @@ Git safety (enforced by hooks in this devcontainer):
   user. Do not look for a way around it.
 - Uncommitted tracked changes are auto-snapshotted to refs/snapshots/. If work seems lost,
   run \`snaps\` FIRST, before any archaeology and before telling the user it is gone.
-  \`snaps show|diff|restore <ref>\`.
+  \`snaps show|diff|restore <ref>\`; if restore refuses because the tree is dirty,
+  \`snaps restore --into-branch <name> <ref>\` parks the snapshot on a new branch.
 - Commit before any build that packages the working tree (docker/az acr build ship what is
   on disk, not HEAD). Stage explicit paths, never \`git add .\`. Push only when asked.${dirty_note}
 EOF

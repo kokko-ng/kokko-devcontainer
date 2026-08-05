@@ -27,6 +27,9 @@ snaps                    # list snapshots, newest first
 snaps show <ref>         # what does this snapshot contain?
 snaps diff <ref>         # how does it differ from the tree right now?
 snaps restore <ref>      # apply it back (refuses if the tree is dirty)
+snaps restore --into-branch <name> <ref>
+                         # tree already dirty? park the snapshot on a new
+                         # branch instead — the post-incident recovery path
 ```
 
 If work disappears, **look here first** — before conducting any archaeology, and before
