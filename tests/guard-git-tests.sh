@@ -234,6 +234,37 @@ t allow "$DIRTY" 'git rm --cached file.txt'       # index-only
 t allow "$DIRTY" 'git rm file.txt'                # refuses on modified files itself
 
 # ===========================================================================
+# 6d. Dirty-gated deny reasons name the work at risk (file preview)
+# ===========================================================================
+reason_test() { # <cwd> <command> <jq-regex> <label>
+    local cwd="$1" c="$2" re="$3" label="$4"
+    run_guard "$cwd" "$c"
+    if [[ "$DECISION" == deny ]] \
+        && printf '%s' "$OUT" | jq -e --arg re "$re" \
+            '.hookSpecificOutput.permissionDecisionReason | test($re)' >/dev/null 2>&1; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        FAILED_CASES+=("$label: $c -> $OUT")
+    fi
+}
+
+reason_test "$DIRTY" 'git rebase main' '1 file\(s\): file\.txt' \
+    'dirty deny reason names the dirty file (cwd form)'
+reason_test "$PLAIN" "git -C $DIRTY rebase main" '1 file\(s\): file\.txt' \
+    'dirty deny reason names the dirty file (git -C target form)'
+
+# More than three dirty files: count plus first three, then an ellipsis
+MANY="$WORK/many"; mkrepo "$MANY"
+for i in 1 2 3 4; do echo x > "$MANY/f$i.txt"; done
+git -C "$MANY" add f1.txt f2.txt f3.txt f4.txt
+git -C "$MANY" commit -qm files
+for i in 1 2 3 4; do echo y > "$MANY/f$i.txt"; done
+reason_test "$MANY" 'git rebase main' \
+    '4 file\(s\): f1\.txt, f2\.txt, f3\.txt, \.\.\.' \
+    'dirty deny reason truncates the preview after three files'
+
+# ===========================================================================
 # 7. False positives that must NOT fire
 # ===========================================================================
 t allow "$DIRTY" 'echo "recover with (git stash apply ref)"'
