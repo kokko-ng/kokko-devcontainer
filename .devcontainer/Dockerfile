@@ -1,7 +1,7 @@
 # Base image pinned by digest for reproducible builds. The tag is kept for
 # readability; the digest is what the build resolves. Dependabot (docker
 # ecosystem) proposes digest bumps.
-FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:d4ffe02682e0960406fc66f500eb7a299a9caae3a47621da3d17dc969c09bb69
+FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm@sha256:29f5e05ad69bdec17b27b353b034000a7b9fecf7bd29b759e16954ab059ee46d
 
 # Install uv globally, pinned (npm/node not available yet - added by features layer).
 # NOTE: Dependabot cannot see this pin (its docker ecosystem only bumps FROM
