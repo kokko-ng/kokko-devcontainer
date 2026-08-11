@@ -214,13 +214,10 @@ devcontainer up --workspace-folder . --remove-existing-container
 ├── certs/              # Host CA certs extracted by init-host-certs.sh
 │                       # (gitignored except .gitkeep)
 └── config/
-    ├── bin/
-    │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Bundled shell config (symlinked by post-create.sh)
     └── claude/           # Bundled Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks + shared lib (see GIT-SAFETY.md)
-        ├── merge-hooks.jq   # Splices hooks into an existing settings.json
-        └── prune-roster.jq  # Prunes roster entries the bundle no longer ships
+        ├── merge-settings.jq  # Merges bundled settings into an existing settings.json
+        └── prune-roster.jq    # Prunes roster entries the bundle no longer ships
 .gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
 
@@ -235,7 +232,7 @@ FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:...
 RUN pip install --no-cache-dir uv==<pinned>
 
 # ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
-# jq (required by the git safety hooks), fzf + fd-find for the shell config.
+# jq (required by post-create.sh's settings pipeline), fzf + fd-find for the shell config.
 # The Debian release for the MS repo comes from /etc/os-release, so a base
 # image bump cannot leave it pointing at the wrong codename.
 RUN . /etc/os-release \
@@ -292,7 +289,7 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
 4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@<pinned>`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). The browsers live in the `pw-browsers` named volume (`PLAYWRIGHT_BROWSERS_PATH`), so the download is skipped on every rebuild after the first.
 5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/`. `settings.json` is only copied when absent (the merge in step 6 keeps it current); `CLAUDE.md` is refreshed from the bundle whenever the live copy is still byte-identical to what a previous run installed (hash-tracked via `~/.claude/.claude-md.bundled-sha256`) — a user-edited copy is left alone with a notice.
-6. Installs the git safety hooks and the `snaps` helper, then merges the hook wiring and plugin roster into the live `settings.json` (see [GIT-SAFETY.md](GIT-SAFETY.md)). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
+6. Removes any leftovers of the retired git safety layer (the guard/snapshot hooks and the `snaps` helper installed by older versions of this starter), then merges the bundled settings and plugin roster into the live `settings.json` (`merge-settings.jq` — user-set values always win, and the retired hook wiring is stripped). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
 7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the **merged** `~/.claude/settings.json` (falling back to the bundle on a first run) — so a plugin you disabled locally is not reinstalled. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI. Network calls are skipped when the last successful run is under 24h old; `KOKKO_PLUGIN_REFRESH=1` forces a refresh and `KOKKO_SKIP_PLUGINS=1` (used by CI) skips the step entirely.
 8. Configures git for recoverability (`safe.directory`, reflog and prune retention, `rerere`).
 9. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
@@ -350,8 +347,8 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 
 | Alias | Command | Purpose |
 |-------|---------|---------|
-| `ccc` | `claude --permission-mode bypassPermissions` | Claude without permission prompts |
-| `cccc` | `claude --permission-mode bypassPermissions --continue` | Claude, continuing last session |
+| `ccc` | `claude --permission-mode auto` | Claude in Auto mode (built-in classifier approves safe tool calls) |
+| `cccc` | `claude --permission-mode auto --continue` | Claude in Auto mode, continuing last session |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Update Claude Code to latest |
 | `caat` | `copilot --allow-all-tools --banner` | GitHub Copilot CLI with all tools |
 | `dce` | `devcontainer exec --workspace-folder . zsh` | Open a shell in the running container |
@@ -567,7 +564,7 @@ When you copy or fork this repo for your own project, no host-specific edits are
 
 | What to change | File | Default value | Notes |
 |----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | All 11 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor`. `kokko-safety` runs with its git hook skipped (`KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`) because the bundled `guard-git.sh` owns git safety; the plugin covers non-git protections (destructive bash, cloud ops, branch protection). `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
+| Claude Code plugins | `.devcontainer/config/claude/settings.json` | All 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor`. `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
 | Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
 | `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
 | Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |

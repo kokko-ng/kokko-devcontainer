@@ -198,21 +198,21 @@ docker image prune -a
 docker container prune
 ```
 
-### Snapshot refs grow too (inside each repo)
+### Leftover snapshot refs (repos used before v2.0.0)
 
-The git safety layer keeps up to 200 working-tree snapshots per repository under
-`refs/snapshots/`, and `post-create.sh` sets `gc.reflogExpire`/`gc.pruneExpire` to
-`never` — so unreachable objects in busy repos accumulate indefinitely by design. That is
-usually megabytes, not gigabytes, but on a long-lived repo with large files it adds up.
-Prune old snapshots by hand when a repo's `.git` gets heavy:
+Older versions of this starter shipped a git safety layer that checkpointed
+working-tree changes to `refs/snapshots/` (up to 200 per repository). That layer is
+retired, but refs it created in existing repos remain — inert, invisible to normal git
+commands, and `post-create.sh` still sets `gc.reflogExpire`/`gc.pruneExpire` to
+`never`, so their objects accumulate. That is usually megabytes, not gigabytes. Clean
+a repo's leftovers when its `.git` gets heavy:
 
 ```bash
-# Drop snapshots older than a date prefix (they are named <UTC timestamp>-<oid>)
+# Drop all retired snapshot refs (they are named <UTC timestamp>-<oid>)
 git for-each-ref --format='%(refname)' refs/snapshots/ \
-  | awk -F/ '$3 < "20250101" {print}' \
   | while read -r ref; do git update-ref -d "$ref"; done
 
-# Then, if you really need the space back (this removes the recovery net!):
+# Then, if you really need the space back (this expires reflog recovery too!):
 git -c gc.reflogExpire=90.days -c gc.pruneExpire=2.weeks gc
 ```
 
