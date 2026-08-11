@@ -173,28 +173,13 @@ install_playwright_cli() {
     step "playwright-skills" playwright-cli install --skills
 }
 
-# The bundled settings.json ships /home/vscode literals; render it against
-# the actual $HOME at install time so a different container user (or
-# remoteUser) still gets working hook paths. merge-hooks.jq gets the same
-# treatment defensively, although its "ours" match is now basename-based and
-# path-prefix agnostic.
-RENDER_DIR=""
-render_bundled_claude() {
-    RENDER_DIR="$(mktemp -d)"
-    # This runs on EVERY container start (postStartCommand --config-only), so
-    # an uncleaned mktemp dir accumulates one orphan per start. The trap keeps
-    # exactly one lifetime: this run's.
-    trap 'rm -rf "$RENDER_DIR"' EXIT
-    sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/settings.json" > "$RENDER_DIR/settings.json"
-    sed "s|/home/vscode|$HOME|g" "$BUNDLED_CLAUDE_DIR/merge-hooks.jq" > "$RENDER_DIR/merge-hooks.jq"
-}
-
 configure_claude() {
     echo "=== Configuring Claude Code ==="
     mkdir -p "$CLAUDE_DIR"
-    # Copy bundled settings unless a host mount already provides one
-    if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$RENDER_DIR/settings.json" ]]; then
-        cp "$RENDER_DIR/settings.json" "$CLAUDE_DIR/settings.json"
+    # Copy bundled settings unless a host mount already provides one. The
+    # bundled file contains no machine-specific paths, so it is used verbatim.
+    if [[ ! -f "$CLAUDE_DIR/settings.json" && -f "$BUNDLED_CLAUDE_DIR/settings.json" ]]; then
+        cp "$BUNDLED_CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json"
         echo "  Copied bundled settings.json"
     fi
     refresh_claude_md
@@ -237,50 +222,62 @@ refresh_claude_md() {
 }
 
 # =====================
-# Git safety net (see .devcontainer/config/claude/CLAUDE.md)
+# Retired git safety layer — cleanup
 # =====================
-# Deliberately NOT gated on "unless a file already exists", unlike the two
-# copies above. The hooks are the enforcement layer, and the setup most likely
-# to skip them -- a host-mounted ~/.claude -- is exactly the setup where a
-# long-lived project has work worth protecting. Always refresh them, and merge
-# the hook wiring into whatever settings.json is present rather than replacing
-# it, so a user's own settings survive.
-install_git_safety_hooks() {
-    echo "=== Installing git safety hooks ==="
-    if [[ -d "$BUNDLED_CLAUDE_DIR/hooks" ]]; then
-        mkdir -p "$CLAUDE_DIR/hooks"
-        cp "$BUNDLED_CLAUDE_DIR"/hooks/*.sh "$CLAUDE_DIR/hooks/"
-        chmod +x "$CLAUDE_DIR"/hooks/*.sh
-        echo "  Installed: $(cd "$CLAUDE_DIR/hooks" && echo ./*.sh)"
-    fi
-
-    if [[ -f "$BUNDLED_CONFIG_DIR/bin/snaps" ]]; then
-        mkdir -p "$HOME/.local/bin"
-        if sudo install -m 0755 "$BUNDLED_CONFIG_DIR/bin/snaps" /usr/local/bin/snaps 2>/dev/null \
-            || install -m 0755 "$BUNDLED_CONFIG_DIR/bin/snaps" "$HOME/.local/bin/snaps" 2>/dev/null; then
-            echo "  Installed 'snaps' (list/show/diff/restore working-tree snapshots)"
-        else
-            echo "  WARNING: could not install the 'snaps' helper onto PATH"
+# Earlier bundles installed PreToolUse/SessionStart git hooks (guard-git.sh,
+# git-snapshot.sh, session-git-safety.sh, lib-git-target.sh) plus the `snaps`
+# CLI, and enabled the kokko-safety plugin. Claude Code's built-in Auto
+# permission mode (permissions.defaultMode = "auto") replaced all of it.
+# Containers provisioned by those bundles still carry the files on disk and
+# the hook wiring in their settings.json — remove the files here, and let the
+# settings merge below strip the wiring. Idempotent: a quiet no-op once
+# nothing is left. Only the four bundled scripts are touched; a user's own
+# hooks in ~/.claude/hooks/ are not.
+retire_git_safety_layer() {
+    local f removed=0
+    for f in guard-git.sh git-snapshot.sh session-git-safety.sh lib-git-target.sh; do
+        if [[ -e "$CLAUDE_DIR/hooks/$f" ]]; then
+            rm -f "$CLAUDE_DIR/hooks/$f"
+            removed=1
         fi
+    done
+    for f in /usr/local/bin/snaps "$HOME/.local/bin/snaps"; do
+        [[ -e "$f" ]] || continue
+        if sudo rm -f "$f" 2>/dev/null || rm -f "$f" 2>/dev/null; then
+            removed=1
+        else
+            echo "  WARNING: could not remove retired helper $f"
+        fi
+    done
+    # The kokko-safety plugin was the same layer; the roster prune disables
+    # it, but an installed copy would otherwise linger on disk.
+    if [[ "${KOKKO_SKIP_PLUGINS:-}" != "1" ]] && command -v claude >/dev/null 2>&1; then
+        if claude plugin uninstall kokko-safety@kokko-ng-kokko-cmds >/dev/null 2>&1; then
+            removed=1
+        fi
+    fi
+    if [[ "$removed" -eq 1 ]]; then
+        echo "=== Removed the retired git safety layer (hooks, snaps, kokko-safety) ==="
+        echo "    Leftover refs/snapshots/* in project repos are inert; see MANAGING.md to prune them."
     fi
 }
 
-# Splice the hook wiring into the live settings.json. See merge-hooks.jq: this
-# preserves the user's own hooks and is safe to re-run on every rebuild.
+# Merge the bundled settings into the live settings.json. See
+# merge-settings.jq: this preserves the user's own settings and hooks, strips
+# the retired git-safety hook wiring, and is safe to re-run on every rebuild.
 merge_claude_settings() {
-    # jq is a hard dependency of the entire safety layer: every hook needs it
-    # to parse tool payloads, and without it guard-git.sh fails CLOSED on git
-    # commands. A container without jq is misconfigured — say so and stop.
+    # jq is a hard dependency of the settings pipeline: the merge, the roster
+    # prune, and the plugin bootstrap all parse settings.json with it. A
+    # container without jq is misconfigured — say so and stop.
     if ! command -v jq >/dev/null 2>&1; then
         echo "" >&2
-        echo "FATAL: jq is not installed, and the git safety layer cannot work without it." >&2
-        echo "       The hooks need jq to parse tool payloads; guard-git.sh fails CLOSED on" >&2
-        echo "       git commands when it is missing. jq is installed by the Dockerfile —" >&2
+        echo "FATAL: jq is not installed, and the settings merge and plugin bootstrap" >&2
+        echo "       cannot work without it. jq is installed by the Dockerfile —" >&2
         echo "       rebuild the container, or run: sudo apt-get update && sudo apt-get install -y jq" >&2
         echo "" >&2
         exit 1
     fi
-    if [[ -f "$RENDER_DIR/settings.json" && -f "$CLAUDE_DIR/settings.json" ]]; then
+    if [[ -f "$BUNDLED_CLAUDE_DIR/settings.json" && -f "$CLAUDE_DIR/settings.json" ]]; then
         if jq -e . "$CLAUDE_DIR/settings.json" >/dev/null 2>&1; then
             # Timestamped backups; keep the 5 most recent.
             local bak
@@ -288,20 +285,20 @@ merge_claude_settings() {
             cp "$CLAUDE_DIR/settings.json" "$bak"
             # shellcheck disable=SC2012  # our own timestamped names: safe for ls
             ls -1t "$CLAUDE_DIR"/settings.json.bak.* 2>/dev/null | tail -n +6 | xargs -r rm -f --
-            if jq -s -f "$RENDER_DIR/merge-hooks.jq" \
-                "$CLAUDE_DIR/settings.json" "$RENDER_DIR/settings.json" \
+            if jq -s -f "$BUNDLED_CLAUDE_DIR/merge-settings.jq" \
+                "$CLAUDE_DIR/settings.json" "$BUNDLED_CLAUDE_DIR/settings.json" \
                 > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
                 && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
                 mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-                echo "  Merged git safety hooks and plugin roster into settings.json (backup: $(basename "$bak"))"
+                echo "  Merged bundled settings and plugin roster into settings.json (backup: $(basename "$bak"))"
                 prune_removed_roster_entries
             else
                 rm -f "$CLAUDE_DIR/settings.json.tmp"
-                echo "  WARNING: hook merge failed — settings.json left unchanged."
+                echo "  WARNING: settings merge failed — settings.json left unchanged."
             fi
         else
             echo "  WARNING: settings.json is not valid JSON — leaving it alone."
-            echo "           Add the 'hooks' block from $BUNDLED_CLAUDE_DIR/settings.json by hand."
+            echo "           Compare it against $BUNDLED_CLAUDE_DIR/settings.json by hand."
         fi
     fi
 }
@@ -318,7 +315,7 @@ prune_removed_roster_entries() {
     if [[ -f "$roster_snap" && -f "$prune_jq" ]] \
         && jq -e . "$roster_snap" >/dev/null 2>&1; then
         if jq -s -f "$prune_jq" \
-            "$roster_snap" "$RENDER_DIR/settings.json" "$CLAUDE_DIR/settings.json" \
+            "$roster_snap" "$BUNDLED_CLAUDE_DIR/settings.json" "$CLAUDE_DIR/settings.json" \
             > "$CLAUDE_DIR/settings.json.tmp" 2>/dev/null \
             && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
             mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
@@ -328,7 +325,7 @@ prune_removed_roster_entries() {
         fi
     fi
     jq '{enabledPlugins: (.enabledPlugins // {}), extraKnownMarketplaces: (.extraKnownMarketplaces // {})}' \
-        "$RENDER_DIR/settings.json" > "$roster_snap" 2>/dev/null \
+        "$BUNDLED_CLAUDE_DIR/settings.json" > "$roster_snap" 2>/dev/null \
         || echo "  WARNING: could not record the bundled roster snapshot."
 }
 
@@ -428,18 +425,17 @@ bootstrap_claude_plugins() {
 }
 
 # Never expire the reflog or prune unreachable objects. The default 90/30-day
-# windows quietly delete the very objects a recovery depends on -- including the
-# snapshots' parents. Disk is cheaper than the work.
+# windows quietly delete the very objects a recovery may depend on. With no
+# guard layer in front of git any more, the reflog IS the recovery story --
+# disk is cheaper than the work.
 configure_git() {
     echo "=== Configuring git for recoverability ==="
     # Bind-mounted workspaces are owned by the HOST uid, not the container user.
     # Without safe.directory git refuses every command with "detected dubious
-    # ownership" -- which also silently kills the snapshot hook (its git calls
-    # fail, so nothing is ever checkpointed and the safety net protects nothing).
-    # The workspace root is derived from this script's own location (the parent
-    # of the .devcontainer dir), NOT from $PWD -- a --config-only run invoked
-    # from some other directory would otherwise whitelist the wrong path.
-    # Guard against re-adding on every run -- --add appends unconditionally.
+    # ownership". The workspace root is derived from this script's own location
+    # (the parent of the .devcontainer dir), NOT from $PWD -- a --config-only
+    # run invoked from some other directory would otherwise whitelist the wrong
+    # path. Guard against re-adding on every run -- --add appends unconditionally.
     local workspace_root
     workspace_root="$(cd "$SCRIPT_DIR/.." && pwd)"
     if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$workspace_root"; then
@@ -599,18 +595,9 @@ check_vm_disk() {
 # Every step here is idempotent, which is what makes --config-only safe to run
 # against a live container to pick up newer bundled config without a rebuild.
 apply_bundled_config() {
-    render_bundled_claude
     configure_claude
-    # The documented off switch for the git safety layer (see GIT-SAFETY.md).
-    # Removing the hooks block from ~/.claude/settings.json alone is NOT
-    # enough: this script re-merges it on every rebuild and container start.
-    if [[ "${KOKKO_NO_GIT_HOOKS:-}" == "1" ]]; then
-        echo "=== KOKKO_NO_GIT_HOOKS=1: git safety hooks NOT installed or merged ==="
-        echo "    (existing hook entries in ~/.claude/settings.json are left as-is)"
-    else
-        install_git_safety_hooks
-        merge_claude_settings
-    fi
+    retire_git_safety_layer
+    merge_claude_settings
     bootstrap_claude_plugins || true
     configure_git
     link_shell_config

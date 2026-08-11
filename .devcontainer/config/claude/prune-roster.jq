@@ -3,7 +3,7 @@
 #
 # Usage: jq -s -f prune-roster.jq <prev-roster.json> <bundled.json> <live.json>
 #
-# merge-hooks.jq is deliberately ADDITIVE for enabledPlugins and
+# merge-settings.jq is deliberately ADDITIVE for enabledPlugins and
 # extraKnownMarketplaces — bundled keys are added when absent, user values
 # always win. The cost of additive is that a plugin REMOVED from the bundled
 # roster stays enabled in a live settings.json forever. This filter closes
