@@ -15,6 +15,28 @@ Commit early and often; only committed work has that safety net.
 
 ---
 
+## Infrastructure
+
+Bugs are not always in the code. When the symptoms make it plausible — timeouts,
+intermittent failures, connection resets, out-of-memory kills, disk-full errors,
+TLS/DNS failures, throttling (429/503), quota or capacity errors — investigate
+whether the infrastructure is the cause, not just the code in front of you.
+
+- **Read-only investigation is always fine.** `az account show`, `az resource list`,
+  `az monitor metrics list`, service logs and status, `df -h`, `docker system df`,
+  and similar inspection commands need no special permission.
+- **Raise capacity and provisioning needs with the user.** When the evidence points
+  at missing or undersized infrastructure — an exhausted plan, a too-small SKU or
+  tier, a full disk, a resource that does not exist yet — report the finding and the
+  exact command you would run to fix it (e.g. the `az` CLI command to provision or
+  scale), with the cost impact where known, per "Presenting decisions" below.
+- **Never modify infrastructure without explicit user permission.** No provisioning,
+  scaling, restarting, deleting, or reconfiguring cloud resources — however small
+  the change seems — until the user approves that specific action. Inspection is
+  free; mutation needs sign-off.
+
+---
+
 ## Pre-commit hooks
 
 **If `.pre-commit-config.yaml` exists in the repo, pre-commit runs on every commit you
