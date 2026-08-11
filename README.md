@@ -32,54 +32,37 @@ The container is portable — `HOST_USER` is auto-injected from your macOS usern
 ├── init-host-certs.sh
 ├── post-create.sh
 └── config/
-    ├── bin/
-    │   └── snaps         # Browse/restore working-tree snapshots
     ├── zsh/              # Shell config (bundled into container)
     └── claude/           # Claude Code settings and CLAUDE.md
-        ├── hooks/        # Git safety hooks + shared lib (see "Git safety" below)
-        ├── merge-hooks.jq   # Splices hook wiring into a live settings.json
-        └── prune-roster.jq  # Removes roster entries the bundle dropped
+        ├── merge-settings.jq  # Merges bundled settings into a live settings.json
+        └── prune-roster.jq    # Removes roster entries the bundle dropped
 ghostty/
 └── config                # Host-side Ghostty terminal config
 tests/
-└── guard-git-tests.sh    # Regression tests for the git safety layer (run in CI)
+└── merge-settings-tests.sh   # Regression tests for the settings pipeline (run in CI)
 .github/                  # CI workflow (pre-commit, tests, shellcheck, actionlint,
                           # hadolint, build, gitleaks) + release workflow
 .gitignore                # Ignores extracted host CA certs, secrets, build artifacts
 VERSION                   # Drives the v<version> tag published by release.yml
 CLAUDE.md                 # For agents working ON this repo (tests, layout, rules)
 CONTRIBUTING.md           # Test command, pre-commit setup, release flow
-GIT-SAFETY.md             # How the git safety net works
 INSTRUCTIONS.md           # Full setup walkthrough
 MANAGING.md               # Multi-instance management guide
 README.md                 # This file
 ```
 
-## Git safety
+## Permission model
 
-Coding agents rewrite git history as a routine step. When they do it over a dirty tree,
-every uncommitted change to a tracked file is **destroyed silently and unrecoverably** —
-that work was never a git object, so there is no reflog entry and `git fsck` will not find
-it. This has cost real projects hours of work.
+Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"` in the bundled
+settings.json, and the `ccc` alias): Claude Code's built-in classifier decides which
+tool calls are safe to run without a prompt. There is no bespoke hook layer in front of
+git — the guard/snapshot hooks and the `snaps` CLI that earlier versions shipped are
+retired, and `post-create.sh` removes their leftovers from containers that still carry
+them.
 
-The container ships two independent layers, on by default:
-
-| Layer | What it does |
-|---|---|
-| **Snapshots** | Uncommitted tracked changes are checkpointed to `refs/snapshots/` before every git command and on every prompt. Run `snaps` to list, `snaps restore <ref>` to get work back. |
-| **Guard** | Destructive git commands are **blocked while the tree is dirty**, and allowed while it is clean — so a rebase on a clean tree just works. |
-
-Plus `gc.reflogExpire=never` and `gc.pruneExpire=never`, so git stops deleting the objects
-recovery depends on.
-
-```bash
-snaps                 # list snapshots, newest first
-snaps show <ref>      # what's in it
-snaps restore <ref>   # put it back
-```
-
-See [GIT-SAFETY.md](GIT-SAFETY.md) for the design, the full list of blocked commands, and
-the override.
+Git recoverability rests on git itself: `gc.reflogExpire`, `gc.reflogExpireUnreachable`
+and `gc.pruneExpire` are set to `never`, so committed work is always recoverable from
+the reflog.
 
 ## Quick start
 
@@ -114,16 +97,10 @@ plugin set to `true` in `enabledPlugins`, both read from
 plugin that is already installed, so without this step a fresh container comes up with an
 empty plugin directory.
 
-The default roster is all 11 `kokko-ng` plugins across
+The default roster is all 10 `kokko-ng` plugins across
 [kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
 [kokko-janitor](https://github.com/kokko-ng/kokko-janitor). Edit `enabledPlugins` to change
 it; a plugin set to `false` is never installed.
-
-`kokko-safety` is enabled with its git hook switched off
-(`KOKKO_SAFETY_SKIP=destructive-git` in `devcontainer.json`): the bundled `guard-git.sh`
-owns git safety, while the plugin covers everything non-git — `rm -rf`, cloud deletes,
-`chmod`, and branch protection. See
-[GIT-SAFETY.md](GIT-SAFETY.md#division-of-labor-with-kokko-safety).
 
 The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you disable
 locally stays disabled. Its network calls run at most once per 24 hours (stamp:
@@ -136,8 +113,8 @@ locally stays disabled. Its network calls run at most once per 24 hours (stamp:
 
 ## Updating a running container
 
-Bundled config changes — `CLAUDE.md`, `settings.json`, the git safety hooks, `snaps`, zsh
-config, the plugin roster — can be re-applied in place, with no rebuild:
+Bundled config changes — `CLAUDE.md`, `settings.json`, zsh config, the plugin roster —
+can be re-applied in place, with no rebuild:
 
 ```bash
 bash .devcontainer/post-create.sh --config-only

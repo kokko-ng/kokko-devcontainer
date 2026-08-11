@@ -14,13 +14,13 @@ passing local commit does not fail in CI.
 ## Tests
 
 ```bash
-bash tests/guard-git-tests.sh
+bash tests/merge-settings-tests.sh
 ```
 
-Needs bash, jq, git — nothing else. Every change to the hooks, `merge-hooks.jq`, or
-`prune-roster.jq` comes with tests in the same commit (see [CLAUDE.md](CLAUDE.md)).
-CI additionally runs shellcheck, actionlint, hadolint, a full devcontainer build smoke
-test, and gitleaks.
+Needs bash and jq — nothing else. Every change to `merge-settings.jq`,
+`prune-roster.jq`, or the settings-handling parts of `post-create.sh` comes with tests
+in the same commit (see [CLAUDE.md](CLAUDE.md)). CI additionally runs shellcheck,
+actionlint, hadolint, a full devcontainer build smoke test, and gitleaks.
 
 ## Releases
 
