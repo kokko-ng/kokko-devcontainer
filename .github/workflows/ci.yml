@@ -26,18 +26,17 @@ jobs:
           pip install pre-commit
           pre-commit run --all-files --show-diff-on-failure
 
-  guard-git-tests:
-    name: git safety layer regression tests
+  settings-merge-tests:
+    name: settings pipeline regression tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Table-tests the ACTUAL hooks with real PreToolUse JSON payloads:
-      # wrapper-token bypasses, clean/push force forms, cd/-C/--git-dir
-      # target resolution, fail-closed behavior, the recovery whitelist,
-      # false positives, jq-missing handling, and merge-hooks.jq
-      # idempotency. Needs only bash, jq, git.
-      - name: Run guard-git table tests
-        run: bash tests/guard-git-tests.sh
+      # Table-tests merge-settings.jq and prune-roster.jq: user hooks and
+      # choices preserved, retired git-safety wiring stripped, the
+      # acceptEdits -> auto migration, idempotency, and roster pruning.
+      # Needs only bash and jq.
+      - name: Run settings pipeline tests
+        run: bash tests/merge-settings-tests.sh
 
   actionlint:
     name: actionlint (workflow lint)
@@ -62,9 +61,7 @@ jobs:
           shellcheck --severity=info \
             .devcontainer/post-create.sh \
             .devcontainer/init-host-certs.sh \
-            .devcontainer/config/bin/snaps \
-            .devcontainer/config/claude/hooks/*.sh \
-            tests/guard-git-tests.sh
+            tests/merge-settings-tests.sh
 
   hadolint:
     name: hadolint (Dockerfile)
@@ -95,16 +92,14 @@ jobs:
           runCmd: |
             set -e
             jq --version
-            command -v snaps
             command -v claude   # baked into the image by the Dockerfile
-            test -x "$HOME/.claude/hooks/guard-git.sh"
-            test -f "$HOME/.claude/hooks/lib-git-target.sh"
-            # Hooks present on disk is not enough — verify they are WIRED
-            # into the live settings.json the merge produced.
-            jq -e '[.hooks.PreToolUse[].hooks[].command] | map(test("guard-git\\.sh")) | any' "$HOME/.claude/settings.json"
-            jq -e '[.hooks.PreToolUse[].hooks[].command] | map(test("git-snapshot\\.sh")) | any' "$HOME/.claude/settings.json"
-            jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | map(test("git-snapshot\\.sh")) | any' "$HOME/.claude/settings.json"
-            jq -e '[.hooks.SessionStart[].hooks[].command] | map(test("session-git-safety\\.sh")) | any' "$HOME/.claude/settings.json"
+            # The live settings.json the merge produced must be valid, run in
+            # Auto permission mode, and carry none of the retired git-safety
+            # hook wiring or files.
+            jq -e '.permissions.defaultMode == "auto"' "$HOME/.claude/settings.json"
+            jq -e '(tostring | test("guard-git|git-snapshot|session-git-safety")) | not' "$HOME/.claude/settings.json"
+            test ! -e "$HOME/.claude/hooks/guard-git.sh"
+            if command -v snaps; then echo "retired snaps helper is still on PATH"; exit 1; fi
             # Idempotence smoke: a second --config-only run must succeed.
             KOKKO_SKIP_PLUGINS=1 bash .devcontainer/post-create.sh --config-only
 
