@@ -12,8 +12,9 @@ RUN pip install --no-cache-dir uv==0.12.1
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
-# jq (a HARD dependency of the git safety hooks — without it they cannot parse
-# tool payloads), and fzf + fd-find for the bundled shell config.
+# jq (a HARD dependency of post-create.sh — the settings merge, roster prune,
+# and plugin bootstrap all parse JSON with it), and fzf + fd-find for the
+# bundled shell config.
 # The Debian version/codename for the MS repo is derived from the base image's
 # /etc/os-release rather than hardcoded, so a base-image bump (e.g. bookworm ->
 # trixie) cannot silently leave the ODBC repo pointing at the wrong release.

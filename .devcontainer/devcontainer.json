@@ -44,13 +44,6 @@
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
     "COLORTERM": "truecolor",
-    // Division of labor with the kokko-safety plugin: guard-git.sh owns git
-    // safety (deny + dirty-gating + snapshots — see GIT-SAFETY.md), so its
-    // destructive-git hook is skipped to avoid double prompts. Everything
-    // NON-git the plugin protects (rm -rf, cloud deletes, chmod, branch
-    // protection) stays active — previously the whole plugin was disabled,
-    // leaving those ungoverned under bypassPermissions.
-    "KOKKO_SAFETY_SKIP": "destructive-git",
     // Playwright browsers live in the pw-browsers named volume (see "mounts")
     // so a rebuild does not re-download ~400MB of Chromium; post-create skips
     // the install when this directory is already populated.

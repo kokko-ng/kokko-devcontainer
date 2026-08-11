@@ -7,18 +7,28 @@ INTO containers.
 ## Tests
 
 ```bash
-bash tests/guard-git-tests.sh
+bash tests/merge-settings-tests.sh
 ```
 
-One script, ~150 assertions, no framework — needs only bash, jq, git. It feeds real hook
-payloads through the actual hook scripts and checks deny/allow decisions, merge semantics,
-and the snaps roundtrip. CI runs it on every push.
+One script, no framework — needs only bash and jq. It exercises the settings pipeline:
+`merge-settings.jq` (user hooks and choices preserved, retired git-safety wiring
+stripped, the acceptEdits → auto migration, idempotency) and `prune-roster.jq` (bundle
+drops are pruned unless user-overridden). CI runs it on every push.
 
-**Hooks and tests move together.** Any change to a file under
-`.devcontainer/config/claude/hooks/` or to `merge-hooks.jq` / `prune-roster.jq` gets a
-test in the same commit: a denial test for every new deny rule, a benign look-alike allow
-where one exists, and a regression test for every bypass fixed. An untested guard rule is
-how bypasses come back.
+**The settings pipeline and its tests move together.** Any change to
+`merge-settings.jq`, `prune-roster.jq`, or the settings-handling functions in
+`post-create.sh` gets a test in the same commit. The merge runs unattended on every
+container start against a settings.json the user may have edited — an untested merge
+rule is how user settings get eaten.
+
+## Permission model
+
+Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"` in the bundled
+settings.json): the built-in classifier decides which tool calls run without a prompt.
+There is no bespoke guard/snapshot hook layer any more; do not add PreToolUse git
+hooks back without an explicit decision to revisit that. The retired layer's cleanup
+lives in `retire_git_safety_layer` (post-create.sh) and the strip/migration clauses of
+`merge-settings.jq` — keep those until old containers can be assumed gone.
 
 ## Shellcheck
 
@@ -26,30 +36,14 @@ CI and pre-commit both run at `--severity=info` — keep them aligned. Locally:
 
 ```bash
 shellcheck --severity=info .devcontainer/post-create.sh \
-    .devcontainer/config/bin/snaps .devcontainer/config/claude/hooks/*.sh \
-    tests/guard-git-tests.sh
+    .devcontainer/init-host-certs.sh tests/merge-settings-tests.sh
 ```
 
 ## Layout — what runs where
 
 | Path | Role |
 |---|---|
-| `.devcontainer/config/claude/hooks/guard-git.sh` | PreToolUse hook: denies destructive git (dirty-gated + always-deny) |
-| `.devcontainer/config/claude/hooks/git-snapshot.sh` | PreToolUse/UserPromptSubmit hook: checkpoints tracked changes to `refs/snapshots/` |
-| `.devcontainer/config/claude/hooks/session-git-safety.sh` | SessionStart hook: states the safety contract |
-| `.devcontainer/config/claude/hooks/lib-git-target.sh` | **Not a hook.** Shared target-repo resolution, sourced by guard and snapshot — the two must never disagree about which repo a command touches. Fixes to target parsing go here, once |
-| `.devcontainer/config/claude/merge-hooks.jq` | Splices hook wiring + roster into a live settings.json (idempotent, preserves user hooks) |
+| `.devcontainer/config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode + plugin roster |
+| `.devcontainer/config/claude/merge-settings.jq` | Merges bundled settings/roster into a live settings.json (idempotent, preserves user settings, strips retired hook wiring) |
 | `.devcontainer/config/claude/prune-roster.jq` | Removes roster entries the bundle dropped, unless user-overridden |
-| `.devcontainer/config/bin/snaps` | Human CLI over the snapshot refs |
 | `.devcontainer/post-create.sh` | Provisioning; `--config-only` re-applies bundled config in place |
-
-`post-create.sh` copies `hooks/*.sh` into `~/.claude/hooks/` — a new file in that
-directory ships automatically, but only registered hooks belong in the bundled
-`settings.json`.
-
-## The one document that matters
-
-Read [GIT-SAFETY.md](GIT-SAFETY.md) before touching anything in `hooks/`. It explains why
-the guard denies instead of asks, why rules are dirty-gated, and which recovery commands
-must stay reachable. Changes that make the guard noisier on routine commands get it
-switched off — that failure mode is documented there and it is the one to avoid.
