@@ -12,9 +12,10 @@ A guide to running and managing multiple instances of this devcontainer across d
 4. [Listing and stopping containers](#listing-and-stopping-containers)
 5. [CLI targeting](#cli-targeting)
 6. [Colima resource allocation](#colima-resource-allocation)
-7. [Disk management](#disk-management)
-8. [Pin audit](#pin-audit)
-9. [Cleanup](#cleanup)
+7. [Filesystem performance (mount type)](#filesystem-performance-mount-type)
+8. [Disk management](#disk-management)
+9. [Pin audit](#pin-audit)
+10. [Cleanup](#cleanup)
 
 ---
 
@@ -133,6 +134,8 @@ colima stop
 colima start --cpu 8 --memory 16 --disk 150
 ```
 
+Keep `--memory` at or below half your host RAM — the VM reserves it rather than sharing it back, so over-allocating pushes macOS into swap and reads as container slowness. Use `--memory 8` on a 16 GB machine.
+
 Note that `--disk 150` is deliberately generous — see [Disk management](#disk-management) for why. The disk is sparse, so it only consumes host space as it actually fills. CPU and memory are cheap to change later; **the disk is not** — Colima can grow a disk but not shrink it, so starting too small is the expensive mistake.
 
 To check CPU and memory usage:
@@ -142,6 +145,70 @@ docker stats --no-stream
 ```
 
 `colima status` reports whether the VM booted. It does **not** report disk usage, and it will happily print a healthy status while the Docker daemon inside is dead. Do not use it to check disk — see below.
+
+---
+
+## Filesystem performance (mount type)
+
+**If the container feels slow, check this before anything else.** Your project directory is on the host and reaches the container through the Colima VM's mount. The driver Colima uses for that mount is the single biggest performance lever in this setup, and a VM created by an older Colima can be stuck on the slow one *indefinitely* — nothing warns you.
+
+Colima supports three drivers. On `vmType: vz` (the default on Apple Silicon) use **`virtiofs`**; it has been Colima's default since v0.7, but **that default only applies to VMs created after you upgraded.**
+
+Measured in this starter's devcontainer, 200 small file writes on the workspace mount:
+
+| Mount type | write 200 files | stat 200 files | `ls -la` |
+|---|---|---|---|
+| `sshfs` | 57,432 ms | 13,806 ms | 2,659 ms |
+| `virtiofs` | 61 ms | 110 ms | 22 ms |
+
+That is roughly **940x** on writes and **125x** on metadata. It is not a subtle regression: on `sshfs`, `find . -name "*.py"` over a 24,000-file repo did not finish in 5 minutes; on `virtiofs` it took 5.6 seconds. Anything that touches many small files — `uv sync`, `npm ci`, `pytest`, `ruff`, `mypy`, `git status` — is affected in proportion.
+
+It also shows up as **instability, not just slowness**. When the filesystem stalls for tens of seconds, Docker's exec sessions time out and the daemon logs:
+
+```
+Handler for POST /v1.47/exec/.../resize returned error: timeout waiting for exec session ready
+Error running exec ... exec attach failed: ... write: broken pipe
+```
+
+which surfaces as `dce` hanging, dying mid-command, or dropping you back to the host.
+
+### Check which one you are on
+
+```bash
+colima status 2>&1 | grep mountType
+colima ssh -- mount | grep /Users     # the ground truth
+```
+
+`type virtiofs` is what you want. `type fuse.sshfs` means you are on the slow path.
+
+### Migrating an existing VM to virtiofs
+
+> **`colima start --mount-type virtiofs` on an existing VM silently does nothing.** It is a create-time flag: Colima ignores it for a VM that already exists, prints no warning, and starts on the old driver. Editing only `~/.colima/<profile>/colima.yaml` does not work either — Colima overwrites that file on start from the copy saved inside the instance directory.
+
+The change is to the persisted config, with the VM stopped. This preserves all images, containers, and volumes — it is not a VM recreation.
+
+```bash
+cp ~/.colima/default/colima.yaml ~/colima.yaml.bak      # cheap insurance
+colima stop
+
+# All three, or the change does not stick:
+sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/default/colima.yaml
+sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/_lima/colima/colima.yaml
+sed -i '' 's/^mountType: reverse-sshfs$/mountType: virtiofs/' ~/.colima/_lima/colima/lima.yaml
+
+colima start
+colima ssh -- mount | grep /Users    # expect: type virtiofs
+```
+
+Replace `default`/`colima` with your profile name if you use one. Note the lima config spells sshfs as `reverse-sshfs`.
+
+Your containers are stopped by `colima stop`, not removed — restart them with `docker start <name>` or `dcu`. Because the workspace is a host bind mount, no project file is touched by any of this.
+
+If the `sed` lines match nothing, open the files and check the current value; a VM created on `9p` will say `mountType: 9p`.
+
+### Why a VM gets stuck on sshfs
+
+Colima persists the mount type chosen when the VM was **created** and reuses it on every subsequent start. Upgrading Colima changes the default for *new* VMs only. So a machine set up before v0.7 — or one whose VM has simply never been recreated — keeps running `sshfs` through every `colima stop`/`start`, every Colima upgrade, and every devcontainer rebuild, getting slower relative to the tooling around it and never saying why.
 
 ---
 
