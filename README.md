@@ -74,7 +74,11 @@ brew install --cask ghostty
 # 2. Start Colima
 # --disk is generous on purpose: devcontainer images are 5-6GB each and
 # Colima can grow a disk but never shrink it. See MANAGING.md.
-colima start --cpu 8 --memory 16 --disk 150
+# --mount-type virtiofs is the current default, but it only applies to a
+# NEWLY CREATED VM -- an existing VM keeps whatever it was made with, and
+# sshfs is ~940x slower on small-file writes. See MANAGING.md.
+# --memory should be at most half your host RAM (use 8 on a 16GB Mac).
+colima start --cpu 8 --memory 16 --disk 150 --mount-type virtiofs
 
 # 3. Clone this repo into your project and open it
 cd your-project
