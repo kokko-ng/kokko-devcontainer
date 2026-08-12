@@ -108,10 +108,16 @@ brew install colima docker docker-compose
 ### Start Colima
 
 ```bash
-colima start --cpu 8 --memory 16 --disk 150
+colima start --cpu 8 --memory 16 --disk 150 --mount-type virtiofs
 ```
 
 Adjust `--cpu` and `--memory` to suit your machine. 4 CPUs and 8 GB RAM is a workable baseline for a single FastAPI + Vue project with hot reload; 8 and 16 are comfortable if you run more than one container or build images.
+
+**Do not give the VM more than about half your host RAM.** The allocation is reserved for the VM, not shared back with macOS, so `--memory 16` on a 16 GB machine leaves nothing for the host and pushes it into swap — which reads as the container being slow. On a 16 GB Mac use `--memory 8`; `--memory 16` assumes 32 GB or more.
+
+**`--mount-type virtiofs` is the setting that matters most for speed.** It is already the default on `vmType: vz` in current Colima, so on a fresh install the flag is a no-op — pass it anyway to be explicit. The alternative, `sshfs`, is around 940x slower on small-file writes and makes `dce` unstable, not merely slow.
+
+The flag applies **only when the VM is created**. If you already have a Colima VM, this flag will not change it and Colima will not warn you — check with `colima ssh -- mount | grep /Users` and see [Filesystem performance](MANAGING.md#filesystem-performance-mount-type) for the migration.
 
 **Size `--disk` generously from the start.** Each devcontainer image built from this starter is 5-6 GB, every rebuild leaves the previous image behind, and the `docker-in-docker` feature keeps a second, nested image store per container. A 60 GB disk fills up faster than expected, and a full disk takes the Docker daemon down in a way that is hard to diagnose (see [Disk management](MANAGING.md#disk-management)).
 
@@ -498,6 +504,20 @@ The initial `devcontainer up` downloads the base image (~1 GB) and runs `post-cr
 ### Apple Silicon compatibility
 
 All images referenced here (`mcr.microsoft.com/devcontainers/python`, devcontainer features) publish `linux/arm64` variants. Colima defaults to the native architecture, so no emulation is required on Apple Silicon.
+
+### The container is very slow, and `dce` keeps dying
+
+Almost always the Colima VM's mount type. Check the ground truth:
+
+```bash
+colima ssh -- mount | grep /Users
+```
+
+`type fuse.sshfs` is the slow path — around 940x slower than `virtiofs` on small-file writes, enough that `uv sync`, `pytest` and even `git status` crawl, and that Docker's exec sessions time out mid-command and drop you back to the host. `type virtiofs` is what you want.
+
+An existing VM keeps the mount type it was created with, forever, no matter how many times you upgrade Colima or rebuild the container — and `colima start --mount-type virtiofs` will **not** change it, silently. See [Filesystem performance](MANAGING.md#filesystem-performance-mount-type) for the migration, which keeps all your images and containers.
+
+If the mount is already `virtiofs`, check the VM disk (`colima ssh -- df -h /`) — a full disk kills the daemon and exits every container with status 255.
 
 ---
 
