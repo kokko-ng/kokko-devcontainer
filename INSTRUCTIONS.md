@@ -353,10 +353,12 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 
 | Alias | Command | Purpose |
 |-------|---------|---------|
-| `ccc` | `claude --permission-mode auto` | Claude in Auto mode (built-in classifier approves safe tool calls) |
-| `cccc` | `claude --permission-mode auto --continue` | Claude in Auto mode, continuing last session |
+| `cca` | `claude --permission-mode auto` | Claude in Auto mode (built-in classifier approves safe tool calls) |
+| `ccac` | `claude --permission-mode auto --continue` | Claude in Auto mode, continuing last session |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Update Claude Code to latest |
 | `caat` | `copilot --allow-all-tools --banner` | GitHub Copilot CLI with all tools |
+| `azw` | `az account show --query "{user:user.name, subscription:name, tenant:tenantId}" -o table` | Which Azure account, subscription and tenant am I on |
+| `ghw` | `gh auth status` | Which GitHub account the CLI is authenticated as |
 | `dce` | `devcontainer exec --workspace-folder . zsh` | Open a shell in the running container |
 | `dcu` | `devcontainer up --workspace-folder .` | Start the devcontainer |
 | `dcur` | `devcontainer up --workspace-folder . --remove-existing-container` | Rebuild the container from scratch |
