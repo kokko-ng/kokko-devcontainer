@@ -54,7 +54,7 @@ README.md                 # This file
 ## Permission model
 
 Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"` in the bundled
-settings.json, and the `ccc` alias): Claude Code's built-in classifier decides which
+settings.json, and the `cca` alias): Claude Code's built-in classifier decides which
 tool calls are safe to run without a prompt. There is no bespoke hook layer in front of
 git — the guard/snapshot hooks and the `snaps` CLI that earlier versions shipped are
 retired, and `post-create.sh` removes their leftovers from containers that still carry
