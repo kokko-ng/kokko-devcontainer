@@ -12,6 +12,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The repo is a cookiecutter template, so most jobs render it first and lint or
+# build the OUTPUT. Linting the template payload in place would either fail on
+# the Jinja in devcontainer.json and the Dockerfile, or force the Jinja out of
+# them; rendering proves both that the template still produces a valid project
+# and that the project it produces is clean. Renders land in .rendered/, which
+# is gitignored.
+
 jobs:
   pre-commit:
     name: pre-commit (all files)
@@ -34,9 +41,27 @@ jobs:
       # Table-tests merge-settings.jq and prune-roster.jq: user hooks and
       # choices preserved, retired git-safety wiring stripped, the
       # acceptEdits -> auto migration, idempotency, and roster pruning.
-      # Needs only bash and jq.
+      # Runs against the template payload directly — the settings pipeline is
+      # deliberately Jinja-free. Needs only bash and jq.
       - name: Run settings pipeline tests
         run: bash tests/merge-settings-tests.sh
+
+  template-tests:
+    name: template render tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Renders several answer sets and asserts the generated tree: features
+      # added and dropped, ports and paths threaded through, the plugin roster
+      # emptied on request, no unrendered Jinja left, and invalid answers
+      # rejected by the pre-generation hook.
+      - name: Run template render tests
+        run: |
+          pip install cookiecutter
+          bash tests/template-tests.sh
 
   actionlint:
     name: actionlint (workflow lint)
@@ -56,38 +81,65 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
+      # The bundled scripts carry no Jinja, so they lint in place. Their
+      # rendered copies are linted again by tests/template-tests.sh.
       - name: shellcheck
         run: |
           shellcheck --severity=info \
-            .devcontainer/post-create.sh \
-            .devcontainer/init-host-certs.sh \
-            tests/merge-settings-tests.sh
+            "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
+            "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
+            tests/merge-settings-tests.sh \
+            tests/template-tests.sh
 
   hadolint:
-    name: hadolint (Dockerfile)
+    name: hadolint (rendered Dockerfiles)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Both apt layers the template can emit: with the ODBC driver (the
+      # default) and without it.
+      - name: Render both Dockerfile variants
+        run: |
+          pip install cookiecutter
+          cookiecutter . --no-input -o .rendered project_name="CI Smoke"
+          cookiecutter . --no-input -o .rendered project_name="CI Slim" \
+            include_azure_cli=no include_azure_sql_driver=no \
+            include_docker_in_docker=no include_copilot_cli=no \
+            include_playwright=no claude_plugin_roster=none
       - uses: hadolint/hadolint-action@v3.1.0
         with:
-          dockerfile: .devcontainer/Dockerfile
+          dockerfile: .rendered/ci-smoke/.devcontainer/Dockerfile
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: .rendered/ci-slim/.devcontainer/Dockerfile
 
   devcontainer-build:
     name: devcontainer build smoke test
     runs-on: ubuntu-latest
     # devcontainer.json passes this through to containerEnv, so the
-    # post-create run inside the build skips the 11 plugin-install network
+    # post-create run inside the build skips the plugin-install network
     # calls that need a signed-in CLI and are doomed in CI anyway.
     env:
       KOKKO_SKIP_PLUGINS: "1"
     steps:
       - uses: actions/checkout@v4
-      # Builds the image and runs postCreateCommand — this is what catches a
-      # Dockerfile or post-create.sh regression before a human hits it.
-      # Requires .devcontainer/certs/.gitkeep to be committed so the COPY
-      # succeeds on a fresh clone.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Render the template with default answers
+        run: |
+          pip install cookiecutter
+          cookiecutter . --no-input -o .rendered project_name="CI Smoke"
+      # Builds the generated image and runs its postCreateCommand — this is
+      # what catches a Dockerfile or post-create.sh regression before a human
+      # hits it. Requires .devcontainer/certs/.gitkeep to be committed so the
+      # COPY succeeds on a fresh render.
       - uses: devcontainers/ci@v0.3
         with:
+          subFolder: .rendered/ci-smoke
           push: never
           runCmd: |
             set -e
@@ -100,6 +152,8 @@ jobs:
             jq -e '(tostring | test("guard-git|git-snapshot|session-git-safety")) | not' "$HOME/.claude/settings.json"
             test ! -e "$HOME/.claude/hooks/guard-git.sh"
             if command -v snaps; then echo "retired snaps helper is still on PATH"; exit 1; fi
+            # The generated toggles must reach the container environment.
+            test "$DEVCONTAINER_FRONTEND_DIR" = "ui"
             # Idempotence smoke: a second --config-only run must succeed.
             KOKKO_SKIP_PLUGINS=1 bash .devcontainer/post-create.sh --config-only
 

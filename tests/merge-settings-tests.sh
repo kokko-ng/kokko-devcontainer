@@ -8,13 +8,19 @@
 #   prune-roster.jq    - plugins dropped from the bundled roster are pruned
 #                        from the live settings unless the user overrode them.
 #
+# These run against the TEMPLATE payload, not a rendered project: the settings
+# pipeline is deliberately kept free of Jinja (see cookiecutter.json ->
+# _copy_without_render), so the files under test are valid jq and valid JSON at
+# rest and need no cookiecutter to exercise.
+#
 # Needs only bash and jq. Run: bash tests/merge-settings-tests.sh
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MERGE_JQ="$ROOT/.devcontainer/config/claude/merge-settings.jq"
-PRUNE_JQ="$ROOT/.devcontainer/config/claude/prune-roster.jq"
-BUNDLED_SETTINGS="$ROOT/.devcontainer/config/claude/settings.json"
+CLAUDE_CONFIG="$ROOT/{{cookiecutter.project_slug}}/.devcontainer/config/claude"
+MERGE_JQ="$CLAUDE_CONFIG/merge-settings.jq"
+PRUNE_JQ="$CLAUDE_CONFIG/prune-roster.jq"
+BUNDLED_SETTINGS="$CLAUDE_CONFIG/settings.json"
 
 PASS=0
 FAIL=0

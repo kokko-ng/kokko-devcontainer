@@ -1,0 +1,7 @@
+# Host-specific CA certificates extracted by initializeCommand.
+# init-host-certs.sh writes real CA certs from the host keychain here on every
+# build, so this rule lives INSIDE .devcontainer/ — it travels with the
+# directory when you copy it into a project, and cannot be forgotten the way a
+# root-.gitignore entry can.
+certs/*
+!certs/.gitkeep
