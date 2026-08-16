@@ -1,7 +1,14 @@
+{% if cookiecutter.python_version == "3.12" -%}
 # Base image pinned by digest for reproducible builds. The tag is kept for
 # readability; the digest is what the build resolves. Dependabot (docker
 # ecosystem) proposes digest bumps.
 FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:d4ffe02682e0960406fc66f500eb7a299a9caae3a47621da3d17dc969c09bb69
+{%- else -%}
+# NOT pinned by digest: the template only carries a digest for its default
+# Python (3.12), and inventing one for {{ cookiecutter.python_version }} would be worse than none. Pin it
+# yourself for reproducible builds — see DEVCONTAINER.md -> Pinning the base image.
+FROM mcr.microsoft.com/devcontainers/python:{{ cookiecutter.python_version }}-bookworm
+{%- endif %}
 
 # Install uv globally, pinned (npm/node not available yet - added by features layer).
 # NOTE: Dependabot cannot see this pin (its docker ecosystem only bumps FROM
@@ -11,6 +18,7 @@ RUN pip install --no-cache-dir uv==0.12.1
 # Fail piped RUN commands if any pipeline stage fails (hadolint DL4006).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+{% if cookiecutter.include_azure_sql_driver == "yes" -%}
 # Install ODBC Driver 18 for SQL Server (required by pyodbc for Azure SQL),
 # jq (a HARD dependency of post-create.sh — the settings merge, roster prune,
 # and plugin bootstrap all parse JSON with it), and fzf + fd-find for the
@@ -25,6 +33,15 @@ RUN . /etc/os-release \
     && apt-get update \
     && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev jq fzf fd-find \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+{%- else -%}
+# jq is a HARD dependency of post-create.sh — the settings merge, roster prune,
+# and plugin bootstrap all parse JSON with it. fzf + fd-find back the bundled
+# shell config.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq fzf fd-find \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+{%- endif %}
 
 # Create host-path symlink so macOS absolute paths in Claude plugin configs
 # (e.g. /Users/<username>/.claude/...) resolve inside the container.

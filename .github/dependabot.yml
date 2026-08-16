@@ -6,14 +6,17 @@ updates:
     schedule:
       interval: weekly
 
-  # Base image digest in .devcontainer/Dockerfile
+  # Base image digest in the template payload's Dockerfile. The directory is
+  # the literal (Jinja-named) template directory — quoted so YAML keeps the
+  # braces. If digest PRs ever stop arriving, check Dependabot's job logs for
+  # this ecosystem first; the fallback is the manual check in
+  # MANAGING.md -> Pin audit.
   - package-ecosystem: docker
-    directory: /.devcontainer
+    directory: "/{{cookiecutter.project_slug}}/.devcontainer"
     schedule:
       interval: weekly
 
-  # Feature versions in .devcontainer/devcontainer.json
-  - package-ecosystem: devcontainers
-    directory: /
-    schedule:
-      interval: weekly
+  # NOTE: there is deliberately no `devcontainers` ecosystem entry any more.
+  # devcontainer.json is a Jinja template now and does not parse as JSON, so
+  # Dependabot cannot read the `features` block. Feature tags are a manual
+  # pin-audit item — see MANAGING.md -> Pin audit.

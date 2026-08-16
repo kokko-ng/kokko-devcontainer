@@ -2,6 +2,8 @@
 
 A step-by-step guide to setting up a reproducible development environment on macOS using Ghostty, Colima, the devcontainer CLI, and VS Code Remote Containers.
 
+This repo is a [cookiecutter](https://cookiecutter.readthedocs.io/) template: you generate a `.devcontainer/` for your project rather than copying and hand-editing one. [Generate your project](#generate-your-project) covers that step; everything before it is host setup you do once, and everything after it describes the container you end up with.
+
 ---
 
 ## Table of contents
@@ -12,14 +14,15 @@ A step-by-step guide to setting up a reproducible development environment on mac
 4. [Install Ghostty](#install-ghostty)
 5. [Install and configure Colima](#install-and-configure-colima)
 6. [Install the devcontainer CLI](#install-the-devcontainer-cli)
-7. [Using the devcontainer](#using-the-devcontainer)
-8. [Devcontainer structure explained](#devcontainer-structure-explained)
-9. [Bundled config](#bundled-config)
-10. [Optional mounts](#optional-mounts)
-11. [Caveats and known issues](#caveats-and-known-issues)
-12. [Sign in to CLIs](#sign-in-to-clis)
-13. [Forking this starter](#forking-this-starter)
-14. [Customisation](#customisation)
+7. [Generate your project](#generate-your-project)
+8. [Using the devcontainer](#using-the-devcontainer)
+9. [Devcontainer structure explained](#devcontainer-structure-explained)
+10. [Bundled config](#bundled-config)
+11. [Optional mounts](#optional-mounts)
+12. [Caveats and known issues](#caveats-and-known-issues)
+13. [Sign in to CLIs](#sign-in-to-clis)
+14. [Regenerating and customising](#regenerating-and-customising)
+15. [Customisation](#customisation)
 
 ---
 
@@ -42,6 +45,7 @@ On macOS, Docker requires a Linux VM. **Colima** is a lightweight, open-source a
 | Colima | 0.7+ | Docker runtime |
 | Docker CLI | 25+ | Installed alongside Colima |
 | devcontainer CLI | 0.65+ | Runs containers from the terminal |
+| cookiecutter | 2.1+ | Generates your `.devcontainer/` from this template |
 | Ghostty | 1.0+ | Terminal emulator |
 | VS Code | 1.85+ | Optional — CLI-only workflow also documented |
 
@@ -119,7 +123,7 @@ Adjust `--cpu` and `--memory` to suit your machine. 4 CPUs and 8 GB RAM is a wor
 
 The flag applies **only when the VM is created**. If you already have a Colima VM, this flag will not change it and Colima will not warn you — check with `colima ssh -- mount | grep /Users` and see [Filesystem performance](MANAGING.md#filesystem-performance-mount-type) for the migration.
 
-**Size `--disk` generously from the start.** Each devcontainer image built from this starter is 5-6 GB, every rebuild leaves the previous image behind, and the `docker-in-docker` feature keeps a second, nested image store per container. A 60 GB disk fills up faster than expected, and a full disk takes the Docker daemon down in a way that is hard to diagnose (see [Disk management](MANAGING.md#disk-management)).
+**Size `--disk` generously from the start.** Each devcontainer image built from this template is 5-6 GB, every rebuild leaves the previous image behind, and the `docker-in-docker` feature keeps a second, nested image store per container. A 60 GB disk fills up faster than expected, and a full disk takes the Docker daemon down in a way that is hard to diagnose (see [Disk management](MANAGING.md#disk-management)).
 
 Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 150` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
 
@@ -172,6 +176,77 @@ devcontainer --version
 
 ---
 
+## Generate your project
+
+```bash
+brew install cookiecutter      # or: pipx install cookiecutter
+cookiecutter gh:kokko-ng/kokko-devcontainer
+```
+
+Cookiecutter asks one question per option and writes a directory named after your
+`project_slug`, containing `.devcontainer/` and a generated `DEVCONTAINER.md`. Press
+Enter to accept any default.
+
+| Prompt | Default | What it changes |
+|---|---|---|
+| `project_name` | `My Project` | Documentation headings |
+| `project_slug` | derived from the name | Generated directory, container name, per-project volume names |
+| `python_version` | `3.12` | Base image tag. Only `3.12` carries the digest pin; another version emits a tag-only `FROM` and tells you how to pin it |
+| `node_version` | `22` | `node` feature version |
+| `backend_src_dir` | `src` | `PYTHONPATH` |
+| `frontend_dir` | `ui` | Where `post-create.sh` installs frontend dependencies |
+| `backend_port` | `8000` | Forwarded port |
+| `frontend_port` | `5173` | Forwarded port |
+| `include_azure_cli` | `yes` | The `azure-cli` feature and the optional `~/.azure` mount hint |
+| `include_azure_sql_driver` | `yes` | The `msodbcsql18` + `unixodbc-dev` apt layer (pyodbc / Azure SQL) |
+| `include_docker_in_docker` | `yes` | The `docker-in-docker` feature and the Docker VS Code extension |
+| `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
+| `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
+| `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 10 plugins; `none` ships an empty roster |
+| `cache_volume_scope` | `shared` | `shared` reuses one set of cache volumes across projects; `per-project` namespaces them by slug |
+
+Answers are validated before anything is written. A slug that is not lowercase, a port
+below 1024, two services on the same port, or a source directory that is absolute or
+escapes the workspace all abort generation with an explanation and leave no directory
+behind.
+
+### Pinning a template version
+
+```bash
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v3.0.0
+```
+
+Releases are tagged from the `VERSION` file, so `--checkout` pins a project to a
+known-good template instead of tracking `main`.
+
+### Adding it to an existing project
+
+Cookiecutter always creates a new directory, so generate elsewhere and move the result
+in:
+
+```bash
+cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp
+cp -r /tmp/<your-project-slug>/.devcontainer ~/projects/your-project/
+```
+
+Give the prompts your project's real layout (`backend_src_dir`, `frontend_dir`, the
+ports) so the generated config matches what is already on disk.
+
+### Non-interactive generation
+
+Every answer can be passed on the command line:
+
+```bash
+cookiecutter gh:kokko-ng/kokko-devcontainer --no-input \
+  project_name="Acme API" backend_src_dir=app frontend_dir=frontend \
+  include_azure_cli=no include_playwright=no
+```
+
+`cookiecutter --replay gh:kokko-ng/kokko-devcontainer` reuses the answers from your last
+run — useful when regenerating after a template update.
+
+---
+
 ## Using the devcontainer
 
 ### With VS Code
@@ -211,12 +286,16 @@ devcontainer up --workspace-folder . --remove-existing-container
 
 ## Devcontainer structure explained
 
+This is what cookiecutter writes into your project.
+
 ```
+DEVCONTAINER.md         # Generated summary of what you chose and how to change it
 .devcontainer/
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
 ├── init-host-certs.sh  # Extracts host CA certs (runs before build)
 ├── post-create.sh      # Runs once after the container is created
+├── .gitignore          # Keeps the extracted host CA certs out of git
 ├── certs/              # Host CA certs extracted by init-host-certs.sh
 │                       # (gitignored except .gitkeep)
 └── config/
@@ -224,8 +303,12 @@ devcontainer up --workspace-folder . --remove-existing-container
     └── claude/           # Bundled Claude Code settings and CLAUDE.md
         ├── merge-settings.jq  # Merges bundled settings into an existing settings.json
         └── prune-roster.jq    # Prunes roster entries the bundle no longer ships
-.gitignore              # Ignores extracted host CA certs, secrets, build artifacts
 ```
+
+The `.gitignore` lives inside `.devcontainer/` on purpose: the rule that keeps real host
+CA certificates out of git travels with the directory when you copy it into another
+project, instead of being something you have to remember to add to a project's root
+`.gitignore`.
 
 ### Dockerfile
 
@@ -284,7 +367,9 @@ Key sections:
 | `runArgs` | Docker run flags — defaults raise the PID limit to 1024 (needed by Chromium/Playwright). Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
 | `customizations.vscode` | Extensions and settings applied when opening in VS Code |
 
-`PYTHONPATH` is set to `${containerWorkspaceFolder}/src`, which resolves at runtime to `/workspaces/<your-repo-name>/src`. Adjust this if your project's source layout differs.
+`PYTHONPATH` is set to `${containerWorkspaceFolder}/<backend_src_dir>` — `src` unless you answered otherwise — which resolves at runtime to `/workspaces/<your-repo-name>/src`. Edit it in `containerEnv` if your layout changes later.
+
+The `DEVCONTAINER_*` entries in `containerEnv` are the provisioning answers you gave the template, published to the container so `post-create.sh` can read them: `DEVCONTAINER_INSTALL_COPILOT_CLI`, `DEVCONTAINER_INSTALL_PLAYWRIGHT`, and `DEVCONTAINER_FRONTEND_DIR`. Flipping one and rebuilding changes what gets installed without regenerating from the template.
 
 ### post-create.sh
 
@@ -292,10 +377,10 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 
 1. Installs zsh plugins (autosuggestions, syntax highlighting), pinned to release tags. Skips if already cloned.
 2. Installs Claude Code via the native binary installer (`~/.local/bin/claude`). Normally a no-op: the Dockerfile bakes the binary into the image, and this step only fires as a fallback for images built before that layer existed.
-3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
-4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@<pinned>`, installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). The browsers live in the `pw-browsers` named volume (`PLAYWRIGHT_BROWSERS_PATH`), so the download is skipped on every rebuild after the first.
+3. Installs GitHub Copilot CLI via `npm install -g @github/copilot`, unless `DEVCONTAINER_INSTALL_COPILOT_CLI` is `0`. Skips if `copilot` is already on `PATH`. Uses the user-writable npm prefix set up by the Node feature, so no sudo is required.
+4. Installs the [Playwright CLI](https://playwright.dev/agent-cli/installation) via `npm install -g @playwright/cli@<pinned>` (skipped entirely when `DEVCONTAINER_INSTALL_PLAYWRIGHT` is `0`), installs its Chromium browser (`playwright-cli install-browser --with-deps`), and installs agent skills (`playwright-cli install --skills`). The browsers live in the `pw-browsers` named volume (`PLAYWRIGHT_BROWSERS_PATH`), so the download is skipped on every rebuild after the first.
 5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/`. `settings.json` is only copied when absent (the merge in step 6 keeps it current); `CLAUDE.md` is refreshed from the bundle whenever the live copy is still byte-identical to what a previous run installed (hash-tracked via `~/.claude/.claude-md.bundled-sha256`) — a user-edited copy is left alone with a notice.
-6. Removes any leftovers of the retired git safety layer (the guard/snapshot hooks and the `snaps` helper installed by older versions of this starter), then merges the bundled settings and plugin roster into the live `settings.json` (`merge-settings.jq` — user-set values always win, and the retired hook wiring is stripped). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
+6. Removes any leftovers of the retired git safety layer (the guard/snapshot hooks and the `snaps` helper installed by older versions of this template), then merges the bundled settings and plugin roster into the live `settings.json` (`merge-settings.jq` — user-set values always win, and the retired hook wiring is stripped). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
 7. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the **merged** `~/.claude/settings.json` (falling back to the bundle on a first run) — so a plugin you disabled locally is not reinstalled. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI. Network calls are skipped when the last successful run is under 24h old; `KOKKO_PLUGIN_REFRESH=1` forces a refresh and `KOKKO_SKIP_PLUGINS=1` (used by CI) skips the step entirely.
 8. Configures git for recoverability (`safe.directory`, reflog and prune retention, `rerere`).
 9. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
@@ -303,9 +388,9 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 11. Installs Playwright Chromium (Python package) if `pyproject.toml` exists **and**
     `uv run python -c "import playwright"` succeeds in the synced environment — a
     `pyproject.toml` that does not actually pull in playwright is skipped.
-12. Runs `npm ci --legacy-peer-deps` in `ui/` if the `ui/` directory exists (falls back
-    to `npm install --legacy-peer-deps` when `ui/package-lock.json` is missing, since
-    `npm ci` hard-fails without a lockfile).
+12. Runs `npm ci --legacy-peer-deps` in `$DEVCONTAINER_FRONTEND_DIR` (`ui/` by default)
+    if that directory exists (falls back to `npm install --legacy-peer-deps` when its
+    `package-lock.json` is missing, since `npm ci` hard-fails without a lockfile).
 13. Installs pre-commit hooks if `.pre-commit-config.yaml` exists, and warns if
     `.git/hooks/pre-commit` is still missing afterwards.
 14. Copies `.env.example` to `.env` if no `.env` exists.
@@ -314,7 +399,9 @@ Network install steps retry 3 times with backoff; a step that still fails is rec
 `~/.devcontainer-provision-status` and summarized at the end instead of aborting the
 build. Re-run `bash .devcontainer/post-create.sh` after fixing connectivity.
 
-The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything — no `sed` needed when forking.
+The bundled-config paths are resolved relative to the post-create script itself, so the workspace folder can be named anything.
+
+The script contains no template syntax: every option it needs arrives as an environment variable. That is deliberate — it stays shellcheck-clean, readable, and editable in a generated project without a round-trip through cookiecutter.
 
 #### Refreshing config without a rebuild
 
@@ -572,43 +659,45 @@ On first launch Claude Code prompts you to authenticate. Follow the instructions
 
 ---
 
-## Forking this starter
+## Regenerating and customising
 
-When you copy or fork this repo for your own project, no host-specific edits are required — `HOST_USER` is auto-injected from `${localEnv:USER}` and bundled config paths are resolved relative to the script.
-
-### Required changes
-
-| What to change | File | Default value | Change to |
-|----------------|------|---------------|-----------|
-| Container display name | `.devcontainer/devcontainer.json` | `"name": "fastapi-vue-dev"` | A name for your project (optional, cosmetic) |
-
-### Optional changes
-
-| What to change | File | Default value | Notes |
-|----------------|------|---------------|-------|
-| Claude Code plugins | `.devcontainer/config/claude/settings.json` | All 10 `kokko-ng` plugins enabled across two marketplaces — `kokko-ng/kokko-cmds` and `kokko-ng/kokko-janitor`. `post-create.sh` registers the marketplaces and installs every enabled plugin | Remove or replace with your own plugin marketplaces and enabled plugins |
-| Forwarded ports | `.devcontainer/devcontainer.json` | `[8000, 5173]` | Adjust to match your application's ports |
-| `PYTHONPATH` | `.devcontainer/devcontainer.json` | `${containerWorkspaceFolder}/src` | Adjust if your Python source lives elsewhere |
-| Frontend directory | `.devcontainer/post-create.sh` | `ui` | Change the `cd ui` line if your frontend is in a different directory |
-| ODBC driver block | `.devcontainer/Dockerfile` | Installs `msodbcsql18` | Remove entirely if you do not use Azure SQL |
-| Azure CLI feature | `.devcontainer/devcontainer.json` | `azure-cli:1` | Remove the feature if you do not use Azure |
-| Docker-in-Docker feature | `.devcontainer/devcontainer.json` | `docker-in-docker:2` | Remove if you never build/run containers inside the devcontainer; it costs disk (see MANAGING.md) |
-| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | Communication style, customer-facing document rules, how tasks end and decisions are presented, context-window handling, where test artifacts go, and process-management rules | Rewrite to match your team's conventions |
-
-### Quick checklist
-
-```bash
-# 1. (Optional) Update container name in .devcontainer/devcontainer.json
-#    Change "name": "fastapi-vue-dev" to a name for your project.
-
-# 2. (Optional) Review and update Claude Code plugins in
-#    .devcontainer/config/claude/settings.json — remove the kokko-ng marketplace
-#    and `enabledPlugins` entries if you do not use them.
-```
-
-That's it. `HOST_USER` is auto-injected from the host environment, and the
-post-create script resolves bundled config paths relative to itself, so the
+No host-specific edits are ever required — `HOST_USER` is auto-injected from
+`${localEnv:USER}` and bundled config paths are resolved relative to the script, so the
 workspace folder can be named anything.
+
+Most of what you would once have hand-edited is now a prompt (see
+[Generate your project](#generate-your-project)). Two ways to change your mind afterwards:
+
+**Regenerate.** Re-run cookiecutter with different answers and copy the new
+`.devcontainer/` over the old one. `cookiecutter --replay gh:kokko-ng/kokko-devcontainer`
+starts from your previous answers, so you only change the one that moved. This is the
+cleaner route when several options change at once.
+
+**Edit in place.** Everything the prompts control is a plain setting in the generated
+files:
+
+| What to change | Where | Applies after |
+|---|---|---|
+| Copilot CLI on/off | `DEVCONTAINER_INSTALL_COPILOT_CLI` in `devcontainer.json` -> `containerEnv` | Rebuild |
+| Playwright CLI on/off | `DEVCONTAINER_INSTALL_PLAYWRIGHT` in `containerEnv` | Rebuild |
+| Frontend directory | `DEVCONTAINER_FRONTEND_DIR` in `containerEnv` | Rebuild |
+| Python source path | `PYTHONPATH` in `containerEnv` | Rebuild |
+| Forwarded ports | `forwardPorts` in `devcontainer.json` | Rebuild |
+| Container display name | `name` in `devcontainer.json` | Rebuild |
+| Azure CLI, Docker-in-Docker, Node version | `features` in `devcontainer.json` | Rebuild |
+| ODBC driver, base image, uv version | `Dockerfile` | Rebuild |
+| Cache volume names | `mounts` in `devcontainer.json` | Rebuild |
+| Claude Code plugins | `enabledPlugins` / `extraKnownMarketplaces` in `.devcontainer/config/claude/settings.json` | `post-create.sh --config-only` |
+| Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | `post-create.sh --config-only` |
+| Shell aliases and integrations | `.devcontainer/config/zsh/` | New shell |
+
+Rebuild with `devcontainer up --workspace-folder . --remove-existing-container`; the
+config-only refresh is `bash .devcontainer/post-create.sh --config-only`.
+
+The provisioning toggles are environment variables rather than template conditionals on
+purpose: `post-create.sh` contains no Jinja, so it stays readable, shellcheck-clean, and
+editable in a generated project without a template round-trip.
+
 
 ---
 

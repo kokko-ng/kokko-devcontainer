@@ -43,6 +43,16 @@ BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"
 # one transient npm/curl failure must not abort the whole container.
 PROVISION_STATUS="$HOME/.devcontainer-provision-status"
 
+# Provisioning toggles and paths. These are set in devcontainer.json's
+# containerEnv from the answers given when this project was generated from the
+# cookiecutter template; the defaults below are what a bare `bash
+# post-create.sh` (no devcontainer, e.g. a plain `docker run`) gets. Keeping
+# them as environment variables rather than templating this script is what lets
+# the file stay shellcheck-clean and testable without a rendering step.
+INSTALL_COPILOT_CLI="${DEVCONTAINER_INSTALL_COPILOT_CLI:-1}"
+INSTALL_PLAYWRIGHT="${DEVCONTAINER_INSTALL_PLAYWRIGHT:-1}"
+FRONTEND_DIR="${DEVCONTAINER_FRONTEND_DIR:-ui}"
+
 # =====================
 # Retry / degrade helpers
 # =====================
@@ -134,6 +144,10 @@ install_claude_cli() {
 }
 
 install_copilot_cli() {
+    if [[ "$INSTALL_COPILOT_CLI" != "1" ]]; then
+        echo "=== Skipping GitHub Copilot CLI (DEVCONTAINER_INSTALL_COPILOT_CLI=$INSTALL_COPILOT_CLI) ==="
+        return 0
+    fi
     echo "=== Installing GitHub Copilot CLI ==="
     # Published as @github/copilot on npm. The devcontainer Node feature creates
     # a user-writable global prefix, so no sudo is needed.
@@ -147,6 +161,10 @@ install_copilot_cli() {
 }
 
 install_playwright_cli() {
+    if [[ "$INSTALL_PLAYWRIGHT" != "1" ]]; then
+        echo "=== Skipping Playwright CLI (DEVCONTAINER_INSTALL_PLAYWRIGHT=$INSTALL_PLAYWRIGHT) ==="
+        return 0
+    fi
     echo "=== Installing Playwright CLI ==="
     # https://playwright.dev/agent-cli/installation
     if ! command -v npm >/dev/null 2>&1 && ! command -v playwright-cli >/dev/null 2>&1; then
@@ -491,6 +509,10 @@ install_python_deps() {
 # =====================
 # Playwright Chromium
 # =====================
+# This is the PROJECT's playwright (a Python dependency), not the agent CLI
+# gated by DEVCONTAINER_INSTALL_PLAYWRIGHT — a project that imports playwright
+# needs its browsers regardless of whether the CLI was installed.
+#
 # `uv sync` above installs only the default dependency groups. A project can
 # declare playwright in a non-default group (or not at all), in which case
 # `uv run playwright` aborts with "Failed to spawn: playwright" and takes the
@@ -510,17 +532,21 @@ install_playwright_browsers() {
 # Frontend dependencies
 # =====================
 install_frontend_deps() {
-    if [[ -d ui ]]; then
-        echo "=== Installing frontend dependencies ==="
-        if [[ -f ui/package-lock.json ]]; then
-            step "frontend-deps" bash -c 'cd ui && npm ci --legacy-peer-deps'
+    if [[ -d "$FRONTEND_DIR" ]]; then
+        echo "=== Installing frontend dependencies ($FRONTEND_DIR) ==="
+        # The directory name reaches the subshell as an argument, never
+        # interpolated into the command string — a path with spaces or shell
+        # metacharacters would otherwise be re-parsed by `bash -c`.
+        # shellcheck disable=SC2016  # $1 must reach the inner shell unexpanded
+        if [[ -f "$FRONTEND_DIR/package-lock.json" ]]; then
+            step "frontend-deps" bash -c 'cd "$1" && npm ci --legacy-peer-deps' _ "$FRONTEND_DIR"
         else
             # `npm ci` hard-fails without a lockfile; fall back to install.
-            echo "  no ui/package-lock.json — using npm install instead of npm ci"
-            step "frontend-deps" bash -c 'cd ui && npm install --legacy-peer-deps'
+            echo "  no $FRONTEND_DIR/package-lock.json — using npm install instead of npm ci"
+            step "frontend-deps" bash -c 'cd "$1" && npm install --legacy-peer-deps' _ "$FRONTEND_DIR"
         fi
     else
-        echo "=== Skipping frontend dependencies (no ui/ directory) ==="
+        echo "=== Skipping frontend dependencies (no $FRONTEND_DIR/ directory) ==="
     fi
 }
 
@@ -641,9 +667,10 @@ echo ""
 echo "=== Dev container ready ==="
 echo ""
 echo "  Backend:   uv run uvicorn api.main:app --reload --host 0.0.0.0"
-echo "  Frontend:  cd ui && npm run dev"
+echo "  Frontend:  cd $FRONTEND_DIR && npm run dev"
 echo "  Claude:    claude"
-echo "  Azure:     az account show"
+# An `if`, not an AND-list: under `set -e` a false AND-list would end the script.
+if command -v az >/dev/null 2>&1; then echo "  Azure:     az account show"; fi
 echo ""
 
 provision_summary

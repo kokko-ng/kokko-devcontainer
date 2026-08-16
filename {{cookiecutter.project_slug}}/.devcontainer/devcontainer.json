@@ -1,7 +1,9 @@
-// devcontainer.json — generic FastAPI + Vue development environment
-// See INSTRUCTIONS.md for full setup guide.
+// devcontainer.json — {{ cookiecutter.project_name }}
+// Generated from the kokko-devcontainer cookiecutter template.
+// See DEVCONTAINER.md next to this directory for what is installed and how to
+// change it; the upstream INSTRUCTIONS.md has the full host setup guide.
 {
-  "name": "fastapi-vue-dev",
+  "name": "{{ cookiecutter.__container_name }}",
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
@@ -12,12 +14,14 @@
   },
   "remoteUser": "vscode",
   "features": {
-    // Azure CLI — remove if not using Azure
+{%- if cookiecutter.include_azure_cli == "yes" %}
     "ghcr.io/devcontainers/features/azure-cli:1": {},
+{%- endif %}
     "ghcr.io/devcontainers/features/node:1": {
       // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
-      "version": "22"
+      "version": "{{ cookiecutter.node_version }}"
     },
+{%- if cookiecutter.include_docker_in_docker == "yes" %}
     // Docker-in-Docker — a second Docker daemon inside the container.
     // Its image store lives in a named `dind-var-lib-docker-*` volume that
     // survives container removal, is not counted by `docker system df`, and is
@@ -26,6 +30,7 @@
     // `docker system prune -a`, and delete the volume by name when retiring a
     // project. See MANAGING.md -> Disk management.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+{%- endif %}
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
@@ -33,8 +38,7 @@
     }
   },
   "containerEnv": {
-    // Adjust the src path if your project layout differs
-    "PYTHONPATH": "${containerWorkspaceFolder}/src",
+    "PYTHONPATH": "${containerWorkspaceFolder}/{{ cookiecutter.backend_src_dir }}",
     "UV_LINK_MODE": "copy",
     // `devcontainer exec` / `docker exec` don't forward the host terminal's
     // env: COLORTERM is lost and TERM arrives as plain "xterm". Chalk-based
@@ -44,12 +48,20 @@
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
     "COLORTERM": "truecolor",
-    // Playwright browsers live in the pw-browsers named volume (see "mounts")
-    // so a rebuild does not re-download ~400MB of Chromium; post-create skips
+    // Where post-create.sh looks for frontend dependencies (package.json).
+    "DEVCONTAINER_FRONTEND_DIR": "{{ cookiecutter.frontend_dir }}",
+    // Provisioning toggles read by post-create.sh. These are the answers you
+    // gave the template; flip one and rebuild to change what gets installed.
+    "DEVCONTAINER_INSTALL_COPILOT_CLI": "{% if cookiecutter.include_copilot_cli == "yes" %}1{% else %}0{% endif %}",
+    "DEVCONTAINER_INSTALL_PLAYWRIGHT": "{% if cookiecutter.include_playwright == "yes" %}1{% else %}0{% endif %}",
+{%- if cookiecutter.include_playwright == "yes" %}
+    // Playwright browsers live in a named volume (see "mounts") so a rebuild
+    // does not re-download ~400MB of Chromium; post-create skips
     // the install when this directory is already populated.
     "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
+{%- endif %}
     // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
-    // post-create skips the plugin bootstrap (11 network calls that need a
+    // post-create skips the plugin bootstrap (network calls that need a
     // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
     "KOKKO_SKIP_PLUGINS": "${localEnv:KOKKO_SKIP_PLUGINS}"
   },
@@ -60,34 +72,54 @@
   // Re-apply bundled config on every start, so a container that pulled newer
   // .devcontainer/config/ files picks them up without a manual step.
   "postStartCommand": "bash .devcontainer/post-create.sh --config-only",
-  // FastAPI default port (8000) and Vite dev server (5173)
-  "forwardPorts": [8000, 5173],
+  // Backend ({{ cookiecutter.backend_port }}) and frontend dev server ({{ cookiecutter.frontend_port }}).
+  // Two containers cannot forward the same host port — see MANAGING.md -> Port conflicts.
+  "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
+{%- if cookiecutter.include_playwright == "yes" %}
     // Chromium (used by the Playwright CLI) spawns many short-lived processes.
     // 512 is too low — raise to 1024 to avoid EAGAIN errors.
     "--pids-limit=1024",
     // Chromium renderers share memory via /dev/shm; Docker's 64MB default
     // makes headless pages crash with cryptic tab errors.
     "--shm-size=1g"
+{%- else %}
+    "--pids-limit=1024"
+{%- endif %}
   ],
-  // Named volumes: package caches survive rebuilds (a rebuild otherwise
-  // re-downloads every wheel and npm tarball), and zsh history persists
-  // across containers. post-create.sh chowns these on first use.
+{%- if cookiecutter.cache_volume_scope == "per-project" %}
+  // Named volumes, scoped to this project: package caches survive rebuilds (a
+  // rebuild otherwise re-downloads every wheel and npm tarball), and zsh
+  // history persists across containers. Nothing is shared with other projects,
+  // so each one pays its own download and its own disk. post-create.sh chowns
+  // these on first use.
+{%- else %}
+  // Named volumes, shared by every project generated with cache_volume_scope
+  // "shared": package caches survive rebuilds (a rebuild otherwise re-downloads
+  // every wheel and npm tarball), and zsh history persists across containers.
+  // post-create.sh chowns these on first use.
+{%- endif %}
   "mounts": [
-    "source=devcontainer-uv-cache,target=/home/vscode/.cache/uv,type=volume",
-    "source=devcontainer-npm-cache,target=/home/vscode/.npm,type=volume",
-    "source=devcontainer-zsh-history,target=/commandhistory,type=volume",
+    "source={{ cookiecutter.__volume_prefix }}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    "source={{ cookiecutter.__volume_prefix }}-npm-cache,target=/home/vscode/.npm,type=volume",
+    "source={{ cookiecutter.__volume_prefix }}-zsh-history,target=/commandhistory,type=volume"
+{%- if cookiecutter.include_playwright == "yes" %},
     // Playwright browsers: first creation pays the download, every rebuild
     // after is fast. Target must match PLAYWRIGHT_BROWSERS_PATH above.
-    "source=pw-browsers,target=/home/vscode/.cache/ms-playwright,type=volume"
+    // The shared scope keeps the historical `pw-browsers` name so existing
+    // volumes are reused rather than orphaned.
+    "source={% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %},target=/home/vscode/.cache/ms-playwright,type=volume"
+{%- endif %}
   ],
   // Optional bind mounts — add entries to "mounts" above as needed.
   // Shell config and Claude Code settings are bundled in .devcontainer/config/
   // and installed by post-create.sh, so no host mounts are required by default.
   //
+{%- if cookiecutter.include_azure_cli == "yes" %}
   //   // Azure CLI session — keeps you logged in across rebuilds
   //   "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind",
   //
+{%- endif %}
   //   // Claude Code state — persists conversation history across rebuilds
   //   // (post-create.sh will not overwrite settings.json if this is mounted)
   //   "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
@@ -98,8 +130,10 @@
         "charliermarsh.ruff",
         "Vue.volar",
         "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
+        "esbenp.prettier-vscode"
+{%- if cookiecutter.include_docker_in_docker == "yes" %},
         "ms-azuretools.vscode-docker"
+{%- endif %}
       ],
       "settings": {
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
