@@ -191,7 +191,7 @@ Enter to accept any default.
 |---|---|---|
 | `project_name` | `My Project` | Documentation headings |
 | `project_slug` | derived from the name | Generated directory, container name, per-project volume names |
-| `python_version` | `3.12` | Base image tag. Only `3.12` carries the digest pin; another version emits a tag-only `FROM` and tells you how to pin it |
+| `python_version` | `3.14` | Base image tag. Only `3.14` carries the digest pin; another version emits a tag-only `FROM` and tells you how to pin it |
 | `node_version` | `22` | `node` feature version |
 | `backend_src_dir` | `src` | `PYTHONPATH` |
 | `frontend_dir` | `ui` | Where `post-create.sh` installs frontend dependencies |
@@ -316,7 +316,7 @@ Abridged for readability — comments are condensed and some flags omitted. `.de
 
 ```dockerfile
 # Pinned by digest for reproducibility; Dependabot proposes digest bumps
-FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:...
+FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm@sha256:...
 
 RUN pip install --no-cache-dir uv==<pinned>
 
@@ -730,7 +730,7 @@ Available tags: [mcr.microsoft.com/devcontainers/python](https://mcr.microsoft.c
 Update the `version` in the Node feature (the default is `22`):
 
 ```jsonc
-"ghcr.io/devcontainers/features/node:1": {
+"ghcr.io/devcontainers/features/node:2": {
   "version": "24"
 }
 ```

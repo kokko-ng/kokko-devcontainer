@@ -114,10 +114,10 @@ recoverability rests on git itself — `post-create.sh` sets `gc.reflogExpire`,
 `gc.reflogExpireUnreachable`, and `gc.pruneExpire` to `never`, so committed work
 is always recoverable from the reflog.
 
-{% if cookiecutter.python_version != "3.12" -%}
+{% if cookiecutter.python_version != "3.14" -%}
 ## Pinning the base image
 
-The upstream template only carries a digest for its default Python (3.12), so
+The upstream template only carries a digest for its default Python (3.14), so
 this `Dockerfile` names `python:{{ cookiecutter.python_version }}-bookworm` by tag with no digest — the
 build is not reproducible until you pin it:
 

@@ -415,8 +415,8 @@ manual check (quarterly is a reasonable cadence):
 | `@playwright/cli@<version>` | `.devcontainer/post-create.sh` | `npm view @playwright/cli version` |
 | zsh plugin release tags | `.devcontainer/post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/zsh-autosuggestions` (and `zsh-syntax-highlighting`) |
 | Feature option versions (e.g. node `"version": "22"`) | `.devcontainer/devcontainer.json` | Node release schedule; bump when the pinned major approaches EOL. The template's `node_version` choices should track this too |
-| Devcontainer feature tags (`azure-cli:1`, `node:1`, ...) | `.devcontainer/devcontainer.json` | `devcontainer features info tags ghcr.io/devcontainers/features/node` |
-| Base image digest for non-default Python | generated `Dockerfile` | Only `python_version` `3.12` carries a digest; every other choice generates a tag-only `FROM` by design |
+| Devcontainer feature tags (`azure-cli:1`, `node:2`, ...) | `.devcontainer/devcontainer.json` | `devcontainer features info tags ghcr.io/devcontainers/features/node` |
+| Base image digest for non-default Python | generated `Dockerfile` | Only `python_version` `3.14` carries a digest; every other choice generates a tag-only `FROM` by design |
 
 The last row used to be Dependabot's job. `devcontainer.json` is a Jinja template now and
 no longer parses as JSON, so the `devcontainers` ecosystem entry was removed from
@@ -424,7 +424,7 @@ no longer parses as JSON, so the `devcontainers` ecosystem entry was removed fro
 still points at the template payload's Dockerfile — if base-image digest PRs stop
 arriving, check that entry's Dependabot job log first.
 
-Devcontainer **feature MAJOR tags** (`azure-cli:1`, `node:1`, `docker-in-docker:2`, ...)
+Devcontainer **feature MAJOR tags** (`azure-cli:1`, `node:2`, `docker-in-docker:4`, ...)
 float deliberately: they resolve to the latest release within the major on every build,
 which keeps features patched without churn here. The trade-off is accepted — a feature
 release can change behavior between rebuilds — because features are maintained by the

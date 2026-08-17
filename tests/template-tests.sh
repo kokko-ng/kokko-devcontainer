@@ -136,9 +136,9 @@ assert_jq "frontend dir is published to post-create" "$DC" \
 assert_jq "azure-cli feature is present by default" "$DC" \
     '.features | has("ghcr.io/devcontainers/features/azure-cli:1")'
 assert_jq "docker-in-docker feature is present by default" "$DC" \
-    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:2")'
+    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:4")'
 assert_jq "node feature is pinned to the chosen version" "$DC" \
-    '.features["ghcr.io/devcontainers/features/node:1"].version == "22"'
+    '.features["ghcr.io/devcontainers/features/node:2"].version == "22"'
 assert_jq "playwright browser volume keeps its historical shared name" "$DC" \
     '[.mounts[] | select(test("ms-playwright"))] | any(test("source=pw-browsers,"))'
 assert_jq "shared caches keep their historical volume names" "$DC" \
@@ -156,7 +156,7 @@ assert_jq "default roster registers the kokko-ng marketplaces" \
 assert "default Dockerfile installs the ODBC driver" \
     grep -q msodbcsql18 "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins the base image by digest" \
-    grep -qE '^FROM .*python:3\.12-bookworm@sha256:' "$DEFAULT/.devcontainer/Dockerfile"
+    grep -qE '^FROM .*python:3\.14-bookworm@sha256:' "$DEFAULT/.devcontainer/Dockerfile"
 assert "certs/.gitkeep survives so plain docker build works" \
     test -f "$DEFAULT/.devcontainer/certs/.gitkeep"
 assert "extracted host certs are gitignored inside .devcontainer" \
@@ -192,7 +192,7 @@ fi
 assert_jq "azure-cli feature is dropped" "$SDC" \
     '.features | has("ghcr.io/devcontainers/features/azure-cli:1") | not'
 assert_jq "docker-in-docker feature is dropped" "$SDC" \
-    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:2") | not'
+    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:4") | not'
 assert_jq "github-cli and common-utils are always kept" "$SDC" \
     '.features | has("ghcr.io/devcontainers/features/github-cli:1")
        and has("ghcr.io/devcontainers/features/common-utils:2")'
