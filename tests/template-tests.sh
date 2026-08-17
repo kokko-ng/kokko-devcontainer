@@ -6,8 +6,8 @@
 # a parseable devcontainer and a lintable Dockerfile.
 #
 # Needs bash, jq, python3 and cookiecutter (pip install cookiecutter). The
-# generated shell scripts are additionally linted when a shellcheck binary is
-# on PATH. Run: bash tests/template-tests.sh
+# generated scripts and Dockerfiles are additionally linted when a shellcheck
+# or hadolint binary is on PATH. Run: bash tests/template-tests.sh
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -259,7 +259,23 @@ else
 fi
 
 # ===========================================================================
-# 6. Bad answers are rejected before anything is written
+# 6. Generated Dockerfiles stay lint-clean
+# ===========================================================================
+# Both apt layers the template can emit. --failure-threshold info matches the
+# default hadolint-action uses in CI, so a finding that fails there fails here
+# too — otherwise a hadolint version bump lands as a red main instead of a red
+# local run.
+if command -v hadolint >/dev/null 2>&1; then
+    for project in "$DEFAULT" "$SLIM"; do
+        assert "hadolint passes on $(basename "$project")'s Dockerfile" \
+            hadolint --failure-threshold info "$project/.devcontainer/Dockerfile"
+    done
+else
+    echo "note: hadolint not installed — skipping the generated-Dockerfile lint"
+fi
+
+# ===========================================================================
+# 7. Bad answers are rejected before anything is written
 # ===========================================================================
 reject() { # reject <desc> <key=value ...>
     local desc="$1"; shift
