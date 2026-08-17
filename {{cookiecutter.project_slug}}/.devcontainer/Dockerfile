@@ -65,9 +65,15 @@ RUN update-ca-certificates
 # before this layer existed. The npm-based CLIs (copilot, playwright) CANNOT
 # move here: node arrives via a devcontainer feature, which layers after this
 # Dockerfile.
+#
+# DL3066 (non-numeric user-id) is ignored on both USER lines below. `vscode` is
+# the account the devcontainer base image creates, and devcontainer.json's
+# `remoteUser` names it as a string — hardcoding its uid here would duplicate a
+# mapping the base image owns and silently rot when that image changes it.
+# hadolint ignore=DL3066
 USER vscode
 RUN curl -fsSL https://claude.ai/install.sh | bash
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
-# hadolint ignore=DL3002
+# hadolint ignore=DL3002,DL3066
 USER root

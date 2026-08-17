@@ -45,6 +45,18 @@ no unrendered Jinja left behind, and invalid answers rejected by `pre_gen_projec
 **Every new or changed prompt in `cookiecutter.json` gets an assertion here in the same
 commit** — an option nothing renders against is an option that silently stops working.
 
+It also lints the generated output when the linters are on PATH: shellcheck over the
+generated shell scripts, and hadolint over both Dockerfile variants at
+`--failure-threshold info`, which is the default `hadolint-action` uses in CI. Install
+hadolint locally to catch a linter-version bump before it turns main red — the binary
+version CI runs is the one pinned in `hadolint/hadolint-action`'s own Dockerfile:
+
+```bash
+curl -sSL -o ~/.local/bin/hadolint \
+  https://github.com/hadolint/hadolint/releases/download/v2.15.0/hadolint-Linux-x86_64
+chmod +x ~/.local/bin/hadolint
+```
+
 CI additionally runs shellcheck, actionlint, hadolint against both rendered Dockerfile
 variants, a full devcontainer build smoke test on the rendered default project, and
 gitleaks.
