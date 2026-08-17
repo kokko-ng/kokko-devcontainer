@@ -72,7 +72,7 @@ gave last time.
 |---|---|---|
 | `project_name` | `My Project` | Documentation headings |
 | `project_slug` | derived from the name | Generated directory, container name, per-project volume names |
-| `python_version` | `3.12` | Base image tag. Only `3.12` carries the digest pin — see [Base image pinning](#base-image-pinning) |
+| `python_version` | `3.14` | Base image tag. Only `3.14` carries the digest pin — see [Base image pinning](#base-image-pinning) |
 | `node_version` | `22` | `node` feature version |
 | `backend_src_dir` | `src` | `PYTHONPATH` |
 | `frontend_dir` | `ui` | Where `post-create.sh` installs frontend dependencies |
@@ -93,7 +93,7 @@ below 1024, two services on the same port, an absolute or escaping source direct
 
 | Tool | Purpose |
 |------|---------|
-| Python 3.12 + uv | Backend runtime and dependency management |
+| Python 3.14 + uv | Backend runtime and dependency management |
 | Node 22 | Frontend build tooling |
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`), with the `kokko-ng` plugin roster installed automatically |
@@ -192,7 +192,7 @@ locally stays disabled. Its network calls run at most once per 24 hours (stamp:
 ## Base image pinning
 
 The `Dockerfile` pins its base image by digest, but the template only carries a digest
-for its default Python (`3.12`). Choosing another Python version emits a tag-only `FROM`
+for its default Python (`3.14`). Choosing another Python version emits a tag-only `FROM`
 plus a warning telling you how to pin it — inventing a digest would be worse than
 shipping none.
 

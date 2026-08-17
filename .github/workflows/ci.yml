@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Run pre-commit on all files
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Renders several answer sets and asserts the generated tree: features
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Both apt layers the template can emit: with the ODBC driver (the
@@ -109,10 +109,10 @@ jobs:
             include_azure_cli=no include_azure_sql_driver=no \
             include_docker_in_docker=no include_copilot_cli=no \
             include_playwright=no claude_plugin_roster=none
-      - uses: hadolint/hadolint-action@v3.1.0
+      - uses: hadolint/hadolint-action@v3.4.0
         with:
           dockerfile: .rendered/ci-smoke/.devcontainer/Dockerfile
-      - uses: hadolint/hadolint-action@v3.1.0
+      - uses: hadolint/hadolint-action@v3.4.0
         with:
           dockerfile: .rendered/ci-slim/.devcontainer/Dockerfile
 
@@ -126,7 +126,7 @@ jobs:
       KOKKO_SKIP_PLUGINS: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Render the template with default answers
@@ -164,6 +164,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
