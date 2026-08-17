@@ -24,7 +24,7 @@ jobs:
     name: pre-commit (all files)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -37,7 +37,7 @@ jobs:
     name: settings pipeline regression tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Table-tests merge-settings.jq and prune-roster.jq: user hooks and
       # choices preserved, retired git-safety wiring stripped, the
       # acceptEdits -> auto migration, idempotency, and roster pruning.
@@ -50,7 +50,7 @@ jobs:
     name: template render tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -67,7 +67,7 @@ jobs:
     name: actionlint (workflow lint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Pinned docker form: the linter version is explicit, not whatever a
       # marketplace action resolves to.
       - uses: docker://rhysd/actionlint:1.7.7
@@ -78,7 +78,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       # The bundled scripts carry no Jinja, so they lint in place. Their
@@ -95,7 +95,7 @@ jobs:
     name: hadolint (rendered Dockerfiles)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -125,7 +125,7 @@ jobs:
     env:
       KOKKO_SKIP_PLUGINS: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -161,7 +161,7 @@ jobs:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v3
