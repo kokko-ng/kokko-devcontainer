@@ -17,7 +17,7 @@
 {%- if cookiecutter.include_azure_cli == "yes" %}
     "ghcr.io/devcontainers/features/azure-cli:1": {},
 {%- endif %}
-    "ghcr.io/devcontainers/features/node:1": {
+    "ghcr.io/devcontainers/features/node:2": {
       // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
       "version": "{{ cookiecutter.node_version }}"
     },
@@ -29,7 +29,7 @@
     // the Colima VM's disk fills. Prune it from INSIDE the container with
     // `docker system prune -a`, and delete the volume by name when retiring a
     // project. See MANAGING.md -> Disk management.
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {},
 {%- endif %}
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/devcontainers/features/common-utils:2": {

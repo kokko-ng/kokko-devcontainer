@@ -1,7 +1,7 @@
 {
   "project_name": "My Project",
   "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '-').replace('_', '-') }}",
-  "python_version": ["3.12", "3.13", "3.11"],
+  "python_version": ["3.14", "3.13", "3.12"],
   "node_version": ["22", "24", "20"],
   "backend_src_dir": "src",
   "frontend_dir": "ui",

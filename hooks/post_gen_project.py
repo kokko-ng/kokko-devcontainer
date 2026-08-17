@@ -20,7 +20,7 @@ PROJECT_SLUG = "{{ cookiecutter.project_slug }}"
 CONTAINER_NAME = "{{ cookiecutter.__container_name }}"
 
 # The Dockerfile's FROM line pins a digest that belongs to this tag only.
-PINNED_PYTHON_VERSION = "3.12"
+PINNED_PYTHON_VERSION = "3.14"
 
 SETTINGS = os.path.join(".devcontainer", "config", "claude", "settings.json")
 

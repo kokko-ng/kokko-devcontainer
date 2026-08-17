@@ -1,11 +1,11 @@
-{% if cookiecutter.python_version == "3.12" -%}
+{% if cookiecutter.python_version == "3.14" -%}
 # Base image pinned by digest for reproducible builds. The tag is kept for
 # readability; the digest is what the build resolves. Dependabot (docker
 # ecosystem) proposes digest bumps.
-FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm@sha256:d4ffe02682e0960406fc66f500eb7a299a9caae3a47621da3d17dc969c09bb69
+FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm@sha256:29f5e05ad69bdec17b27b353b034000a7b9fecf7bd29b759e16954ab059ee46d
 {%- else -%}
 # NOT pinned by digest: the template only carries a digest for its default
-# Python (3.12), and inventing one for {{ cookiecutter.python_version }} would be worse than none. Pin it
+# Python (3.14), and inventing one for {{ cookiecutter.python_version }} would be worse than none. Pin it
 # yourself for reproducible builds — see DEVCONTAINER.md -> Pinning the base image.
 FROM mcr.microsoft.com/devcontainers/python:{{ cookiecutter.python_version }}-bookworm
 {%- endif %}
