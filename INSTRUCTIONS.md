@@ -183,6 +183,13 @@ brew install cookiecutter      # or: pipx install cookiecutter
 cookiecutter gh:kokko-ng/kokko-devcontainer
 ```
 
+**Where to run it:** generate (and keep) the project in a folder no cloud sync
+service watches — `~/code` is a good home. `~/Documents` and `~/Desktop` are
+iCloud-synced whenever "Desktop & Documents Folders" is on, and anything under
+`~/Library/CloudStorage` (OneDrive, Dropbox, Google Drive) is always synced;
+a synced folder fights the container and litters it with phantom `file 2.ext`
+conflict copies (see MANAGING.md, "Cloud-synced folders").
+
 Cookiecutter asks one question per option and writes a directory named after your
 `project_slug`, containing `.devcontainer/` and a generated `DEVCONTAINER.md`. Press
 Enter to accept any default.

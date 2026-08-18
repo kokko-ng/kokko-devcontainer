@@ -65,7 +65,7 @@
     // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
     "KOKKO_SKIP_PLUGINS": "${localEnv:KOKKO_SKIP_PLUGINS}"
   },
-  "initializeCommand": "bash .devcontainer/init-host-certs.sh",
+  "initializeCommand": "bash .devcontainer/init-host-certs.sh && bash .devcontainer/init-host-guard.sh",
   // Capture provisioning output — post-create failures are otherwise lost in
   // the container creation log. See /tmp/post-create.log inside the container.
   "postCreateCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh 2>&1 | tee /tmp/post-create.log'",

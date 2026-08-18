@@ -13,10 +13,11 @@ A guide to running and managing multiple instances of this devcontainer across d
 5. [Listing and stopping containers](#listing-and-stopping-containers)
 6. [CLI targeting](#cli-targeting)
 7. [Colima resource allocation](#colima-resource-allocation)
-8. [Filesystem performance (mount type)](#filesystem-performance-mount-type)
-9. [Disk management](#disk-management)
-10. [Pin audit](#pin-audit)
-11. [Cleanup](#cleanup)
+8. [Cloud-synced folders (phantom "file 2" copies)](#cloud-synced-folders-phantom-file-2-copies)
+9. [Filesystem performance (mount type)](#filesystem-performance-mount-type)
+10. [Disk management](#disk-management)
+11. [Pin audit](#pin-audit)
+12. [Cleanup](#cleanup)
 
 ---
 
@@ -173,6 +174,36 @@ docker stats --no-stream
 `colima status` reports whether the VM booted. It does **not** report disk usage, and it will happily print a healthy status while the Docker daemon inside is dead. Do not use it to check disk — see below.
 
 ---
+
+## Cloud-synced folders (phantom "file 2" copies)
+
+**If phantom files named `something 2.ext`, `Dockerfile 3`, or `core 2` keep
+appearing next to your real files — often unreadable ("Resource deadlock
+avoided") and breaking mypy, eslint, `cp -r`, or image builds — your project
+folder is being watched by a cloud sync service on the host.** iCloud Drive
+writes conflict copies with exactly that ` N` naming, and it covers more than
+`~/Library/Mobile Documents`: with "Desktop & Documents Folders" syncing on,
+everything under `~/Documents` and `~/Desktop` is iCloud-synced. OneDrive,
+Dropbox and Google Drive under `~/Library/CloudStorage` behave the same way.
+The container's heavy file churn (installs, test runs, builds) makes the sync
+service race itself, and the conflict copies respawn for as long as it keeps
+watching.
+
+The template defends on both sides, but only the host fix is real:
+
+- `init-host-guard.sh` (runs on the host at every `devcontainer up`) detects a
+  workspace inside a synced folder and prints the remediation.
+- `sweep-phantoms.sh` (runs in the container on every start; safe to run by
+  hand, `--dry-run` supported) deletes existing conflict copies under three
+  guards: the ` N` / ` N.ext` name shape with N = 2-99, the unsuffixed
+  original exists, and git does not track the file.
+
+**The fix is to take the project out of the synced folder** — move it to a
+non-synced path such as `~/code`, or (iCloud only) rename its parent folder
+with a `.nosync` suffix (iCloud ignores `name.nosync` folders; add a symlink
+under the old name if other tools expect it), or turn off Desktop & Documents
+syncing. Until then the sweeper keeps the tree usable but the copies keep
+coming back.
 
 ## Filesystem performance (mount type)
 
