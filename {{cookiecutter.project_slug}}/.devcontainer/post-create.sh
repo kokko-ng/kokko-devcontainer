@@ -36,6 +36,12 @@ export PATH="$HOME/.local/bin:$PATH"
 # regardless of the workspace folder name.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLED_CONFIG_DIR="$SCRIPT_DIR/config"
+
+# Clear cloud-sync conflict copies ("file 2.ext" phantoms) before anything
+# walks the tree - they are often unreadable through the VM mount and break
+# installs, linters and image builds. Both modes, every start; see
+# sweep-phantoms.sh and init-host-guard.sh for the underlying cause.
+bash "$SCRIPT_DIR/sweep-phantoms.sh" || true
 CLAUDE_DIR="$HOME/.claude"
 BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"
 
