@@ -83,7 +83,7 @@ gave last time.
 | `include_docker_in_docker` | `yes` | The `docker-in-docker` feature and the Docker VS Code extension |
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
-| `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 10 plugins; `none` ships an empty roster |
+| `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 11 plugins; `none` ships an empty roster |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache volumes across projects; `per-project` namespaces them by slug |
 
 Invalid answers are rejected before anything is written — a non-lowercase slug, a port
@@ -174,9 +174,13 @@ plugin set to `true` in `enabledPlugins`, both read from
 plugin that is already installed, so without this step a fresh container comes up with an
 empty plugin directory.
 
-With `claude_plugin_roster=kokko-ng` (the default) that is all 10 `kokko-ng` plugins across
-[kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
-[kokko-janitor](https://github.com/kokko-ng/kokko-janitor). With `none` the roster is empty
+With `claude_plugin_roster=kokko-ng` (the default) that is all 11 plugins: the 10
+`kokko-ng` plugins across [kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
+[kokko-janitor](https://github.com/kokko-ng/kokko-janitor), plus the Insight Slidev deck
+skill from
+[insight-slidev-deck-skill](https://github.com/Insight-Services-APAC/insight-slidev-deck-skill)
+(a private repo — a container whose `gh` login lacks access logs a warning and skips it,
+nothing else breaks). With `none` the roster is empty
 and you add your own. Either way, edit `enabledPlugins` afterwards to change it; a plugin
 set to `false` is never installed.
 
