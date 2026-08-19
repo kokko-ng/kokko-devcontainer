@@ -16,7 +16,8 @@
     "kokko-notifications@kokko-ng-kokko-cmds": true,
     "kokko-validation@kokko-ng-kokko-cmds": true,
     "kokko-viz@kokko-ng-kokko-cmds": true,
-    "kokko-janitor@kokko-ng-kokko-janitor": true
+    "kokko-janitor@kokko-ng-kokko-janitor": true,
+    "insight-slidev-deck@insight-services-apac-slidev": true
   },
   "extraKnownMarketplaces": {
     "kokko-ng-kokko-cmds": {
@@ -29,6 +30,12 @@
       "source": {
         "source": "github",
         "repo": "kokko-ng/kokko-janitor"
+      }
+    },
+    "insight-services-apac-slidev": {
+      "source": {
+        "source": "github",
+        "repo": "Insight-Services-APAC/insight-slidev-deck-skill"
       }
     }
   },

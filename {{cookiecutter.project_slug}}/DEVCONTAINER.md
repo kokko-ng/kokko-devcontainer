@@ -93,8 +93,9 @@ plugins to `settings.json`, then run `bash .devcontainer/post-create.sh --config
 {%- else -%}
 This project ships the `kokko-ng` roster
 ([kokko-cmds](https://github.com/kokko-ng/kokko-cmds),
-[kokko-janitor](https://github.com/kokko-ng/kokko-janitor)). A plugin set to
-`false` is never installed.
+[kokko-janitor](https://github.com/kokko-ng/kokko-janitor),
+[insight-slidev-deck-skill](https://github.com/Insight-Services-APAC/insight-slidev-deck-skill)).
+A plugin set to `false` is never installed.
 {%- endif %}
 
 The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you
