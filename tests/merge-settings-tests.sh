@@ -51,6 +51,10 @@ check "bundle ships no hooks block" \
     'has("hooks") | not' "$BUNDLE_JSON"
 check "bundle does not roster kokko-safety" \
     '.enabledPlugins | has("kokko-safety@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
+check "bundle suppresses every form of Claude attribution" \
+    '.attribution.commit == "" and .attribution.pr == "" and .attribution.sessionUrl == false' "$BUNDLE_JSON"
+check "bundle does not ship the deprecated includeCoAuthoredBy" \
+    'has("includeCoAuthoredBy") | not' "$BUNDLE_JSON"
 
 # ===========================================================================
 # 2. merge-settings.jq - user settings survive, retired wiring is stripped
@@ -106,6 +110,41 @@ check "old bundled acceptEdits migrates to auto" \
     '.permissions.defaultMode == "auto"' "$m1"
 check "bundled scalars added when absent" \
     '.alwaysThinkingEnabled == true and (.attribution | type == "object")' "$m1"
+
+# --- attribution: the sessionUrl backfill and the includeCoAuthoredBy sunset --
+# An older bundle shipped attribution WITHOUT sessionUrl. Only-when-absent
+# operates on the whole object, so without the sub-key backfill the newer
+# sessionUrl would never reach a settings.json that already has the block.
+m_attr_old=$(jq -s -f "$MERGE_JQ" <(echo '{"attribution":{"commit":"","pr":""}}') "$BUNDLED_SETTINGS")
+check "sessionUrl is backfilled into an older attribution block" \
+    '.attribution.sessionUrl == false' "$m_attr_old"
+check "backfill leaves commit and pr alone" \
+    '.attribution.commit == "" and .attribution.pr == ""' "$m_attr_old"
+
+# A sessionUrl the user set is a choice and wins, same as every other scalar.
+m_attr_user=$(jq -s -f "$MERGE_JQ" <(echo '{"attribution":{"commit":"","pr":"","sessionUrl":true}}') "$BUNDLED_SETTINGS")
+check "user-set sessionUrl is preserved" \
+    '.attribution.sessionUrl == true' "$m_attr_user"
+
+# Custom attribution text must survive the backfill untouched.
+m_attr_text=$(jq -s -f "$MERGE_JQ" <(echo '{"attribution":{"commit":"mine","pr":""}}') "$BUNDLED_SETTINGS")
+check "user attribution text survives the backfill" \
+    '.attribution.commit == "mine" and .attribution.sessionUrl == false' "$m_attr_text"
+
+# includeCoAuthoredBy is deprecated. A false value is redundant once the
+# attribution block is present, so it goes; a true value is a deliberate
+# request to be credited and stays.
+m_dep_false=$(jq -s -f "$MERGE_JQ" <(echo '{"includeCoAuthoredBy":false}') "$BUNDLED_SETTINGS")
+check "deprecated includeCoAuthoredBy=false is dropped" \
+    '(has("includeCoAuthoredBy") | not) and .attribution.sessionUrl == false' "$m_dep_false"
+m_dep_true=$(jq -s -f "$MERGE_JQ" <(echo '{"includeCoAuthoredBy":true}') "$BUNDLED_SETTINGS")
+check "deliberate includeCoAuthoredBy=true is left alone" \
+    '.includeCoAuthoredBy == true' "$m_dep_true"
+
+# Both migrations must be idempotent across repeated post-create runs.
+m_attr_twice=$(jq -s -f "$MERGE_JQ" <(printf '%s' "$m_dep_false") "$BUNDLED_SETTINGS")
+check "attribution migrations are idempotent" \
+    ". == $(printf '%s' "$m_dep_false" | jq -c .)" "$(printf '%s' "$m_attr_twice" | jq -c .)"
 
 # A defaultMode the user chose (anything but the old bundled acceptEdits)
 # must never be migrated.
