@@ -14,6 +14,8 @@
   "include_playwright": ["yes", "no"],
   "claude_plugin_roster": ["kokko-ng", "none"],
   "cache_volume_scope": ["shared", "per-project"],
+  "git_user_name": "",
+  "git_user_email": "",
   "__container_name": "{{ cookiecutter.project_slug }}-dev",
   "__volume_prefix": "{% if cookiecutter.cache_volume_scope == 'per-project' %}{{ cookiecutter.project_slug }}{% else %}devcontainer{% endif %}",
   "_copy_without_render": [

@@ -473,6 +473,30 @@ configure_git() {
     git config --global gc.pruneExpire never
     git config --global rerere.enabled true
     echo "  reflog retention: never expire; unreachable objects: never pruned"
+
+    # Author identity, from the cookiecutter answers. Both answers default to
+    # empty, in which case nothing is set and you configure it by hand -- the
+    # template has no business guessing who you are.
+    #
+    # Deriving this from `gh api` is tempting and wrong: `.name` is the GitHub
+    # display name rather than the username, and the primary address is the
+    # users.noreply.github.com one whenever the real address is kept private.
+    #
+    # Only ever set when UNSET. post-create runs again on every rebuild and on
+    # every --config-only, so writing unconditionally would silently revert an
+    # identity changed inside the container. `|| true` because `--get` exits 1
+    # when the key is missing, which set -e would otherwise treat as fatal.
+    local git_name="{{ cookiecutter.git_user_name }}"
+    local git_email="{{ cookiecutter.git_user_email }}"
+    if [ -n "$git_name" ] && [ -n "$git_email" ]; then
+        [ -n "$(git config --global --get user.name || true)" ] \
+            || git config --global user.name "$git_name"
+        [ -n "$(git config --global --get user.email || true)" ] \
+            || git config --global user.email "$git_email"
+        echo "  author identity: $(git config --global --get user.name || true) <$(git config --global --get user.email || true)>"
+    else
+        echo "  author identity: not configured (git_user_name/git_user_email left empty)"
+    fi
 }
 
 report_plugin_paths() {
