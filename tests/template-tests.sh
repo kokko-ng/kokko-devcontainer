@@ -232,6 +232,48 @@ assert "non-default python version reaches FROM" \
     grep -qE '^FROM .*python:3\.13-bookworm$' "$SLIM/.devcontainer/Dockerfile"
 
 # ===========================================================================
+# 3b. Git author identity is opt-in and never guessed
+# ===========================================================================
+# Both answers default to empty. The template must then configure NO identity
+# and say so, rather than inventing one -- a wrong author on every commit is
+# worse than no author, which at least fails loudly on the first commit.
+assert_jq "template prompts for git_user_name" "$ROOT/cookiecutter.json" \
+    'has("git_user_name")'
+assert_jq "template prompts for git_user_email" "$ROOT/cookiecutter.json" \
+    'has("git_user_email")'
+assert_jq "git identity answers default to empty" "$ROOT/cookiecutter.json" \
+    '.git_user_name == "" and .git_user_email == ""'
+
+assert "default render configures no git identity" \
+    grep -q 'author identity: not configured' "$DEFAULT/.devcontainer/post-create.sh"
+assert "default render documents how to set it by hand" \
+    grep -q '<your-work-email>' "$DEFAULT/DEVCONTAINER.md"
+
+# With both answers supplied the values reach post-create.sh and the rendered
+# docs, and no placeholder survives.
+render "$WORK/gitid" project_name="Git Id" \
+    git_user_name="someone" git_user_email="someone@example.com"
+GITID="$WORK/gitid/git-id"
+assert "supplied git name reaches post-create.sh" \
+    grep -q 'local git_name="someone"' "$GITID/.devcontainer/post-create.sh"
+assert "supplied git email reaches post-create.sh" \
+    grep -q 'local git_email="someone@example.com"' "$GITID/.devcontainer/post-create.sh"
+assert "supplied identity is documented in DEVCONTAINER.md" \
+    grep -q 'someone <someone@example.com>' "$GITID/DEVCONTAINER.md"
+refute "no placeholder survives once the identity is supplied" \
+    grep -q '<your-work-email>' "$GITID/DEVCONTAINER.md"
+
+# The identity is only ever written when unset, so an identity changed inside
+# a running container survives the next rebuild and every --config-only run.
+assert "post-create only sets the identity when unset" \
+    grep -q 'git config --global --get user.email || true' \
+        "$GITID/.devcontainer/post-create.sh"
+
+# No real personal identity may be baked into this public template.
+refute "template bakes in no real work email" \
+    grep -rq 'Kokko.Ng@insight.com' "$ROOT/INSTRUCTIONS.md"
+
+# ===========================================================================
 # 4. Nothing anywhere is left unrendered
 # ===========================================================================
 # A forgotten `{{` or `{%` in a generated file means an option silently did

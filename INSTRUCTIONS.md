@@ -626,9 +626,15 @@ After entering the container for the first time, authenticate the following CLIs
 Configure your git author identity so commits are attributed correctly:
 
 ```bash
-git config --global user.name "kokko-ng"
-git config --global user.email "Kokko.Ng@insight.com"
+git config --global user.name "<your-github-username>"
+git config --global user.email "<your-work-email>"
 ```
+
+You can skip this step entirely: answer the `git_user_name` and `git_user_email`
+prompts when rendering the template and `post-create.sh` sets both for you on first
+provision. Both default to empty, which means "set nothing" — the template does not
+guess who you are. It also only ever writes when the key is unset, so an identity you
+change inside the container survives the next rebuild.
 
 Set these **explicitly** rather than deriving them from `gh`. The tempting one-liner —
 
@@ -638,9 +644,9 @@ git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary
 ```
 
 — is wrong on both counts for work commits. `.name` is the GitHub *display* name, not
-the username, and the primary address is `kokko-ng@users.noreply.github.com` whenever
+the username, and the primary address is the `users.noreply.github.com` one whenever
 the real address is kept private on GitHub. Work commits want the GitHub username and
-the Insight address.
+your work address.
 
 Verify with:
 
@@ -649,7 +655,7 @@ git config --global --get user.name
 git config --global --get user.email
 ```
 
-For anything that is not Insight work, override inside that clone with
+For anything that is not work, override inside that clone with
 `git config user.email "..."`, which leaves the global default untouched.
 
 ### GitHub CLI

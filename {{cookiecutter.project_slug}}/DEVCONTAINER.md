@@ -79,6 +79,39 @@ bundled config can be re-applied with no rebuild at all.
 
 Rebuild: `devcontainer up --workspace-folder . --remove-existing-container`.
 
+## Git identity
+
+{% if cookiecutter.git_user_name and cookiecutter.git_user_email -%}
+`post-create.sh` configures the git author identity on first provision:
+
+```
+{{ cookiecutter.git_user_name }} <{{ cookiecutter.git_user_email }}>
+```
+
+It only writes when the key is unset, so if you change the identity inside the
+container it survives the next rebuild. To change it:
+
+```bash
+git config --global user.name "..."
+git config --global user.email "..."
+```
+{%- else -%}
+No git author identity is configured — the `git_user_name` and `git_user_email`
+template answers were left empty, and the template does not guess who you are.
+Commits will fail until you set one:
+
+```bash
+git config --global user.name "<your-github-username>"
+git config --global user.email "<your-work-email>"
+```
+
+Re-render with those two answers filled in to have `post-create.sh` do it for you.
+{%- endif %}
+
+Do not derive these from `gh api`: `.name` is the GitHub display name rather than
+the username, and the primary address is the `users.noreply.github.com` one
+whenever the real address is kept private.
+
 ## Claude Code plugins
 
 `post-create.sh` registers every marketplace in `extraKnownMarketplaces` and
