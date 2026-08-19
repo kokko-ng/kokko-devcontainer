@@ -626,19 +626,31 @@ After entering the container for the first time, authenticate the following CLIs
 Configure your git author identity so commits are attributed correctly:
 
 ```bash
+git config --global user.name "kokko-ng"
+git config --global user.email "Kokko.Ng@insight.com"
+```
+
+Set these **explicitly** rather than deriving them from `gh`. The tempting one-liner —
+
+```bash
 git config --global user.name "$(gh api user --jq .name)"
 git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary) | .email')"
 ```
 
-(`gh api user --jq .email` returns the literal string `null` when your email is set to
-private on GitHub — the `user/emails` endpoint always has the real primary address.)
+— is wrong on both counts for work commits. `.name` is the GitHub *display* name, not
+the username, and the primary address is `kokko-ng@users.noreply.github.com` whenever
+the real address is kept private on GitHub. Work commits want the GitHub username and
+the Insight address.
 
-This pulls your name and email from your authenticated GitHub account. Verify with:
+Verify with:
 
 ```bash
 git config --global --get user.name
 git config --global --get user.email
 ```
+
+For anything that is not Insight work, override inside that clone with
+`git config user.email "..."`, which leaves the global default untouched.
 
 ### GitHub CLI
 

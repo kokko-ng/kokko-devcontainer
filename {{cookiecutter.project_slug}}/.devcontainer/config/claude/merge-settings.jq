@@ -23,6 +23,13 @@
 # skipDangerousModePermissionPrompt): a fresh settings.json gets the bundled
 # defaults, while any value the user has set — whatever it is — wins.
 #
+# `attribution` carries one narrow exception, applied at the sub-key rather
+# than the whole-object level. A settings.json written by an older bundle
+# already HAS the block, so only-when-absent would never reach inside it, and
+# the newer `sessionUrl` sub-key would never land. It is therefore backfilled
+# when that single sub-key is missing. A sessionUrl the user has set still
+# wins, and commit/pr are never touched once the block exists.
+#
 # Two migration duties, kept until every container provisioned by an older
 # bundle has moved on:
 #
@@ -36,6 +43,11 @@
 #      bundle shipped) to the bundled "auto". Only that exact value migrates:
 #      any other live value is a user choice and wins, mirroring
 #      prune-roster.jq's you-never-overrode-it rule.
+#   3. The deprecated `includeCoAuthoredBy` is DELETED when it is `false` and
+#      an attribution block is present — the block already suppresses the
+#      byline, so the old key is redundant as well as deprecated, and leaving
+#      both invites a contradiction later. `true` is a deliberate choice to be
+#      credited and is left alone, same only-that-exact-value rule as (2).
 
 def ours: "\\.claude/hooks/(guard-git|git-snapshot|session-git-safety)\\.sh$";
 
@@ -60,6 +72,14 @@ def strip_ours:
   else . end
 | if (has("attribution") | not) and ($new | has("attribution"))
   then .attribution = $new.attribution
+  else . end
+| if (((.attribution // {}) | has("sessionUrl")) | not)
+     and (($new.attribution // {}) | has("sessionUrl"))
+     and (has("attribution"))
+  then .attribution += { sessionUrl: $new.attribution.sessionUrl }
+  else . end
+| if (.includeCoAuthoredBy == false) and has("attribution")
+  then del(.includeCoAuthoredBy)
   else . end
 | if ((.permissions // {}) | has("defaultMode") | not) and (($new.permissions // {}) | has("defaultMode"))
   then .permissions = ((.permissions // {}) + { defaultMode: $new.permissions.defaultMode })
