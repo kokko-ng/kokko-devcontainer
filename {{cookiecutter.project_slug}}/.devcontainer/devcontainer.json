@@ -50,6 +50,13 @@
     "COLORTERM": "truecolor",
     // Where post-create.sh looks for frontend dependencies (package.json).
     "DEVCONTAINER_FRONTEND_DIR": "{{ cookiecutter.frontend_dir }}",
+    // The git author identity post-create.sh writes on first provision, so a
+    // fresh container is ready to commit as you rather than as
+    // "vscode@<container-id>". It only ever writes when the key is unset, so
+    // changing it inside the container survives every rebuild. Blank means
+    // "set nothing" and leaves git entirely alone.
+    "DEVCONTAINER_GIT_USER_NAME": "{{ cookiecutter.git_user_name }}",
+    "DEVCONTAINER_GIT_USER_EMAIL": "{{ cookiecutter.git_user_email }}",
     // Provisioning toggles read by post-create.sh. These are the answers you
     // gave the template; flip one and rebuild to change what gets installed.
     "DEVCONTAINER_INSTALL_COPILOT_CLI": "{% if cookiecutter.include_copilot_cli == "yes" %}1{% else %}0{% endif %}",
