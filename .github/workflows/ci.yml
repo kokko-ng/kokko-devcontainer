@@ -109,10 +109,10 @@ jobs:
             include_azure_cli=no include_azure_sql_driver=no \
             include_docker_in_docker=no include_copilot_cli=no \
             include_playwright=no claude_plugin_roster=none
-      - uses: hadolint/hadolint-action@v3.4.0
+      - uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: .rendered/ci-smoke/.devcontainer/Dockerfile
-      - uses: hadolint/hadolint-action@v3.4.0
+      - uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: .rendered/ci-slim/.devcontainer/Dockerfile
 
