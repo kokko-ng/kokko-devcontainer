@@ -110,6 +110,8 @@ assert_jq "template prompts for a project_slug" "$ROOT/cookiecutter.json" \
     'has("project_slug")'
 assert_jq "settings.json is excluded from rendering" "$ROOT/cookiecutter.json" \
     '._copy_without_render | index(".devcontainer/config/claude/settings.json") != null'
+assert_jq "template prompts for a git identity" "$ROOT/cookiecutter.json" \
+    'has("git_user_name") and has("git_user_email")'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
 # ===========================================================================
@@ -133,6 +135,9 @@ assert_jq "PYTHONPATH points at the backend source dir" "$DC" \
     '.containerEnv.PYTHONPATH == "${containerWorkspaceFolder}/src"'
 assert_jq "frontend dir is published to post-create" "$DC" \
     '.containerEnv.DEVCONTAINER_FRONTEND_DIR == "ui"'
+assert_jq "the git identity is published to post-create" "$DC" \
+    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == "kokko-ng"
+       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == "Kokko.Ng@insight.com"'
 assert_jq "azure-cli feature is present by default" "$DC" \
     '.features | has("ghcr.io/devcontainers/features/azure-cli:1")'
 assert_jq "docker-in-docker feature is present by default" "$DC" \
@@ -178,7 +183,8 @@ render "$WORK/slim" \
     backend_port=8080 frontend_port=3000 \
     include_azure_cli=no include_azure_sql_driver=no include_docker_in_docker=no \
     include_copilot_cli=no include_playwright=no \
-    claude_plugin_roster=none cache_volume_scope=per-project
+    claude_plugin_roster=none cache_volume_scope=per-project \
+    git_user_name= git_user_email=
 SLIM="$WORK/slim/slim-app"
 assert "slim answers render" test -d "$SLIM/.devcontainer"
 
@@ -197,6 +203,11 @@ assert_jq "github-cli and common-utils are always kept" "$SDC" \
     '.features | has("ghcr.io/devcontainers/features/github-cli:1")
        and has("ghcr.io/devcontainers/features/common-utils:2")'
 assert_jq "chosen ports are forwarded" "$SDC" '.forwardPorts == [8080, 3000]'
+# Blank has to survive as blank. Rendering the default here would set a
+# stranger's name and address as the author of every commit in the project.
+assert_jq "a blank git identity stays blank" "$SDC" \
+    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == ""
+       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == ""'
 # shellcheck disable=SC2016  # ${containerWorkspaceFolder} is devcontainer syntax, not shell
 assert_jq "chosen backend source dir reaches PYTHONPATH" "$SDC" \
     '.containerEnv.PYTHONPATH == "${containerWorkspaceFolder}/backend"'
@@ -294,6 +305,11 @@ reject "a backend_src_dir escaping the workspace is rejected" backend_src_dir=..
 reject "a non-numeric port is rejected" backend_port=eighty
 reject "a privileged port is rejected" backend_port=80
 reject "duplicate ports are rejected" backend_port=8000 frontend_port=8000
+reject "a git_user_email that is not an address is rejected" \
+    git_user_email=not-an-address
+reject "a git identity given only half is rejected" git_user_email=
+reject "a git_user_name containing a quote is rejected" \
+    'git_user_name=he said "hi"'
 
 # ===========================================================================
 # Report

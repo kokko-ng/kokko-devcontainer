@@ -14,6 +14,8 @@ BACKEND_SRC_DIR = "{{ cookiecutter.backend_src_dir }}"
 FRONTEND_DIR = "{{ cookiecutter.frontend_dir }}"
 BACKEND_PORT = "{{ cookiecutter.backend_port }}"
 FRONTEND_PORT = "{{ cookiecutter.frontend_port }}"
+GIT_USER_NAME = "{{ cookiecutter.git_user_name }}"
+GIT_USER_EMAIL = "{{ cookiecutter.git_user_email }}"
 
 # The slug becomes a directory name, the container name, and (for
 # cache_volume_scope=per-project) a Docker volume name. Docker volume names
@@ -66,6 +68,35 @@ if backend is not None and backend == frontend:
     errors.append(
         f"backend_port and frontend_port are both {backend}; "
         "two services cannot forward the same port"
+    )
+
+def check_git_identity(label, value):
+    """Both are optional: blank means post-create leaves git alone.
+
+    A bad one is worth catching here rather than in the container, where it
+    becomes commits authored by someone who does not exist. These land in a
+    JSONC file and a shell variable, so a quote or a newline would break the
+    generated project rather than merely be wrong.
+    """
+    if not value:
+        return
+    if value.strip() != value:
+        errors.append(f"{label} {value!r} has leading or trailing whitespace")
+    if any(c in value for c in '"\\\n\r'):
+        errors.append(f"{label} {value!r} must not contain quotes, backslashes or newlines")
+
+
+check_git_identity("git_user_name", GIT_USER_NAME)
+check_git_identity("git_user_email", GIT_USER_EMAIL)
+
+# Not a full address grammar, just the shape git and every forge agree on.
+if GIT_USER_EMAIL and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", GIT_USER_EMAIL):
+    errors.append(f"git_user_email {GIT_USER_EMAIL!r} does not look like an email address")
+
+if bool(GIT_USER_NAME) != bool(GIT_USER_EMAIL):
+    errors.append(
+        "git_user_name and git_user_email must be given together or both left "
+        "blank; git needs both to attribute a commit"
     )
 
 if errors:

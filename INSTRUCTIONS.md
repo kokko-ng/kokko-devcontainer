@@ -623,22 +623,42 @@ After entering the container for the first time, authenticate the following CLIs
 
 ### Git identity
 
-Configure your git author identity so commits are attributed correctly:
+Usually nothing to do: `post-create.sh` sets it on first provision from the
+`git_user_name` and `git_user_email` answers you gave the template. Verify with:
+
+```bash
+git config --global --get user.name
+git config --global --get user.email
+```
+
+If those come back empty you either left the answers blank or generated the
+project before this existed. Set them by hand:
+
+```bash
+git config --global user.name "<your-github-username>"
+git config --global user.email "<your-work-email>"
+```
+
+Set them **explicitly** rather than deriving them from `gh`. The tempting
+one-liner —
 
 ```bash
 git config --global user.name "$(gh api user --jq .name)"
 git config --global user.email "$(gh api user/emails --jq '.[] | select(.primary) | .email')"
 ```
 
-(`gh api user --jq .email` returns the literal string `null` when your email is set to
-private on GitHub — the `user/emails` endpoint always has the real primary address.)
+— is wrong on both counts for work commits: `.name` is the GitHub *display*
+name rather than the username, and the primary address is the
+`users.noreply.github.com` one whenever the real address is kept private on
+GitHub.
 
-This pulls your name and email from your authenticated GitHub account. Verify with:
+Anything you set inside the container is left alone from then on. The identity
+is only ever written when the key is unset, and this script runs again on every
+container start, so a value you change by hand survives a rebuild rather than
+being reset to the template's answer.
 
-```bash
-git config --global --get user.name
-git config --global --get user.email
-```
+For anything that is not work, override inside that clone with
+`git config user.email "..."`, which leaves the global default untouched.
 
 ### GitHub CLI
 

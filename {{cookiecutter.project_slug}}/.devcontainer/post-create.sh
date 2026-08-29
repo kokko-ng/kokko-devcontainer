@@ -58,6 +58,9 @@ PROVISION_STATUS="$HOME/.devcontainer-provision-status"
 INSTALL_COPILOT_CLI="${DEVCONTAINER_INSTALL_COPILOT_CLI:-1}"
 INSTALL_PLAYWRIGHT="${DEVCONTAINER_INSTALL_PLAYWRIGHT:-1}"
 FRONTEND_DIR="${DEVCONTAINER_FRONTEND_DIR:-ui}"
+# Blank on a bare run: no answers were given, so touch nothing.
+GIT_USER_NAME="${DEVCONTAINER_GIT_USER_NAME:-}"
+GIT_USER_EMAIL="${DEVCONTAINER_GIT_USER_EMAIL:-}"
 
 # =====================
 # Retry / degrade helpers
@@ -473,6 +476,35 @@ configure_git() {
     git config --global gc.pruneExpire never
     git config --global rerere.enabled true
     echo "  reflog retention: never expire; unreachable objects: never pruned"
+    configure_git_identity
+}
+
+# The author identity, from the answers given to the template.
+#
+# Without this a fresh container has no identity and the first commit either
+# fails or is attributed to vscode@<container-id>, which is a thing you find out
+# about after pushing. An empty answer means "set nothing": the template does
+# not guess who anybody is.
+#
+# Only ever written when the key is unset. This function runs on every container
+# start, not just the first provision (postStartCommand calls this script with
+# --config-only), so writing unconditionally would undo an identity changed
+# inside the container every time it restarted. Per-repository overrides are
+# untouched either way: this sets --global, and a `git config user.email` inside
+# a clone still wins.
+configure_git_identity() {
+    local key value
+    for key in name email; do
+        if [[ "$key" == "name" ]]; then value="$GIT_USER_NAME"; else value="$GIT_USER_EMAIL"; fi
+        if [[ -z "$value" ]]; then
+            echo "  user.$key: no answer given, leaving it unset"
+        elif git config --global --get "user.$key" >/dev/null 2>&1; then
+            echo "  user.$key: already set to $(git config --global --get "user.$key"), left alone"
+        else
+            git config --global "user.$key" "$value"
+            echo "  user.$key: $value"
+        fi
+    done
 }
 
 report_plugin_paths() {
