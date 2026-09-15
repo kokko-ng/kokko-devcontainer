@@ -175,8 +175,8 @@ plugin that is already installed, so without this step a fresh container comes u
 empty plugin directory.
 
 With `claude_plugin_roster=kokko-ng` (the default) that is all 10 `kokko-ng` plugins across
-[kokko-cmds](https://github.com/kokko-ng/kokko-cmds) and
-[kokko-janitor](https://github.com/kokko-ng/kokko-janitor). With `none` the roster is empty
+[kokko-skills](https://github.com/kokko-ng/kokko-skills) and
+[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill). With `none` the roster is empty
 and you add your own. Either way, edit `enabledPlugins` afterwards to change it; a plugin
 set to `false` is never installed.
 
@@ -206,7 +206,7 @@ bash .devcontainer/post-create.sh --config-only
 ```
 
 `/devcontainer-update` (from `kokko-env` in
-[kokko-cmds](https://github.com/kokko-ng/kokko-cmds)) does the whole job: diff this
+[kokko-skills](https://github.com/kokko-ng/kokko-skills)) does the whole job: diff this
 project's `.devcontainer/` against the latest upstream, update the files, run the refresh,
 and report what still needs a rebuild.
 
