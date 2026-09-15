@@ -420,7 +420,7 @@ bash .devcontainer/post-create.sh --config-only
 
 That skips every tool install and every project dependency step, so it takes seconds. Use it after pulling newer `.devcontainer/config/` files, or after adding a plugin to the roster.
 
-The `/devcontainer-update` command in [kokko-ng/kokko-cmds](https://github.com/kokko-ng/kokko-cmds) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
+The `/devcontainer-update` command in [kokko-ng/kokko-skills](https://github.com/kokko-ng/kokko-skills) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
 
 What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, and `init-host-certs.sh` (which runs on the host). Those still need `devcontainer up --remove-existing-container`.
 
