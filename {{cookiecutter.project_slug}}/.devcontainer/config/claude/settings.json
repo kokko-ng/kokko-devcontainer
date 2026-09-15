@@ -22,13 +22,13 @@
     "kokko-ng-kokko-cmds": {
       "source": {
         "source": "github",
-        "repo": "kokko-ng/kokko-cmds"
+        "repo": "kokko-ng/kokko-skills"
       }
     },
     "kokko-ng-kokko-janitor": {
       "source": {
         "source": "github",
-        "repo": "kokko-ng/kokko-janitor"
+        "repo": "kokko-ng/kokko-janitor-skill"
       }
     }
   },

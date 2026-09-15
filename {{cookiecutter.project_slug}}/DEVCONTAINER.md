@@ -92,8 +92,8 @@ This project was generated with an empty roster — add your own marketplaces an
 plugins to `settings.json`, then run `bash .devcontainer/post-create.sh --config-only`.
 {%- else -%}
 This project ships the `kokko-ng` roster
-([kokko-cmds](https://github.com/kokko-ng/kokko-cmds),
-[kokko-janitor](https://github.com/kokko-ng/kokko-janitor)). A plugin set to
+([kokko-skills](https://github.com/kokko-ng/kokko-skills),
+[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill)). A plugin set to
 `false` is never installed.
 {%- endif %}
 
