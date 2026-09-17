@@ -13,6 +13,7 @@
   "include_copilot_cli": ["yes", "no"],
   "include_playwright": ["yes", "no"],
   "claude_plugin_roster": ["kokko-ng", "none"],
+  "claude_attribution": ["no", "yes"],
   "cache_volume_scope": ["shared", "per-project"],
   "container_memory_limit": "8g",
   "git_user_name": "kokko-ng",

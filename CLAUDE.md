@@ -99,7 +99,7 @@ shellcheck --severity=info \
 |---|---|
 | `cookiecutter.json` | Prompts, defaults, and the unrendered-copy list |
 | `hooks/pre_gen_project.py` | Rejects invalid answers before anything is written |
-| `hooks/post_gen_project.py` | Trims the Claude plugin roster; prints next steps |
+| `hooks/post_gen_project.py` | Trims the Claude plugin roster and applies the attribution answer to the bundled settings.json; prints next steps |
 | `{{cookiecutter.project_slug}}/DEVCONTAINER.md` | Generated per-project documentation |
 | `{{cookiecutter.project_slug}}/CLAUDE.md` | Generated project instructions for Claude Code: layout, verification commands, container facts |
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
