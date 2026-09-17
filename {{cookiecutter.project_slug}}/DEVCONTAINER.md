@@ -88,6 +88,24 @@ A commented-out named volume for an in-container `az login` is in `devcontainer.
 use a least-privilege identity for it, since every agent session then carries it.
 {%- endif %}
 
+## Commit authorship
+
+{% if cookiecutter.git_user_name -%}
+Every commit made in this container, by you or by Claude Code, is authored as
+`{{ cookiecutter.git_user_name }} <{{ cookiecutter.git_user_email }}>`. `post-create.sh` sets `user.name` and
+`user.email` on first provision and never overwrites a value that is already set, so a
+change you make inside the container survives rebuilds.
+{%- else -%}
+No git identity was given to the template, so `post-create.sh` leaves `user.name` and
+`user.email` alone. Set them inside the container before the first commit.
+{%- endif %}
+
+Claude Code's own signature, the `Co-Authored-By` trailer on commits and the footer on
+pull requests, is **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}** for this project (`claude_attribution`).
+To change it later, edit or remove `attribution` in `~/.claude/settings.json` inside the
+container: the bundled default only applies where that key is absent, so a rebuild
+does not undo the change.
+
 ## Changing what gets installed
 
 Some answers are baked into the image and need a rebuild; some are plain

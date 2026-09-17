@@ -2,10 +2,12 @@
 
 Only two things happen here that Jinja could not do inline:
 
-  * The bundled Claude settings.json is edited as JSON rather than templated.
-    Keeping that file free of Jinja is deliberate — it stays valid JSON at
-    rest, so `check-json`, `jq`, and tests/merge-settings-tests.sh all run
-    against the template itself with no rendering step.
+  * The bundled Claude settings.json is edited as JSON rather than templated:
+    the plugin roster is emptied on request, and the attribution override is
+    removed when Claude Code should sign its commits. Keeping that file free
+    of Jinja is deliberate — it stays valid JSON at rest, so `check-json`,
+    `jq`, and tests/merge-settings-tests.sh all run against the template
+    itself with no rendering step.
   * The base image digest pin only matches the default Python version, so a
     non-default choice earns a warning rather than a silently wrong pin.
 """
@@ -15,6 +17,7 @@ import os
 import sys
 
 CLAUDE_PLUGIN_ROSTER = "{{ cookiecutter.claude_plugin_roster }}"
+CLAUDE_ATTRIBUTION = "{{ cookiecutter.claude_attribution }}"
 INCLUDE_DOCKER_IN_DOCKER = "{{ cookiecutter.include_docker_in_docker }}"
 PYTHON_VERSION = "{{ cookiecutter.python_version }}"
 PROJECT_SLUG = "{{ cookiecutter.project_slug }}"
@@ -28,24 +31,48 @@ SETTINGS = os.path.join(".devcontainer", "config", "claude", "settings.json")
 notes = []
 
 
-def clear_plugin_roster():
+def clear_plugin_roster(settings):
     """Ship Claude Code with no marketplaces and no plugins."""
-    with open(SETTINGS, encoding="utf-8") as handle:
-        settings = json.load(handle)
     settings["enabledPlugins"] = {}
     settings["extraKnownMarketplaces"] = {}
-    with open(SETTINGS, "w", encoding="utf-8") as handle:
-        json.dump(settings, handle, indent=2)
-        handle.write("\n")
 
+
+def enable_claude_attribution(settings):
+    """Let Claude Code sign the commits and pull requests it makes.
+
+    The bundle ships `attribution` as empty strings, which hides the
+    Co-Authored-By trailer and the PR footer. Removing the key restores Claude
+    Code's own default text rather than copying that text here, so the wording
+    follows the CLI instead of this template. merge-settings.jq only adds
+    `attribution` when it is absent, so a container provisioned by an older
+    bundle keeps its empty strings until they are removed by hand.
+    """
+    settings.pop("attribution", None)
+
+
+settings_edits = []
 
 if CLAUDE_PLUGIN_ROSTER == "none":
-    clear_plugin_roster()
+    settings_edits.append(clear_plugin_roster)
     notes.append(
         "Claude Code ships with an empty plugin roster. Add marketplaces and\n"
         "    plugins to .devcontainer/config/claude/settings.json, then run\n"
         "    'bash .devcontainer/post-create.sh --config-only' to install them."
     )
+
+if CLAUDE_ATTRIBUTION == "yes":
+    settings_edits.append(enable_claude_attribution)
+
+if settings_edits:
+    # One read and one write, however many answers touch the file, so the
+    # edits compose instead of each rewriting the other's output.
+    with open(SETTINGS, encoding="utf-8") as handle:
+        bundled_settings = json.load(handle)
+    for settings_edit in settings_edits:
+        settings_edit(bundled_settings)
+    with open(SETTINGS, "w", encoding="utf-8") as handle:
+        json.dump(bundled_settings, handle, indent=2)
+        handle.write("\n")
 
 if INCLUDE_DOCKER_IN_DOCKER == "yes":
     notes.append(

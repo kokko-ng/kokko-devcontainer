@@ -88,8 +88,11 @@ gave last time.
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
+| `claude_attribution` | `no` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `no` hides both |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache and gh-login volumes across projects; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
 | `container_memory_limit` | `8g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory` |
+| `git_user_name` | `kokko-ng` | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds. Leave both blank to leave git untouched |
+| `git_user_email` | `Kokko.Ng@insight.com` | See `git_user_name`; both or neither |
 
 Invalid answers are rejected before anything is written — a non-lowercase slug, a port
 below 1024, two services on the same port, an absolute or escaping source directory, a

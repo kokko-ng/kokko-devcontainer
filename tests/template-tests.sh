@@ -114,6 +114,8 @@ assert_jq "template prompts for a git identity" "$ROOT/cookiecutter.json" \
     'has("git_user_name") and has("git_user_email")'
 assert_jq "template prompts for a container memory limit" "$ROOT/cookiecutter.json" \
     'has("container_memory_limit")'
+assert_jq "template prompts for Claude attribution, off by default" "$ROOT/cookiecutter.json" \
+    '.claude_attribution[0] == "no"'
 # Docker-in-Docker makes the container privileged, so it must be opt-in.
 assert_jq "docker-in-docker defaults to no" "$ROOT/cookiecutter.json" \
     '.include_docker_in_docker[0] == "no"'
@@ -190,6 +192,11 @@ assert_jq "default roster ships the kokko-ng plugins" \
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
+# The attribution answer defaults to no: the bundle's empty strings, which
+# hide the Co-Authored-By trailer and the PR footer, come through untouched.
+assert_jq "Claude attribution is hidden by default" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.attribution == {commit: "", pr: ""}'
 
 assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" \
@@ -322,10 +329,13 @@ assert "non-default python version reaches FROM" \
     grep -qE '^FROM .*python:3\.13-bookworm$' "$SLIM/.devcontainer/Dockerfile"
 
 # ===========================================================================
-# 3b. Docker-in-Docker opted in — the one answer that changes the container's
-#     privilege level, so it gets its own render.
+# 3b. Opt-ins the other renders leave off: Docker-in-Docker (the one answer
+#     that changes the container's privilege level), Claude attribution, and
+#     both post-generation edits to settings.json at once (empty roster plus
+#     attribution) to prove they compose.
 # ===========================================================================
-render "$WORK/dind" project_name="Dind App" include_docker_in_docker=yes
+render "$WORK/dind" project_name="Dind App" include_docker_in_docker=yes \
+    claude_attribution=yes claude_plugin_roster=none
 DIND="$WORK/dind/dind-app"
 assert "dind answers render" test -d "$DIND/.devcontainer"
 
@@ -345,6 +355,20 @@ assert "DEVCONTAINER.md says the container is privileged" \
     grep -q 'privileged' "$DIND/DEVCONTAINER.md"
 assert "generation prints the privileged note" \
     grep -q 'PRIVILEGED' "$WORK/dind.err"
+# claude_attribution=yes removes the empty-string override so Claude Code's own
+# default trailer and PR footer apply; nothing else in the bundle may move.
+assert_jq "attribution answer removes the override" \
+    "$DIND/.devcontainer/config/claude/settings.json" \
+    'has("attribution") | not'
+assert_jq "attribution edit composes with the emptied roster" \
+    "$DIND/.devcontainer/config/claude/settings.json" \
+    '(.enabledPlugins | length == 0) and (.extraKnownMarketplaces | length == 0)'
+assert_jq "settings.json edits keep the rest of the bundle" \
+    "$DIND/.devcontainer/config/claude/settings.json" \
+    '.permissions.defaultMode == "auto"
+       and (.hooks | has("SessionStart"))
+       and .env.BASH_DEFAULT_TIMEOUT_MS == "600000"
+       and .sandbox.enabled == false'
 
 # ===========================================================================
 # 4. Nothing anywhere is left unrendered

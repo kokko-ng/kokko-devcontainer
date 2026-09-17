@@ -64,8 +64,20 @@ spelling of the same operation. Bypass mode is disabled.
 
 ## Git
 
-- The author identity is preconfigured. The reflog never expires, so committed work is
-  always recoverable — commit early and often.
+- {% if cookiecutter.git_user_name -%}
+  The author identity is preconfigured.
+  {%- else -%}
+  No author identity is configured: set `git config --global user.name` and `user.email`
+  before the first commit.
+  {%- endif %}
+- {% if cookiecutter.claude_attribution == "yes" -%}
+  Claude Code adds its own `Co-Authored-By` trailer; do not add another by hand.
+  {%- else -%}
+  Claude Code's `Co-Authored-By` trailer is switched off for this project; do not add
+  one by hand.
+  {%- endif %}
+- The reflog never expires, so committed work is always recoverable — commit early and
+  often.
 - `safe.directory` is `*` in this container, so git works in the bind-mounted workspace
   and in worktrees. Worktrees created with `claude --worktree` live in
   `.claude/worktrees/` and are gitignored.
