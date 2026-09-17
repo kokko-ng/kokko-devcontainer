@@ -42,7 +42,10 @@ BUNDLED_CONFIG_DIR="$SCRIPT_DIR/config"
 # installs, linters and image builds. Both modes, every start; see
 # sweep-phantoms.sh and init-host-guard.sh for the underlying cause.
 bash "$SCRIPT_DIR/sweep-phantoms.sh" || true
-CLAUDE_DIR="$HOME/.claude"
+# Where Claude Code keeps its state. devcontainer.json points CLAUDE_CONFIG_DIR
+# at the ~/.claude named volume (so the login in .claude.json lands inside it
+# too); this script must write wherever Claude reads.
+CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 BUNDLED_CLAUDE_DIR="$BUNDLED_CONFIG_DIR/claude"
 
 # Failed provisioning steps are recorded here instead of killing the build —
@@ -103,10 +106,14 @@ provision_summary() {
 # Named-volume mount points
 # =====================
 # Docker creates named-volume mount points root-owned on first use; make the
-# cache and history volumes writable by the container user.
+# cache, history, Claude Code and gh volumes writable by the container user.
 fix_volume_ownership() {
     local d
-    for d in "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory; do
+    # Parents before children: Docker creates a missing mount-point path
+    # root-owned all the way down, so ~/.config must be fixed before
+    # ~/.config/gh can be, and ~/.cache before ~/.cache/uv.
+    for d in "$HOME/.cache" "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory \
+             "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.azure"; do
         [[ -d "$d" && ! -w "$d" ]] || continue
         sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
@@ -159,11 +166,13 @@ install_copilot_cli() {
     fi
     echo "=== Installing GitHub Copilot CLI ==="
     # Published as @github/copilot on npm. The devcontainer Node feature creates
-    # a user-writable global prefix, so no sudo is needed.
+    # a user-writable global prefix, so no sudo is needed. Pinned, like the
+    # Playwright CLI below: Dependabot cannot see this pin — bump it manually
+    # (npm view @github/copilot version); see MANAGING.md -> Pin audit.
     if command -v copilot >/dev/null 2>&1; then
         echo "  Copilot CLI already installed at $(command -v copilot)"
     elif command -v npm >/dev/null 2>&1; then
-        step "copilot-cli" npm install -g @github/copilot
+        step "copilot-cli" npm install -g @github/copilot@1.0.85
     else
         echo "  npm not available — skipping Copilot CLI install"
     fi
@@ -249,6 +258,74 @@ refresh_claude_md() {
 }
 
 # =====================
+# Claude Code hooks
+# =====================
+# The bundle ships one hook: a SessionStart script that prints the failed
+# provisioning steps (config/claude/hooks/session-provision-status.sh), so
+# Claude learns about a broken `uv sync` at the start of a session rather than
+# twenty minutes into a task. The bundled settings.json wires it in and
+# merge-settings.jq keeps that wiring in place. It is COPIED rather than
+# symlinked so the ~/.claude volume stays self-contained (a symlink into the
+# workspace would dangle if the volume were ever reached from elsewhere), and
+# copied unconditionally: it is a bundled executable, not a file users edit —
+# CLAUDE.md gets hash tracking for that reason; this does not need it.
+install_claude_hooks() {
+    local src="$BUNDLED_CLAUDE_DIR/hooks"
+    [[ -d "$src" ]] || return 0
+    echo "=== Installing Claude Code hooks ==="
+    mkdir -p "$CLAUDE_DIR/hooks"
+    local f name
+    for f in "$src"/*.sh; do
+        [[ -f "$f" ]] || continue
+        name="$(basename "$f")"
+        if cmp -s "$f" "$CLAUDE_DIR/hooks/$name"; then
+            echo "  $name is current"
+        else
+            cp "$f" "$CLAUDE_DIR/hooks/$name"
+            echo "  Installed $name"
+        fi
+        chmod 0755 "$CLAUDE_DIR/hooks/$name"
+    done
+}
+
+# =====================
+# Managed settings (policy)
+# =====================
+# Claude Code reads /etc/claude-code/managed-settings.json at the highest
+# precedence — above ~/.claude/settings.json and any project .claude/. That is
+# where the bundle puts POLICY: the deny list that holds under Auto mode (no
+# force-push, no Azure delete, no volume prune, ...) and the switch that
+# disables bypass mode. The DEFAULTS in settings.json go through the merge and
+# can be overridden by the user; this file cannot, which is the point. Nothing
+# merges here: the file is replaced whole, so editing the bundled copy and
+# re-running --config-only is how policy changes. Needs root: devcontainer
+# images give the container user passwordless sudo, and a container without
+# it gets a loud warning rather than a failed build.
+MANAGED_SETTINGS_DST="/etc/claude-code/managed-settings.json"
+install_managed_settings() {
+    local src="$BUNDLED_CLAUDE_DIR/managed-settings.json"
+    [[ -f "$src" ]] || return 0
+    echo "=== Installing Claude Code managed settings (policy) ==="
+    if ! jq -e . "$src" >/dev/null 2>&1; then
+        echo "  WARNING: $src is not valid JSON — not installed."
+        return 0
+    fi
+    if cmp -s "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null; then
+        echo "  $MANAGED_SETTINGS_DST is current"
+        return 0
+    fi
+    if sudo mkdir -p "$(dirname "$MANAGED_SETTINGS_DST")" 2>/dev/null \
+        && sudo cp "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null \
+        && sudo chmod 0644 "$MANAGED_SETTINGS_DST" 2>/dev/null; then
+        echo "  Installed $MANAGED_SETTINGS_DST"
+    else
+        echo "  WARNING: could not write $MANAGED_SETTINGS_DST (no sudo?). The deny list and"
+        echo "           the bypass-mode lock are NOT in force. Install it by hand as root:"
+        echo "           cp '$src' '$MANAGED_SETTINGS_DST'"
+    fi
+}
+
+# =====================
 # Retired git safety layer — cleanup
 # =====================
 # Earlier bundles installed PreToolUse/SessionStart git hooks (guard-git.sh,
@@ -330,8 +407,9 @@ merge_claude_settings() {
     fi
 }
 
-# The merge above is ADDITIVE, so a plugin removed from the bundled roster
-# would stay enabled in the live settings forever. prune-roster.jq compares
+# The merge above is ADDITIVE, so a plugin (or an env variable, or a sandbox
+# key) removed from the bundle would stay in the live settings forever.
+# prune-roster.jq compares
 # the new bundle against a snapshot of the PREVIOUS bundle and deletes only
 # keys that (a) the old bundle shipped, (b) the new bundle dropped, and
 # (c) the user never overrode. The snapshot is then advanced to the new
@@ -351,7 +429,7 @@ prune_removed_roster_entries() {
             echo "  WARNING: roster prune failed — plugins removed from the bundle may stay enabled."
         fi
     fi
-    jq '{enabledPlugins: (.enabledPlugins // {}), extraKnownMarketplaces: (.extraKnownMarketplaces // {})}' \
+    jq '{enabledPlugins: (.enabledPlugins // {}), extraKnownMarketplaces: (.extraKnownMarketplaces // {}), env: (.env // {}), sandbox: (.sandbox // {})}' \
         "$BUNDLED_CLAUDE_DIR/settings.json" > "$roster_snap" 2>/dev/null \
         || echo "  WARNING: could not record the bundled roster snapshot."
 }
@@ -459,17 +537,19 @@ configure_git() {
     echo "=== Configuring git for recoverability ==="
     # Bind-mounted workspaces are owned by the HOST uid, not the container user.
     # Without safe.directory git refuses every command with "detected dubious
-    # ownership". The workspace root is derived from this script's own location
-    # (the parent of the .devcontainer dir), NOT from $PWD -- a --config-only
-    # run invoked from some other directory would otherwise whitelist the wrong
-    # path. Guard against re-adding on every run -- --add appends unconditionally.
-    local workspace_root
-    workspace_root="$(cd "$SCRIPT_DIR/.." && pwd)"
-    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$workspace_root"; then
-        echo "  safe.directory already contains: $workspace_root"
+    # ownership" -- in the workspace, and separately in every git worktree
+    # Claude Code creates under .claude/worktrees/, each of which is its own
+    # top-level directory that the check evaluates on its own. A wildcard
+    # covers all of them. The check exists to protect a shared machine from a
+    # hostile repo dropped there by another user; this container has one user.
+    # Guard against re-adding on every run -- --add appends unconditionally.
+    # (Older provisions added the workspace path itself; that entry is
+    # redundant now and harmless.)
+    if git config --global --get-all safe.directory 2>/dev/null | grep -qxF '*'; then
+        echo "  safe.directory already covers every directory (*)"
     else
-        git config --global --add safe.directory "$workspace_root"
-        echo "  safe.directory: $workspace_root"
+        git config --global --add safe.directory '*'
+        echo "  safe.directory: * (single-user container; covers .claude/worktrees/ too)"
     fi
     git config --global gc.reflogExpire never
     git config --global gc.reflogExpireUnreachable never
@@ -595,13 +675,25 @@ install_precommit_hooks() {
     if [[ -f .pre-commit-config.yaml ]]; then
         echo "=== Installing pre-commit hooks ==="
         # CLAUDE.md mandates pre-commit, so failures here must be visible —
-        # no stderr suppression, and verify the hook actually landed.
-        if ! uv run pre-commit install; then
-            echo "  WARNING: 'uv run pre-commit install' failed."
+        # no stderr suppression, and verify the hook actually landed. Prefer
+        # the project's own pinned pre-commit (a dev dependency, run through
+        # uv); fall back to the copy the Dockerfile bakes into the image, so a
+        # project that does not list it still gets working hooks instead of
+        # "Failed to spawn: pre-commit".
+        if [[ -f pyproject.toml ]] && uv run --no-sync pre-commit --version >/dev/null 2>&1; then
+            if ! uv run --no-sync pre-commit install; then
+                echo "  WARNING: 'uv run pre-commit install' failed."
+            fi
+        elif command -v pre-commit >/dev/null 2>&1; then
+            if ! pre-commit install; then
+                echo "  WARNING: 'pre-commit install' failed."
+            fi
+        else
+            echo "  WARNING: pre-commit is not available — not in the project's environment and not on PATH."
         fi
         if [[ ! -f .git/hooks/pre-commit ]]; then
             echo "  WARNING: .git/hooks/pre-commit is missing — the pre-commit config is a"
-            echo "           silent no-op. Install it before committing: uv run pre-commit install"
+            echo "           silent no-op. Install it before committing: pre-commit install"
         fi
     else
         echo "=== Skipping pre-commit hooks (no config found) ==="
@@ -655,13 +747,16 @@ check_vm_disk() {
 # =====================
 # Bundled config
 # =====================
-# Everything whose effect is a file under ~/.claude, ~/.config or ~/.gitconfig.
-# Every step here is idempotent, which is what makes --config-only safe to run
-# against a live container to pick up newer bundled config without a rebuild.
+# Everything whose effect is a file under ~/.claude, ~/.config, ~/.gitconfig or
+# /etc/claude-code. Every step here is idempotent, which is what makes
+# --config-only safe to run against a live container to pick up newer bundled
+# config without a rebuild.
 apply_bundled_config() {
     configure_claude
     retire_git_safety_layer
     merge_claude_settings
+    install_claude_hooks
+    install_managed_settings
     bootstrap_claude_plugins || true
     configure_git
     link_shell_config
@@ -674,7 +769,8 @@ if [[ "$MODE" == "config" ]]; then
     echo ""
     echo "=== Config refreshed ==="
     echo ""
-    echo "  Restart Claude Code (or run /reload-plugins) to pick up plugin changes."
+    echo "  Restart Claude Code (or run /reload-plugins) to pick up plugin changes;"
+    echo "  hooks and managed settings (policy) are read when a session starts."
     echo "  Open a new shell to pick up zsh changes."
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."

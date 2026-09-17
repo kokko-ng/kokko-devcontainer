@@ -16,6 +16,7 @@ BACKEND_PORT = "{{ cookiecutter.backend_port }}"
 FRONTEND_PORT = "{{ cookiecutter.frontend_port }}"
 GIT_USER_NAME = "{{ cookiecutter.git_user_name }}"
 GIT_USER_EMAIL = "{{ cookiecutter.git_user_email }}"
+CONTAINER_MEMORY_LIMIT = "{{ cookiecutter.container_memory_limit }}"
 
 # The slug becomes a directory name, the container name, and (for
 # cache_volume_scope=per-project) a Docker volume name. Docker volume names
@@ -98,6 +99,28 @@ if bool(GIT_USER_NAME) != bool(GIT_USER_EMAIL):
         "git_user_name and git_user_email must be given together or both left "
         "blank; git needs both to attribute a commit"
     )
+
+
+def check_memory_limit(label, value):
+    """The value becomes docker's --memory and --memory-swap in runArgs.
+
+    Docker accepts b/k/m/g suffixes; only m and g make sense for a dev
+    container, and a floor keeps a typo like "8" or "80m" from producing a
+    container that cannot even start the VS Code server.
+    """
+    match = re.match(r"^([1-9][0-9]*)([mMgG])$", value)
+    if not match:
+        errors.append(
+            f"{label} {value!r} must be a whole number followed by m or g, "
+            "e.g. 8g or 4096m (it becomes docker's --memory)"
+        )
+        return
+    megabytes = int(match.group(1)) * (1024 if match.group(2) in "gG" else 1)
+    if megabytes < 512:
+        errors.append(f"{label} {value!r} is below 512m; a dev container needs more than that")
+
+
+check_memory_limit("container_memory_limit", CONTAINER_MEMORY_LIMIT)
 
 if errors:
     print("Cannot generate the devcontainer:\n", file=sys.stderr)

@@ -9,11 +9,12 @@
   "frontend_port": "5173",
   "include_azure_cli": ["yes", "no"],
   "include_azure_sql_driver": ["yes", "no"],
-  "include_docker_in_docker": ["yes", "no"],
+  "include_docker_in_docker": ["no", "yes"],
   "include_copilot_cli": ["yes", "no"],
   "include_playwright": ["yes", "no"],
   "claude_plugin_roster": ["kokko-ng", "none"],
   "cache_volume_scope": ["shared", "per-project"],
+  "container_memory_limit": "8g",
   "git_user_name": "kokko-ng",
   "git_user_email": "Kokko.Ng@insight.com",
   "__container_name": "{{ cookiecutter.project_slug }}-dev",
@@ -23,6 +24,8 @@
     ".devcontainer/config/claude/*.jq",
     ".devcontainer/config/claude/CLAUDE.md",
     ".devcontainer/config/claude/settings.json",
+    ".devcontainer/config/claude/managed-settings.json",
+    ".devcontainer/config/claude/hooks/*",
     ".devcontainer/certs/*"
   ]
 }

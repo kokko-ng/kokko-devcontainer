@@ -15,6 +15,7 @@ import os
 import sys
 
 CLAUDE_PLUGIN_ROSTER = "{{ cookiecutter.claude_plugin_roster }}"
+INCLUDE_DOCKER_IN_DOCKER = "{{ cookiecutter.include_docker_in_docker }}"
 PYTHON_VERSION = "{{ cookiecutter.python_version }}"
 PROJECT_SLUG = "{{ cookiecutter.project_slug }}"
 CONTAINER_NAME = "{{ cookiecutter.__container_name }}"
@@ -46,6 +47,14 @@ if CLAUDE_PLUGIN_ROSTER == "none":
         "    'bash .devcontainer/post-create.sh --config-only' to install them."
     )
 
+if INCLUDE_DOCKER_IN_DOCKER == "yes":
+    notes.append(
+        "Docker-in-Docker makes the container PRIVILEGED (the feature requires it).\n"
+        "    An agent running in it without prompts then has, in effect, root on the\n"
+        "    Colima VM, including every other project's containers and volumes. Keep\n"
+        "    that in mind when deciding what runs in this container unattended."
+    )
+
 if PYTHON_VERSION != PINNED_PYTHON_VERSION:
     notes.append(
         f"The base image is pinned by digest for Python {PINNED_PYTHON_VERSION} only, so the\n"
@@ -65,6 +74,8 @@ Generated {PROJECT_SLUG}/ — container name: {CONTAINER_NAME}
 
   Adding this to an existing project
     cp -r {PROJECT_SLUG}/.devcontainer /path/to/your-project/
+    cp {PROJECT_SLUG}/CLAUDE.md /path/to/your-project/     # or merge into yours
+    cat {PROJECT_SLUG}/.gitignore >> /path/to/your-project/.gitignore
     cd /path/to/your-project && code .
 
   Read {PROJECT_SLUG}/DEVCONTAINER.md for what is installed and how to change it.
