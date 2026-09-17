@@ -13,6 +13,16 @@ the container sets `gc.reflogExpire`, `gc.reflogExpireUnreachable`, and
 `gc.pruneExpire` to `never`, so committed work is always recoverable from the reflog.
 Commit early and often; only committed work has that safety net.
 
+A managed deny list (`/etc/claude-code/managed-settings.json`) sits under auto mode and
+blocks the irreversible operations: force-push in any spelling, `git reflog expire` and
+`git gc --prune`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
+**A denied command was denied on purpose.** Report it and ask; do not look for another
+spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
+
+A `SessionStart` hook prints any provisioning step that failed when the container was
+built. If it does, the tools that step installs may be missing — fix the cause or tell
+the user before working around it.
+
 ---
 
 ## Infrastructure

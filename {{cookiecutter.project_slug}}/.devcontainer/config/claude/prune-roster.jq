@@ -3,13 +3,14 @@
 #
 # Usage: jq -s -f prune-roster.jq <prev-roster.json> <bundled.json> <live.json>
 #
-# merge-settings.jq is deliberately ADDITIVE for enabledPlugins and
-# extraKnownMarketplaces — bundled keys are added when absent, user values
-# always win. The cost of additive is that a plugin REMOVED from the bundled
-# roster stays enabled in a live settings.json forever. This filter closes
-# that gap using a snapshot of the PREVIOUS bundle
-# (~/.claude/.kokko-bundled-roster.json, written by post-create.sh after each
-# merge): a key is deleted from the live settings ONLY when
+# merge-settings.jq is deliberately ADDITIVE for enabledPlugins,
+# extraKnownMarketplaces, env and sandbox — bundled keys are added when absent,
+# user values always win. The cost of additive is that a plugin (or an env
+# variable, or a sandbox key) REMOVED from the bundle stays in a live
+# settings.json forever. This filter closes that gap using a snapshot of the
+# PREVIOUS bundle (~/.claude/.kokko-bundled-roster.json, written by
+# post-create.sh after each merge): a key is deleted from the live settings
+# ONLY when
 #
 #   1. the previous bundle shipped it,
 #   2. the new bundle no longer ships it, and
@@ -36,4 +37,10 @@ def prune($prev_map; $new_map):
   else . end
 | if has("extraKnownMarketplaces")
   then .extraKnownMarketplaces |= prune(($prev.extraKnownMarketplaces // {}); ($new.extraKnownMarketplaces // {}))
+  else . end
+| if has("env")
+  then .env |= prune(($prev.env // {}); ($new.env // {}))
+  else . end
+| if has("sandbox")
+  then .sandbox |= prune(($prev.sandbox // {}); ($new.sandbox // {}))
   else . end

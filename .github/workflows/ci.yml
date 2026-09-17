@@ -88,6 +88,7 @@ jobs:
           shellcheck --severity=info \
             "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
+            "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
             tests/merge-settings-tests.sh \
             tests/template-tests.sh
 
@@ -144,14 +145,38 @@ jobs:
           runCmd: |
             set -e
             jq --version
-            command -v claude   # baked into the image by the Dockerfile
+            # Baked into the image by the Dockerfile, at the version it pins,
+            # and kept there by DISABLE_AUTOUPDATER.
+            command -v claude
+            pin="$(grep -oE 'bash -s [0-9]+\.[0-9]+\.[0-9]+' .devcontainer/Dockerfile | awk '{print $3}')"
+            claude --version | grep -F "$pin"
+            test "$DISABLE_AUTOUPDATER" = "1"
+            test "$CLAUDE_CONFIG_DIR" = "$HOME/.claude"
+            # The image-level tooling the bundled CLAUDE.md and the sandbox rely on.
+            command -v pre-commit shellcheck bwrap socat
             # The live settings.json the merge produced must be valid, run in
-            # Auto permission mode, and carry none of the retired git-safety
-            # hook wiring or files.
+            # Auto permission mode, carry the bundled defaults, wire the
+            # SessionStart status hook, and carry none of the retired
+            # git-safety hook wiring or files.
             jq -e '.permissions.defaultMode == "auto"' "$HOME/.claude/settings.json"
+            jq -e '.env.BASH_DEFAULT_TIMEOUT_MS == "600000"' "$HOME/.claude/settings.json"
+            jq -e '.sandbox.enabled == false and .sandbox.enableWeakerNestedSandbox == true' "$HOME/.claude/settings.json"
+            jq -e '[.hooks.SessionStart[].hooks[].command] == ["$HOME/.claude/hooks/session-provision-status.sh"]' "$HOME/.claude/settings.json"
+            jq -e 'has("skipDangerousModePermissionPrompt") | not' "$HOME/.claude/settings.json"
             jq -e '(tostring | test("guard-git|git-snapshot|session-git-safety")) | not' "$HOME/.claude/settings.json"
             test ! -e "$HOME/.claude/hooks/guard-git.sh"
             if command -v snaps; then echo "retired snaps helper is still on PATH"; exit 1; fi
+            # The status hook is installed, silent when nothing failed, and
+            # prints the ledger when something did.
+            test -x "$HOME/.claude/hooks/session-provision-status.sh"
+            test -z "$(DEVCONTAINER_PROVISION_STATUS=/dev/null "$HOME/.claude/hooks/session-provision-status.sh")"
+            printf '2026-01-01T00:00:00Z FAILED: example-step\n' > /tmp/ledger
+            DEVCONTAINER_PROVISION_STATUS=/tmp/ledger "$HOME/.claude/hooks/session-provision-status.sh" | grep -q 'example-step'
+            # Policy lives in managed settings, above anything a user can set.
+            jq -e '.permissions.disableBypassPermissionsMode == "disable"' /etc/claude-code/managed-settings.json
+            jq -e '.permissions.deny | index("Bash(git push --force*)") != null' /etc/claude-code/managed-settings.json
+            # git works in the bind mount and in any worktree under it.
+            git config --global --get-all safe.directory | grep -qxF '*'
             # The generated toggles must reach the container environment.
             test "$DEVCONTAINER_FRONTEND_DIR" = "ui"
             # Idempotence smoke: a second --config-only run must succeed.

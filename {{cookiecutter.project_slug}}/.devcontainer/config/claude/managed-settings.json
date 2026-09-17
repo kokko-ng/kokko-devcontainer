@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Bash(git push --force)",
+      "Bash(git push --force*)",
+      "Bash(git push -f)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f*)",
+      "Bash(git reflog expire*)",
+      "Bash(git gc --prune*)",
+      "Bash(git gc * --prune*)",
+      "Bash(az * delete*)",
+      "Bash(az * purge*)",
+      "Bash(docker system prune*--volumes*)",
+      "Bash(docker volume prune)",
+      "Bash(docker volume prune*)",
+      "Bash(docker volume rm*)",
+      "Bash(gh repo delete*)",
+      "Bash(gh api * DELETE*)"
+    ]
+  }
+}

@@ -36,8 +36,10 @@ bash tests/merge-settings-tests.sh   # needs bash + jq
 bash tests/template-tests.sh         # needs bash + jq + python3 + cookiecutter
 ```
 
-`merge-settings-tests.sh` covers `merge-settings.jq`, `prune-roster.jq`, and the settings
-handling in `post-create.sh`. Every change to those comes with tests in the same commit.
+`merge-settings-tests.sh` covers `merge-settings.jq`, `prune-roster.jq`, the bundled
+`settings.json` and `managed-settings.json`, the SessionStart hook script, and the
+settings handling in `post-create.sh`. Every change to those comes with tests in the
+same commit.
 
 `template-tests.sh` renders several answer sets and asserts the generated tree: features
 added and dropped, ports and paths threaded through, the plugin roster emptied on request,

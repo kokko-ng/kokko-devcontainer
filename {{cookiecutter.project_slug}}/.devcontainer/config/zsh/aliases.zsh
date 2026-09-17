@@ -8,7 +8,9 @@
 # bundled settings.json too — these aliases just make it explicit).
 alias cca="claude --permission-mode auto"
 alias ccac="claude --permission-mode auto --continue"
-# Update Claude Code (native installer)
+# Install the latest Claude Code release now. The image pins a version and
+# DISABLE_AUTOUPDATER=1 keeps it there, so this is the deliberate way to get
+# ahead of the pin; a rebuild puts the pinned version back.
 alias cu="curl -fsSL https://claude.ai/install.sh | bash"
 
 # ===================

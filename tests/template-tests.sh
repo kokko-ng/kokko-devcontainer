@@ -112,6 +112,15 @@ assert_jq "settings.json is excluded from rendering" "$ROOT/cookiecutter.json" \
     '._copy_without_render | index(".devcontainer/config/claude/settings.json") != null'
 assert_jq "template prompts for a git identity" "$ROOT/cookiecutter.json" \
     'has("git_user_name") and has("git_user_email")'
+assert_jq "template prompts for a container memory limit" "$ROOT/cookiecutter.json" \
+    'has("container_memory_limit")'
+# Docker-in-Docker makes the container privileged, so it must be opt-in.
+assert_jq "docker-in-docker defaults to no" "$ROOT/cookiecutter.json" \
+    '.include_docker_in_docker[0] == "no"'
+assert_jq "managed settings and the Claude hooks are excluded from rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render
+       | (index(".devcontainer/config/claude/managed-settings.json") != null)
+       and (index(".devcontainer/config/claude/hooks/*") != null)'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
 # ===========================================================================
@@ -140,8 +149,32 @@ assert_jq "the git identity is published to post-create" "$DC" \
        and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == "Kokko.Ng@insight.com"'
 assert_jq "azure-cli feature is present by default" "$DC" \
     '.features | has("ghcr.io/devcontainers/features/azure-cli:1")'
-assert_jq "docker-in-docker feature is present by default" "$DC" \
-    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:4")'
+assert_jq "docker-in-docker feature is absent by default" "$DC" \
+    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:4") | not'
+assert_jq "no docker extension by default" "$DC" \
+    '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
+assert_jq "the Claude Code extension is installed" "$DC" \
+    '.customizations.vscode.extensions | index("anthropic.claude-code") != null'
+assert_jq "Claude Code state is pointed at the named volume" "$DC" \
+    '.containerEnv.CLAUDE_CONFIG_DIR == "/home/vscode/.claude"'
+assert_jq "Claude Code auto-update is off (the image pins the version)" "$DC" \
+    '.containerEnv.DISABLE_AUTOUPDATER == "1"'
+# Always per project, whatever the cache scope: the settings merge writes
+# into this volume, and two projects sharing it would fight over the roster.
+assert_jq "Claude Code state volume is per project" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/.claude,"))]
+       == ["source=my-project-claude-config,target=/home/vscode/.claude,type=volume"]'
+assert_jq "gh login volume follows the shared cache scope" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/.config/gh,"))]
+       == ["source=devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume"]'
+assert_jq "default memory limit reaches runArgs, with swap disabled" "$DC" \
+    '(.runArgs | index("--memory=8g") != null) and (.runArgs | index("--memory-swap=8g") != null)'
+assert_jq "pids limit leaves room for parallel sessions" "$DC" \
+    '.runArgs | index("--pids-limit=4096") != null'
+assert_jq "postStart output is captured like postCreate output" "$DC" \
+    '.postStartCommand | test("tee /tmp/post-start.log")'
+assert "azure volume hint is offered with the azure cli" \
+    grep -q 'azure-config' "$DEFAULT/.devcontainer/devcontainer.json"
 assert_jq "node feature is pinned to the chosen version" "$DC" \
     '.features["ghcr.io/devcontainers/features/node:2"].version == "22"'
 assert_jq "playwright browser volume keeps its historical shared name" "$DC" \
@@ -158,8 +191,39 @@ assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
 
+assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
+    "$DEFAULT/.devcontainer/config/claude/managed-settings.json" \
+    '.permissions.disableBypassPermissionsMode == "disable"'
+
+# The agent-facing files a generated project carries next to .devcontainer/.
+assert "generated project has a CLAUDE.md for the agent" \
+    test -f "$DEFAULT/CLAUDE.md"
+# shellcheck disable=SC2016  # the backticks are Markdown, not command substitution
+assert "CLAUDE.md names the backend directory" \
+    grep -qF '| Python backend | `src/`' "$DEFAULT/CLAUDE.md"
+# shellcheck disable=SC2016
+assert "CLAUDE.md names the frontend directory" \
+    grep -qF '| Frontend | `ui/`' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md carries the forwarded ports" \
+    grep -qE '^\| Backend port \| 8000 \|' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md lists the optional tools that were chosen" \
+    grep -qE 'jq, az, playwright-cli with Chromium, copilot\.' "$DEFAULT/CLAUDE.md"
+refute "CLAUDE.md does not mention docker without docker-in-docker" \
+    grep -q 'nested daemon' "$DEFAULT/CLAUDE.md"
+assert "generated project has a root .gitignore" \
+    test -f "$DEFAULT/.gitignore"
+for pat in '^\.env$' '^!\.env\.example$' '^\.claude/worktrees/$' '^\.claude/settings\.local\.json$' '^\.playwright-cli/$'; do
+    assert "generated .gitignore has $pat" grep -qE "$pat" "$DEFAULT/.gitignore"
+done
+
 assert "default Dockerfile installs the ODBC driver" \
     grep -q msodbcsql18 "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile pins the Claude Code version" \
+    grep -qE 'install\.sh \| bash -s [0-9]+\.[0-9]+\.[0-9]+$' "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile installs shellcheck and the sandbox dependencies" \
+    grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile pins pre-commit" \
+    grep -qE 'pip install .* pre-commit==[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins the base image by digest" \
     grep -qE '^FROM .*python:3\.14-bookworm@sha256:' "$DEFAULT/.devcontainer/Dockerfile"
 assert "certs/.gitkeep survives so plain docker build works" \
@@ -169,7 +233,9 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 
 # Files listed in _copy_without_render must come through byte-identical —
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
-for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc; do
+for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
+         config/claude/settings.json config/claude/CLAUDE.md \
+         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
@@ -184,6 +250,7 @@ render "$WORK/slim" \
     include_azure_cli=no include_azure_sql_driver=no include_docker_in_docker=no \
     include_copilot_cli=no include_playwright=no \
     claude_plugin_roster=none cache_volume_scope=per-project \
+    container_memory_limit=2048m \
     git_user_name= git_user_email=
 SLIM="$WORK/slim/slim-app"
 assert "slim answers render" test -d "$SLIM/.devcontainer"
@@ -225,6 +292,18 @@ assert_jq "per-project caches are namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-uv-cache,"))] | length == 1'
 assert_jq "no docker extension without docker-in-docker" "$SDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
+assert_jq "chosen memory limit reaches runArgs" "$SDC" \
+    '(.runArgs | index("--memory=2048m") != null) and (.runArgs | index("--memory-swap=2048m") != null)'
+assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
+    '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
+assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \
+    '[.mounts[] | select(test("source=slim-app-claude-config,"))] | length == 1'
+refute "no azure volume hint without the azure cli" \
+    grep -q 'azure-config' "$SLIM/.devcontainer/devcontainer.json"
+refute "slim CLAUDE.md lists none of the optional tools" \
+    grep -qE 'playwright-cli|copilot|, az|nested daemon' "$SLIM/CLAUDE.md"
+assert "slim Dockerfile still installs shellcheck and the sandbox dependencies" \
+    grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$SLIM/.devcontainer/Dockerfile"
 
 assert_jq "empty roster is still valid JSON" \
     "$SLIM/.devcontainer/config/claude/settings.json" '.'
@@ -243,12 +322,37 @@ assert "non-default python version reaches FROM" \
     grep -qE '^FROM .*python:3\.13-bookworm$' "$SLIM/.devcontainer/Dockerfile"
 
 # ===========================================================================
+# 3b. Docker-in-Docker opted in — the one answer that changes the container's
+#     privilege level, so it gets its own render.
+# ===========================================================================
+render "$WORK/dind" project_name="Dind App" include_docker_in_docker=yes
+DIND="$WORK/dind/dind-app"
+assert "dind answers render" test -d "$DIND/.devcontainer"
+
+DDC="$WORK/dind-devcontainer.json"
+if jsonc_to_json "$DIND/.devcontainer/devcontainer.json" > "$DDC" 2>/dev/null; then
+    ok
+else
+    bad "dind devcontainer.json parses as JSONC"
+fi
+assert_jq "docker-in-docker feature is added on request" "$DDC" \
+    '.features | has("ghcr.io/devcontainers/features/docker-in-docker:4")'
+assert_jq "docker extension follows docker-in-docker" "$DDC" \
+    '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") != null'
+assert "CLAUDE.md tells the agent the container is privileged" \
+    grep -q 'privileged' "$DIND/CLAUDE.md"
+assert "DEVCONTAINER.md says the container is privileged" \
+    grep -q 'privileged' "$DIND/DEVCONTAINER.md"
+assert "generation prints the privileged note" \
+    grep -q 'PRIVILEGED' "$WORK/dind.err"
+
+# ===========================================================================
 # 4. Nothing anywhere is left unrendered
 # ===========================================================================
 # A forgotten `{{` or `{%` in a generated file means an option silently did
 # nothing. Only real Jinja delimiters count — `${...}` variable syntax and
 # bash's `${#array[@]}` are fine.
-unrendered=$(grep -rlE '\{\{|\{%' "$DEFAULT" "$SLIM" 2>/dev/null || true)
+unrendered=$(grep -rlE '\{\{|\{%' "$DEFAULT" "$SLIM" "$DIND" 2>/dev/null || true)
 if [[ -z "$unrendered" ]]; then
     ok
 else
@@ -263,7 +367,8 @@ if command -v shellcheck >/dev/null 2>&1; then
         assert "shellcheck passes on $(basename "$project")'s scripts" \
             shellcheck --severity=info \
                 "$project/.devcontainer/post-create.sh" \
-                "$project/.devcontainer/init-host-certs.sh"
+                "$project/.devcontainer/init-host-certs.sh" \
+                "$project/.devcontainer/config/claude/hooks/session-provision-status.sh"
     done
 else
     echo "note: shellcheck not installed — skipping the generated-script lint"
@@ -310,6 +415,9 @@ reject "a git_user_email that is not an address is rejected" \
 reject "a git identity given only half is rejected" git_user_email=
 reject "a git_user_name containing a quote is rejected" \
     'git_user_name=he said "hi"'
+reject "a memory limit without a unit is rejected" container_memory_limit=8
+reject "a memory limit with a bogus unit is rejected" container_memory_limit=8tb
+reject "a memory limit below 512m is rejected" container_memory_limit=256m
 
 # ===========================================================================
 # Report

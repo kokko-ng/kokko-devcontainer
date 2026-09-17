@@ -37,7 +37,7 @@ devcontainer exec --workspace-folder . zsh
 Pin to a released version instead of tracking `main`:
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v3.0.0
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v4.0.0
 ```
 
 ### Adding it to a project you already have
@@ -48,10 +48,14 @@ the result in:
 ```bash
 cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp
 cp -r /tmp/<your-project-slug>/.devcontainer ~/projects/your-project/
+cp /tmp/<your-project-slug>/CLAUDE.md ~/projects/your-project/        # or merge into yours
+cat /tmp/<your-project-slug>/.gitignore >> ~/projects/your-project/.gitignore
 ```
 
 Answer the prompts with your existing layout (`backend_src_dir`, `frontend_dir`, the
-ports) so the generated config matches what is already there.
+ports) so the generated config matches what is already there. The `CLAUDE.md` tells
+Claude Code how to verify its work in that layout, and the `.gitignore` keeps what the
+container creates (`.env`, Claude worktrees, Playwright artifacts) out of commits.
 
 ### Repeatable and scripted generation
 
@@ -78,16 +82,18 @@ gave last time.
 | `frontend_dir` | `ui` | Where `post-create.sh` installs frontend dependencies |
 | `backend_port` | `8000` | Forwarded port |
 | `frontend_port` | `5173` | Forwarded port |
-| `include_azure_cli` | `yes` | The `azure-cli` feature and the optional `~/.azure` mount hint |
+| `include_azure_cli` | `yes` | The `azure-cli` feature and the optional in-container Azure login volume hint |
 | `include_azure_sql_driver` | `yes` | The `msodbcsql18` + `unixodbc-dev` apt layer (pyodbc / Azure SQL) |
-| `include_docker_in_docker` | `yes` | The `docker-in-docker` feature and the Docker VS Code extension |
+| `include_docker_in_docker` | `no` | The `docker-in-docker` feature and the Docker VS Code extension. Off by default: the feature runs the container **privileged**, which hands an unattended agent the whole Colima VM |
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
-| `cache_volume_scope` | `shared` | `shared` reuses one set of cache volumes across projects; `per-project` namespaces them by slug |
+| `cache_volume_scope` | `shared` | `shared` reuses one set of cache and gh-login volumes across projects; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
+| `container_memory_limit` | `8g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory` |
 
 Invalid answers are rejected before anything is written — a non-lowercase slug, a port
-below 1024, two services on the same port, an absolute or escaping source directory.
+below 1024, two services on the same port, an absolute or escaping source directory, a
+memory limit without an `m`/`g` unit or below `512m`.
 
 ## What you get
 
@@ -96,17 +102,24 @@ below 1024, two services on the same port, an absolute or escaping source direct
 | Python 3.14 + uv | Backend runtime and dependency management |
 | Node 22 | Frontend build tooling |
 | GitHub CLI | Repository and PR workflows |
-| Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`), with the `kokko-ng` plugin roster installed automatically |
+| Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`, pinned to a version and baked into the image, auto-update off), with the `kokko-ng` plugin roster installed automatically |
+| pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
+| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox, shipped switched off and one `/sandbox` away |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 | Azure CLI | Azure resource management (optional) |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc (optional) |
-| GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot` (optional) |
+| GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot@<pinned>` (optional) |
 | Playwright CLI + Chromium | Browser automation for coding agents (optional) |
-| Docker-in-Docker | Container builds inside the devcontainer (optional) |
+| Docker-in-Docker | Container builds inside the devcontainer (optional, off by default: it runs the container privileged) |
 
 Versions and optional rows follow your answers. Docker-in-Docker keeps its own image
 store in a volume that grows unnoticed — `docker system df` does not count it. Prune it
 periodically from inside the container; see [Disk management](MANAGING.md#disk-management).
+
+Alongside `.devcontainer/`, a generated project gets a `CLAUDE.md` (layout, verification
+commands and container facts for the agent) and a `.gitignore` for what the container
+creates. Claude Code's login, plugins and history live in a per-project named volume,
+and the `gh` login in another, so a rebuild costs neither a sign-in nor a re-download.
 
 The generated container is portable — `HOST_USER` is auto-injected from your macOS
 username, and bundled config paths are resolved relative to the script, so the workspace
@@ -121,6 +134,8 @@ hooks/
 └── post_gen_project.py   # Trims the Claude plugin roster; prints next steps
 {{cookiecutter.project_slug}}/     # Everything a generated project receives
 ├── DEVCONTAINER.md       # Generated per-project docs
+├── CLAUDE.md             # Generated project instructions for Claude Code
+├── .gitignore            # What the container creates and git must not see
 └── .devcontainer/
     ├── devcontainer.json # Jinja-templated (JSONC)
     ├── Dockerfile        # Jinja-templated
@@ -128,9 +143,12 @@ hooks/
     ├── post-create.sh    # Jinja-free; options arrive as containerEnv variables
     └── config/
         ├── zsh/          # Shell config (bundled into container)
-        └── claude/       # Claude Code settings and CLAUDE.md
-            ├── merge-settings.jq  # Merges bundled settings into a live settings.json
-            └── prune-roster.jq    # Removes roster entries the bundle dropped
+        └── claude/       # Claude Code settings, policy, hook and CLAUDE.md
+            ├── settings.json          # Defaults the user may override (merged)
+            ├── managed-settings.json  # Policy the user may not: deny list, no bypass mode
+            ├── hooks/                 # SessionStart hook: surfaces failed provisioning
+            ├── merge-settings.jq      # Merges bundled settings into a live settings.json
+            └── prune-roster.jq        # Removes roster entries the bundle dropped
 ghostty/
 └── config                # Host-side Ghostty terminal config (not templated)
 tests/
@@ -147,9 +165,10 @@ MANAGING.md               # Multi-instance management guide
 
 ### Which files carry Jinja
 
-Only `devcontainer.json`, the `Dockerfile`, and the Markdown are templated. `post-create.sh`,
-`init-host-certs.sh`, the `.jq` files, the bundled `settings.json`, and the zsh config are
-deliberately Jinja-free, so they stay shellcheck-clean, `jq`-parseable, and directly
+Only `devcontainer.json`, the `Dockerfile`, and the Markdown (including the generated
+`CLAUDE.md`) are templated. `post-create.sh`, `init-host-certs.sh`, the `.jq` files, the
+bundled `settings.json` and `managed-settings.json`, the hook script, and the zsh config
+are deliberately Jinja-free, so they stay shellcheck-clean, `jq`-parseable, and directly
 testable with no rendering step. The options those files need arrive at run time as
 `DEVCONTAINER_*` variables in `containerEnv`.
 
@@ -162,9 +181,33 @@ git — the guard/snapshot hooks and the `snaps` CLI that earlier versions shipp
 retired, and `post-create.sh` removes their leftovers from containers that still carry
 them.
 
+Two things sit around auto mode:
+
+- **A deny floor it cannot cross.** `managed-settings.json` is installed to
+  `/etc/claude-code/managed-settings.json`, the highest-precedence settings file, so
+  nothing in `~/.claude` or a project can loosen it. It denies force-push in every
+  spelling, `git reflog expire` and `git gc --prune`, Azure `delete`/`purge`, Docker
+  volume pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
+  (`--dangerously-skip-permissions`; the old `skipDangerousModePermissionPrompt` is
+  gone, and the merge strips it from existing containers). Deny rules match the
+  command as Claude writes it, including inside `&&` chains and subshells, but not a
+  different program that does the same thing — a floor, not a security boundary.
+- **The Bash sandbox, ready but off.** `bubblewrap` and `socat` are in the image and
+  the bundled settings carry the container-specific sandbox configuration; `/sandbox`
+  turns it on. It ships off because its network allowlist has to match your
+  environment first.
+
+Docker-in-Docker is opt-in for the same reason: the feature runs the container
+privileged, which hands an unattended agent the whole Colima VM.
+
 Git recoverability rests on git itself: `gc.reflogExpire`, `gc.reflogExpireUnreachable`
 and `gc.pruneExpire` are set to `never`, so committed work is always recoverable from
-the reflog.
+the reflog, and `safe.directory` is `*` so git works in the bind-mounted workspace and
+in the worktrees `claude --worktree` creates.
+
+A `SessionStart` hook prints any provisioning step that failed into the session, so the
+agent learns about a broken `uv sync` before it starts work. The Bash tool's timeout is
+raised (10 minutes by default, 30 on request) so full test suites finish in one call.
 
 ## Claude Code plugins
 
@@ -198,8 +241,9 @@ shipping none.
 
 ## Updating a generated project
 
-Bundled config changes — `CLAUDE.md`, `settings.json`, zsh config, the plugin roster —
-can be re-applied in place, with no rebuild:
+Bundled config changes — `CLAUDE.md`, `settings.json`, `managed-settings.json`, the
+SessionStart hook, zsh config, the plugin roster — can be re-applied in place, with no
+rebuild:
 
 ```bash
 bash .devcontainer/post-create.sh --config-only
@@ -212,9 +256,10 @@ and report what still needs a rebuild.
 
 Releases are tagged: the `VERSION` file at the repo root drives a `v<version>` tag and
 GitHub release, published automatically once CI passes on `main`. That means
-`--checkout v3.0.0` (cookiecutter) or `/devcontainer-update --ref v3.0.0` can pin a
-project to a known-good version instead of tracking `main`. Dockerfile and
-`devcontainer.json` `features`/`containerEnv`/`runArgs` changes always need a rebuild.
+`--checkout v4.0.0` (cookiecutter) or `/devcontainer-update --ref v4.0.0` can pin a
+project to a known-good version instead of tracking `main`. Dockerfile (including the
+Claude Code version pin) and `devcontainer.json` `features`/`containerEnv`/`runArgs`/
+`mounts` changes always need a rebuild.
 
 ## Caveats
 
@@ -223,7 +268,13 @@ project to a known-good version instead of tracking `main`. Dockerfile and
   unusual is a post-generation edit.
 - Shell config (zsh) and Claude Code settings are bundled in `.devcontainer/config/` — no
   host dotfiles are read.
-- Optional mounts for `~/.azure` and `~/.claude` are commented out in `devcontainer.json`.
-  Uncomment them to persist credentials and Claude state across rebuilds.
+- Claude Code state persists in a per-project named volume and the `gh` login in a
+  shared one; nothing is bind-mounted from the host. Host credential directories
+  (`~/.ssh`, `~/.azure`, the host's `~/.claude`) stay outside on purpose — everything
+  reachable inside the container is reachable by an agent running without prompts. An
+  optional named volume for an in-container `az login` is commented out in
+  `devcontainer.json`.
+- Claude Code is pinned to a version in the `Dockerfile` and does not auto-update. `cu`
+  installs the latest release until the next rebuild; bump the pin to move for good.
 
 See [INSTRUCTIONS.md](INSTRUCTIONS.md) for a full setup walkthrough and [MANAGING.md](MANAGING.md) for running multiple instances.

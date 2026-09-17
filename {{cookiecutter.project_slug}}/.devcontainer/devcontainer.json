@@ -23,6 +23,10 @@
     },
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
     // Docker-in-Docker — a second Docker daemon inside the container.
+    // THIS MAKES THE CONTAINER PRIVILEGED (the feature requires it). An agent
+    // running in it without prompts then has, in effect, root on the Colima
+    // VM: every other project's containers and volumes are within reach. That
+    // is why the template defaults this to "no"; you answered "yes".
     // Its image store lives in a named `dind-var-lib-docker-*` volume that
     // survives container removal, is not counted by `docker system df`, and is
     // not reclaimed by `docker image prune`. It therefore grows unnoticed until
@@ -48,6 +52,16 @@
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
     "COLORTERM": "truecolor",
+    // Claude Code state lives in a named volume (see "mounts"). Claude keeps
+    // the OAuth session in a .claude.json OUTSIDE ~/.claude by default, so the
+    // volume alone would still lose the login on every rebuild; pointing
+    // CLAUDE_CONFIG_DIR at the volume moves that file inside it.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    // The Dockerfile pins the Claude Code version so that two rebuilds produce
+    // the same agent. Without this the binary would update itself and drift
+    // from that pin between rebuilds. The `cu` alias is the deliberate way to
+    // move to the latest release until the next rebuild.
+    "DISABLE_AUTOUPDATER": "1",
     // Where post-create.sh looks for frontend dependencies (package.json).
     "DEVCONTAINER_FRONTEND_DIR": "{{ cookiecutter.frontend_dir }}",
     // The git author identity post-create.sh writes on first provision, so a
@@ -77,21 +91,32 @@
   // the container creation log. See /tmp/post-create.log inside the container.
   "postCreateCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh 2>&1 | tee /tmp/post-create.log'",
   // Re-apply bundled config on every start, so a container that pulled newer
-  // .devcontainer/config/ files picks them up without a manual step.
-  "postStartCommand": "bash .devcontainer/post-create.sh --config-only",
+  // .devcontainer/config/ files picks them up without a manual step. Captured
+  // like postCreate's output, so a failing refresh is findable afterwards in
+  // /tmp/post-start.log.
+  "postStartCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh --config-only 2>&1 | tee /tmp/post-start.log'",
   // Backend ({{ cookiecutter.backend_port }}) and frontend dev server ({{ cookiecutter.frontend_port }}).
   // Two containers cannot forward the same host port — see MANAGING.md -> Port conflicts.
   "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
-{%- if cookiecutter.include_playwright == "yes" %}
-    // Chromium (used by the Playwright CLI) spawns many short-lived processes.
-    // 512 is too low — raise to 1024 to avoid EAGAIN errors.
-    "--pids-limit=1024",
+    // Chromium spawns many short-lived processes, and parallel agent sessions
+    // (subagents, test runners, Vite) add more. 512 was too low for Chromium
+    // alone; 4096 leaves room for several sessions before EAGAIN errors.
+    "--pids-limit=4096",
+    // A memory ceiling for THIS container, from the container_memory_limit
+    // answer. Without one a runaway process — a test suite that forks without
+    // limit, a build that balloons — takes down the whole Colima VM and every
+    // other project's container with it. With one, the kernel kills the
+    // offending process inside this container and the rest of the machine
+    // carries on. Keep it below the VM's own --memory.
+    "--memory={{ cookiecutter.container_memory_limit }}",
+    // Same value again: no swap for the container, so memory pressure surfaces
+    // as a kill of the culprit rather than as the VM thrashing.
+    "--memory-swap={{ cookiecutter.container_memory_limit }}"
+{%- if cookiecutter.include_playwright == "yes" %},
     // Chromium renderers share memory via /dev/shm; Docker's 64MB default
     // makes headless pages crash with cryptic tab errors.
     "--shm-size=1g"
-{%- else %}
-    "--pids-limit=1024"
 {%- endif %}
   ],
 {%- if cookiecutter.cache_volume_scope == "per-project" %}
@@ -107,6 +132,19 @@
   // post-create.sh chowns these on first use.
 {%- endif %}
   "mounts": [
+    // Claude Code state — the login, installed plugins, session transcripts
+    // and auto-memory — so a rebuild does not cost a sign-in and a plugin
+    // re-download. Always per project, whatever cache_volume_scope says:
+    // post-create.sh merges THIS project's bundled settings and plugin roster
+    // into the settings.json inside it on every start, and two projects
+    // sharing one file would undo each other's roster whenever their bundles
+    // differed. The cost is one `claude` sign-in per project instead of one
+    // per rebuild. CLAUDE_CONFIG_DIR above keeps the login in here too.
+    "source={{ cookiecutter.project_slug }}-claude-config,target=/home/vscode/.claude,type=volume",
+    // GitHub CLI login (`gh auth login`), so a rebuild does not log you out
+    // and `gh pr create` keeps working. Nothing merges into it, so it follows
+    // the cache scope like the caches do.
+    "source={{ cookiecutter.__volume_prefix }}-gh-config,target=/home/vscode/.config/gh,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-npm-cache,target=/home/vscode/.npm,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-zsh-history,target=/commandhistory,type=volume"
@@ -118,21 +156,25 @@
     "source={% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %},target=/home/vscode/.cache/ms-playwright,type=volume"
 {%- endif %}
   ],
-  // Optional bind mounts — add entries to "mounts" above as needed.
-  // Shell config and Claude Code settings are bundled in .devcontainer/config/
-  // and installed by post-create.sh, so no host mounts are required by default.
+  // Optional mounts — add entries to "mounts" above as needed.
   //
+  // Do NOT bind-mount host credential directories (~/.ssh, ~/.azure, the
+  // host's own ~/.claude): everything reachable inside the container is
+  // reachable by an agent running without prompts, and the Claude Code docs
+  // say to prefer repository-scoped or short-lived tokens. Sign in from INSIDE
+  // the container instead, with the narrowest identity that does the job.
 {%- if cookiecutter.include_azure_cli == "yes" %}
-  //   // Azure CLI session — keeps you logged in across rebuilds
-  //   "source=${localEnv:HOME}/.azure,target=/home/vscode/.azure,type=bind",
   //
+  //   // Keep an in-container `az login` across rebuilds (a named volume, not
+  //   // your host session). Every agent session then carries that identity's
+  //   // Azure access, so make it a least-privilege identity.
+  //   "source={{ cookiecutter.__volume_prefix }}-azure-config,target=/home/vscode/.azure,type=volume"
 {%- endif %}
-  //   // Claude Code state — persists conversation history across rebuilds
-  //   // (post-create.sh will not overwrite settings.json if this is mounted)
-  //   "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind"
   "customizations": {
     "vscode": {
       "extensions": [
+        // The Claude Code panel, diffs and /ide integration, inside the container.
+        "anthropic.claude-code",
         "ms-python.python",
         "charliermarsh.ruff",
         "Vue.volar",
