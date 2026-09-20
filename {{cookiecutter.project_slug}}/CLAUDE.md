@@ -53,14 +53,31 @@ when you ask for it, so run the full suite instead of a subset.
   Host CA certificates are trusted, so `curl`, `pip` and `npm` work behind a corporate
   proxy.
 - Temporary files, scratch scripts and test artifacts go in `/tmp`, not the repo.
+- Bash runs inside Claude Code's sandbox: writes land only in the workspace, `/tmp` and
+  the tool caches, and outbound network reaches only an allowlist:
+  git, npm, PyPI
+  {%- if cookiecutter.include_azure_cli == "yes" %}, Azure{% endif %}
+  {%- if cookiecutter.include_playwright == "yes" %}, the Playwright CDN{% endif %}.
+  A blocked write or host is a configuration gap, not an obstacle: name the path or
+  domain and ask for it to be added to `sandbox` in `~/.claude/settings.json`.
+- There is no sudo{% if cookiecutter.keep_container_sudo == "yes" %} to rely on: this project keeps it, but treat root as off limits{% endif %}.
+  A system package or anything under `/etc` is a `Dockerfile` change and a rebuild —
+  propose it, do not work around it.
 
 ## Permissions
 
 Claude Code runs in Auto mode. A managed deny list in
-`/etc/claude-code/managed-settings.json` blocks the irreversible operations: force-push,
-`git reflog expire`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
-A denied command was denied on purpose — report it and ask, do not look for another
-spelling of the same operation. Bypass mode is disabled.
+`/etc/claude-code/managed-settings.json` blocks the irreversible operations: force-push
+in every form (including `+refspec`), `git reflog expire`, Azure `delete` and `purge`,
+Docker volume pruning, `gh repo delete`. A denied command was denied on purpose —
+report it and ask, do not look for another spelling of the same operation. Bypass mode
+is disabled.
+
+`.devcontainer/devcontainer.json` and `.devcontainer/init-host-*.sh` are executed by
+the host, not by this container: the scripts run on the user's machine before every
+build, and the JSON decides the next container's mounts and privileges. Edits to them
+are denied. When one of them needs to change, write the exact diff into your reply and
+let the user apply and review it; never route around the deny with a shell redirect.
 
 ## Git
 

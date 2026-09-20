@@ -80,10 +80,32 @@ check "bundle raises the Bash tool limits" \
     '.env.BASH_DEFAULT_TIMEOUT_MS == "600000"
        and .env.BASH_MAX_TIMEOUT_MS == "1800000"
        and .env.BASH_MAX_OUTPUT_LENGTH == "100000"' "$BUNDLE_JSON"
-check "bundle ships the sandbox configured for a container but switched off" \
-    '.sandbox.enabled == false
-       and .sandbox.enableWeakerNestedSandbox == true
-       and (.sandbox.excludedCommands | index("docker *") != null)' "$BUNDLE_JSON"
+# The sandbox CONFIGURATION is a default (users add domains and paths); the
+# on/off switch is policy and must not be here, or the merge would let a live
+# settings.json argue with managed-settings.json about it.
+check "bundle ships the sandbox configured for a container" \
+    '.sandbox.enableWeakerNestedSandbox == true
+       and (.sandbox.excludedCommands | index("docker *") != null)
+       and .sandbox.network.allowLocalBinding == true' "$BUNDLE_JSON"
+check "bundle does not carry the sandbox switch (policy, in managed-settings.json)" \
+    '.sandbox | has("enabled") | not' "$BUNDLE_JSON"
+check "bundle allowlists the git, npm and PyPI endpoints" \
+    '.sandbox.network.allowedDomains
+       | (index("github.com") != null)
+       and (index("registry.npmjs.org") != null)
+       and (index("pypi.org") != null)
+       and (index("files.pythonhosted.org") != null)' "$BUNDLE_JSON"
+# With the sandbox on, Bash may write only to cwd unless told otherwise; the
+# package caches, /tmp and the tool state directories must be on the list or
+# uv, npm, git config and pytest all fail inside the sandbox.
+check "bundle lets sandboxed commands write to the caches, /tmp and tool state" \
+    '.sandbox.filesystem.allowWrite
+       | (index("/tmp") != null)
+       and (index("~/.cache") != null)
+       and (index("~/.npm") != null)
+       and (index("~/.config") != null)
+       and (index("~/.gitconfig") != null)
+       and (index("~/.claude") != null)' "$BUNDLE_JSON"
 check "bundle carries no policy keys (those live in managed-settings.json)" \
     '(.permissions | has("deny") or has("disableBypassPermissionsMode")) | not' "$BUNDLE_JSON"
 
@@ -96,17 +118,35 @@ check "managed settings deny every force-push spelling" \
        and (index("Bash(git push -f*)") != null)
        and (index("Bash(git push * --force*)") != null)
        and (index("Bash(git push * -f*)") != null)' "$MANAGED_JSON"
+# `git push origin +main` is a force-push spelled as a refspec: no --force, no
+# -f, so none of the flag rules see it.
+check "managed settings deny the +refspec force-push" \
+    '.permissions.deny | index("Bash(git push * +*)") != null' "$MANAGED_JSON"
 check "managed settings deny the destructive cloud, docker and gh operations" \
     '.permissions.deny
        | (index("Bash(az * delete*)") != null)
        and (index("Bash(docker volume prune*)") != null)
        and (index("Bash(gh repo delete*)") != null)' "$MANAGED_JSON"
-# A bare "Bash" deny would remove the tool from Claude entirely; every rule
-# must be scoped to a command pattern.
-check "every deny rule is a scoped Bash pattern" \
-    '.permissions.deny | all(test("^Bash\\(.+\\)$"))' "$MANAGED_JSON"
+# devcontainer.json and the init-host-*.sh scripts are executed by the HOST
+# (initializeCommand runs there before every build; mounts and runArgs shape
+# the next container). An agent must not be the one editing them.
+check "managed settings deny edits to the host-executed devcontainer files" \
+    '.permissions.deny
+       | (index("Edit(.devcontainer/devcontainer.json)") != null)
+       and (index("Edit(.devcontainer/init-host-*.sh)") != null)' "$MANAGED_JSON"
+# A bare "Bash" or "Edit" deny would remove the tool from Claude entirely;
+# every rule must be scoped to a command pattern or a path.
+check "every deny rule is a scoped Bash or Edit pattern" \
+    '.permissions.deny | all(test("^(Bash|Edit)\\(.+\\)$"))' "$MANAGED_JSON"
 check "managed settings carry no allow rules or defaults" \
     '(.permissions | has("allow") or has("defaultMode")) | not' "$MANAGED_JSON"
+# The sandbox switch is policy: Claude Code enforces a managed boolean over
+# every lower level, so this is what makes `/sandbox off` and a stale
+# `enabled: false` in ~/.claude/settings.json stop mattering.
+check "managed settings switch the Bash sandbox on" \
+    '.sandbox.enabled == true' "$MANAGED_JSON"
+check "managed settings carry only the sandbox switch, not its configuration" \
+    '.sandbox | keys == ["enabled"]' "$MANAGED_JSON"
 
 # ===========================================================================
 # 2. merge-settings.jq - user settings survive, retired wiring is stripped,
@@ -115,7 +155,7 @@ check "managed settings carry no allow rules or defaults" \
 # A live settings.json as an older bundle left it: the three retired hooks
 # wired in, the user's own hooks alongside them, the old acceptEdits default,
 # the old skipDangerousModePermissionPrompt, an explicit plugin opt-out, a
-# shorter Bash timeout, and the sandbox already switched on.
+# shorter Bash timeout, and the sandbox switch as an older bundle left it.
 USER_SETTINGS="$WORK/user-settings.json"
 cat > "$USER_SETTINGS" <<'JSON'
 {
@@ -138,7 +178,7 @@ cat > "$USER_SETTINGS" <<'JSON'
   },
   "enabledPlugins": { "kokko-viz@kokko-ng-kokko-cmds": false },
   "env": { "BASH_DEFAULT_TIMEOUT_MS": "120000", "MY_VAR": "x" },
-  "sandbox": { "enabled": true }
+  "sandbox": { "enabled": false }
 }
 JSON
 m1=$(jq -s -f "$MERGE_JQ" "$USER_SETTINGS" "$BUNDLED_SETTINGS")
@@ -177,10 +217,21 @@ check "user's env value wins, bundled env keys fill the gaps, own keys survive" 
     '.env.BASH_DEFAULT_TIMEOUT_MS == "120000"
        and .env.BASH_MAX_TIMEOUT_MS == "1800000"
        and .env.MY_VAR == "x"' "$m1"
-check "user's sandbox toggle wins, bundled sandbox keys fill the gaps" \
-    '.sandbox.enabled == true
+# The stale `enabled: false` an older bundle wrote is left alone (managed
+# settings override it at run time) and the bundled configuration fills in
+# around it.
+check "a stale sandbox switch is left alone, bundled sandbox keys fill the gaps" \
+    '.sandbox.enabled == false
        and .sandbox.enableWeakerNestedSandbox == true
-       and (.sandbox.excludedCommands | index("docker *") != null)' "$m1"
+       and (.sandbox.excludedCommands | index("docker *") != null)
+       and (.sandbox.network.allowedDomains | index("github.com") != null)
+       and (.sandbox.filesystem.allowWrite | index("/tmp") != null)' "$m1"
+# A user's own network block is theirs: the merge must not push the bundled
+# allowlist over a list they trimmed or extended.
+m_net=$(jq -s -f "$MERGE_JQ" <(echo '{"sandbox":{"network":{"allowedDomains":["proxy.corp.example"]}}}') "$BUNDLED_SETTINGS")
+check "user's own sandbox network block wins over the bundled one" \
+    '.sandbox.network.allowedDomains == ["proxy.corp.example"]
+       and .sandbox.enableWeakerNestedSandbox == true' "$m_net"
 
 # A defaultMode the user chose (anything but the old bundled acceptEdits)
 # must never be migrated.
@@ -200,8 +251,10 @@ check "empty user file gets bundled defaultMode auto" \
 check "empty user file gets exactly the bundled SessionStart hook" \
     "(.hooks | keys) == [\"SessionStart\"]
        and ([.hooks.SessionStart[].hooks[].command] == [\"$HOOK_CMD\"])" "$m_empty"
-check "empty user file gets the bundled env and sandbox" \
-    '.env.BASH_MAX_TIMEOUT_MS == "1800000" and .sandbox.enabled == false' "$m_empty"
+check "empty user file gets the bundled env and sandbox configuration" \
+    '.env.BASH_MAX_TIMEOUT_MS == "1800000"
+       and .sandbox.enableWeakerNestedSandbox == true
+       and (.sandbox | has("enabled") | not)' "$m_empty"
 
 # When ONLY retired wiring existed, nothing but the bundled hook remains.
 m_only_ours=$(jq -s -f "$MERGE_JQ" <(jq 'del(.hooks.PreToolUse[0].hooks[2,3])' "$USER_SETTINGS") "$BUNDLED_SETTINGS")

@@ -209,6 +209,7 @@ Enter to accept any default.
 | `include_docker_in_docker` | `no` | The `docker-in-docker` feature and the Docker VS Code extension. Off by default: the feature runs the container **privileged**, which hands an unattended agent the whole Colima VM |
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
+| `keep_container_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it as the last provisioning step, so nothing running in the container — the agent included — can become root, rewrite the Claude Code policy file, or install packages; a system package is then a `Dockerfile` line and a rebuild. When neither Playwright nor Docker-in-Docker needs sudo to provision, the container also runs with `--security-opt=no-new-privileges` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
 | `claude_attribution` | `no` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `no` hides both |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache and gh-login volumes across projects; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
@@ -310,7 +311,8 @@ CLAUDE.md               # Generated project instructions for Claude Code
 .devcontainer/
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
-├── init-host-certs.sh  # Extracts host CA certs (runs before build)
+├── init-host-certs.sh  # Extracts host CA certs (runs ON THE HOST before build)
+├── init-host-guard.sh  # Warns about cloud-synced folders (runs ON THE HOST before build)
 ├── post-create.sh      # Runs once after the container is created
 ├── .gitignore          # Keeps the extracted host CA certs out of git
 ├── certs/              # Host CA certs extracted by init-host-certs.sh
@@ -319,7 +321,7 @@ CLAUDE.md               # Generated project instructions for Claude Code
     ├── zsh/              # Bundled shell config (symlinked by post-create.sh)
     └── claude/           # Bundled Claude Code settings, policy, hook and CLAUDE.md
         ├── settings.json          # Defaults the user may override (merged in)
-        ├── managed-settings.json  # Policy the user may not: deny list, no bypass mode
+        ├── managed-settings.json  # Policy the user may not: deny list, no bypass mode, sandbox on (baked into the image)
         ├── hooks/                 # SessionStart hook: surfaces failed provisioning
         ├── merge-settings.jq      # Merges bundled settings into an existing settings.json
         └── prune-roster.jq        # Prunes roster entries the bundle no longer ships
@@ -395,13 +397,13 @@ Key sections:
 | `initializeCommand` | Runs on the host before build (extracts CA certs) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
-| `runArgs` | Docker run flags — the PID limit is raised to 4096 (Chromium plus parallel agent sessions) and the container gets a memory cap from the `container_memory_limit` answer (`--memory`, `--memory-swap`), so a runaway process is killed inside it rather than taking the Colima VM down. Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
-| `mounts` | Named volumes: Claude Code state (per project), the `gh` login, package caches, shell history, Playwright browsers. Nothing is bind-mounted from the host — see [Optional mounts](#optional-mounts). |
+| `runArgs` | Docker run flags — the PID limit is raised to 4096 (Chromium plus parallel agent sessions) and the container gets a memory cap from the `container_memory_limit` answer (`--memory`, `--memory-swap`), so a runaway process is killed inside it rather than taking the Colima VM down. `--security-opt=no-new-privileges` is added when nothing at run time needs sudo: `keep_container_sudo=no` and neither Playwright (its `--with-deps` install uses `sudo apt-get`) nor Docker-in-Docker (the nested daemon runs as root and every container it starts would inherit the flag). Cap drops are not applied: the devcontainer features run at build time as root regardless, and the post-create sudo drop is what closes the run-time path. |
+| `mounts` | Named volumes: Claude Code state (per project), the `gh` login, package caches, shell history, Playwright browsers. Nothing but the workspace itself is bind-mounted from the host — and the workspace holds this file; see [Optional mounts](#optional-mounts). |
 | `customizations.vscode` | Extensions (including `anthropic.claude-code`) and settings applied when opening in VS Code |
 
 `PYTHONPATH` is set to `${containerWorkspaceFolder}/<backend_src_dir>` — `src` unless you answered otherwise — which resolves at runtime to `/workspaces/<your-repo-name>/src`. Edit it in `containerEnv` if your layout changes later.
 
-The `DEVCONTAINER_*` entries in `containerEnv` are the provisioning answers you gave the template, published to the container so `post-create.sh` can read them: `DEVCONTAINER_INSTALL_COPILOT_CLI`, `DEVCONTAINER_INSTALL_PLAYWRIGHT`, and `DEVCONTAINER_FRONTEND_DIR`. Flipping one and rebuilding changes what gets installed without regenerating from the template.
+The `DEVCONTAINER_*` entries in `containerEnv` are the provisioning answers you gave the template, published to the container so `post-create.sh` can read them: `DEVCONTAINER_INSTALL_COPILOT_CLI`, `DEVCONTAINER_INSTALL_PLAYWRIGHT`, `DEVCONTAINER_KEEP_SUDO`, and `DEVCONTAINER_FRONTEND_DIR`. Flipping one and rebuilding changes what gets installed without regenerating from the template.
 
 Two more entries are for Claude Code itself: `CLAUDE_CONFIG_DIR` points it at the `~/.claude` named volume, because it keeps the OAuth session in a `.claude.json` outside that directory by default and a volume alone would still lose the login on every rebuild; `DISABLE_AUTOUPDATER=1` keeps the binary at the version the Dockerfile pins.
 
@@ -416,7 +418,7 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
 5. Copies bundled Claude config (`config/claude/settings.json` and `CLAUDE.md`) to `~/.claude/`. `settings.json` is only copied when absent (the merge in step 6 keeps it current); `CLAUDE.md` is refreshed from the bundle whenever the live copy is still byte-identical to what a previous run installed (hash-tracked via `~/.claude/.claude-md.bundled-sha256`) — a user-edited copy is left alone with a notice.
 6. Removes any leftovers of the retired git safety layer (the guard/snapshot hooks and the `snaps` helper installed by older versions of this template), then merges the bundled settings and plugin roster into the live `settings.json` (`merge-settings.jq` — user-set values always win, and the retired hook wiring is stripped). After the merge, plugins that were *removed* from the bundled roster are pruned from the live settings — unless you overrode their value, in which case your setting wins (`prune-roster.jq`, driven by the `~/.claude/.kokko-bundled-roster.json` snapshot).
 7. Installs the bundled Claude Code hook (`config/claude/hooks/session-provision-status.sh`) into `~/.claude/hooks/`. The bundled `settings.json` wires it as a `SessionStart` hook: it prints any provisioning step that failed into the session, so the agent learns about a broken `uv sync` at the start rather than mid-task. Silent when nothing failed.
-8. Installs the policy file `config/claude/managed-settings.json` to `/etc/claude-code/managed-settings.json` (via `sudo`), where Claude Code applies it above every user and project setting: the deny list that holds under Auto mode (force-push, Azure delete, volume prune, ...) and the lock on bypass mode. Replaced whole, never merged.
+8. Checks the policy file at `/etc/claude-code/managed-settings.json`, where Claude Code applies it above every user and project setting: the deny list that holds under Auto mode (force-push, Azure delete, volume prune, edits to the host-executed files under `.devcontainer/`), the lock on bypass mode, and the Bash-sandbox switch. The `Dockerfile` bakes it into the image, so this step normally finds it current. In an image built before that layer existed it is installed via `sudo`; once sudo is gone (step 17) a changed policy is a rebuild, and the step says so. Never merged.
 9. Installs the Claude Code plugins. Every marketplace in `extraKnownMarketplaces` is registered and every plugin set to `true` in `enabledPlugins` is installed, both read from the **merged** `~/.claude/settings.json` (falling back to the bundle on a first run) — so a plugin you disabled locally is not reinstalled. `enabledPlugins` alone only *enables* a plugin, so without this step a fresh container starts with none of them on disk. Warns and continues on failure — it needs network and a signed-in CLI. Network calls are skipped when the last successful run is under 24h old; `KOKKO_PLUGIN_REFRESH=1` forces a refresh and `KOKKO_SKIP_PLUGINS=1` (used by CI) skips the step entirely.
 10. Configures git for recoverability: `safe.directory` is set to `*`, so git works in the bind-mounted workspace and in every checkout under `.claude/worktrees/` (a single-user container has no shared-machine threat for that check to defend against); reflog and prune retention are `never`; `rerere` is on.
 11. Symlinks bundled zsh config (`config/zsh/`) to `~/.config/zsh` and `~/.zshrc` (prefers dotfiles from `~/.dotfiles` if present).
@@ -431,6 +433,7 @@ Runs once after the container is first created. Steps are idempotent so a rebuil
     when the project lists pre-commit as a dependency, otherwise with the copy baked
     into the image — and warns if `.git/hooks/pre-commit` is still missing afterwards.
 16. Copies `.env.example` to `.env` if no `.env` exists.
+17. Removes the container user's passwordless sudo, unless `DEVCONTAINER_KEEP_SUDO` is `1`: the `/etc/sudoers.d/<user>` entry the base image and `common-utils` create, and the `sudo` group membership. Last on purpose — everything above that needs root (the volume chown, Playwright's `--with-deps`) has already run. From here on nothing inside the container, agent included, can become root; a system package is a `Dockerfile` line and a rebuild. `--config-only` ends with the same step, so an older container picks the drop up on its next start.
 
 Network install steps retry 3 times with backoff; a step that still fails is recorded in
 `~/.devcontainer-provision-status` and summarized at the end instead of aborting the
@@ -442,7 +445,7 @@ The script contains no template syntax: every option it needs arrives as an envi
 
 #### Refreshing config without a rebuild
 
-Steps 5 to 11 are the bundled config, and they can be re-applied to a container that is already running:
+Steps 5 to 11 (and 17) are the bundled config, and they can be re-applied to a container that is already running:
 
 ```bash
 bash .devcontainer/post-create.sh --config-only
@@ -452,7 +455,7 @@ That skips every tool install and every project dependency step, so it takes sec
 
 The `/devcontainer-update` command in [kokko-ng/kokko-skills](https://github.com/kokko-ng/kokko-skills) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
 
-What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, and `init-host-certs.sh` (which runs on the host). Those still need `devcontainer up --remove-existing-container`.
+What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, `init-host-certs.sh` and `init-host-guard.sh` (which run on the host), and — once sudo is gone — the policy file `managed-settings.json`, which the image carries. Those still need `devcontainer up --remove-existing-container`.
 
 ---
 
@@ -469,7 +472,7 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 └── claude/
     ├── CLAUDE.md              # Global Claude Code instructions
     ├── settings.json          # Claude Code defaults (merged; the user's values win)
-    ├── managed-settings.json  # Policy (installed to /etc/claude-code/; never merged)
+    ├── managed-settings.json  # Policy (baked into the image at /etc/claude-code/; never merged)
     ├── hooks/                 # SessionStart hook that surfaces failed provisioning
     ├── merge-settings.jq      # The merge
     └── prune-roster.jq        # Prunes roster entries the bundle dropped
@@ -495,8 +498,8 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 
 ## Optional mounts
 
-The devcontainer mounts no host directories, so it is fully portable. What persists
-across rebuilds lives in named volumes instead:
+Apart from the workspace itself, the devcontainer mounts no host directories, so it is
+fully portable. What persists across rebuilds lives in named volumes instead:
 
 | Volume | Holds | Scope |
 |---|---|---|
@@ -525,6 +528,22 @@ least-privilege one:
 ```
 
 After changing mounts, rebuild the container for them to take effect.
+
+**The workspace is the container definition.** The project directory is the one bind
+mount, and it contains `devcontainer.json` — mounts, `runArgs`, a possible
+`--privileged` — and the `init-host-*.sh` scripts that `initializeCommand` runs on the
+host, as you, before every build. Anything that can write to the workspace can therefore
+change what the *next* container is, and what runs on your Mac to build it. The managed
+deny list keeps Claude Code's Edit tool away from `devcontainer.json` and
+`init-host-*.sh`, but a shell redirect is not an Edit, so the real control is you:
+review every diff under `.devcontainer/` before you rebuild, never rebuild from a branch
+you have not read, and where the repository lives, put the directory under a CODEOWNERS
+rule or branch protection:
+
+```
+# .github/CODEOWNERS
+/.devcontainer/  @your-handle
+```
 
 ---
 
@@ -723,7 +742,21 @@ answer, off by default; see the generated `DEVCONTAINER.md` -> Commit authorship
 gh auth login
 ```
 
-Follow the interactive prompts. Choose **GitHub.com**, **HTTPS**, and authenticate via browser. This also enables `git push/pull` over HTTPS with your GitHub credentials. The login lives in the `gh-config` named volume, so it survives rebuilds. Prefer a fine-grained token scoped to the repositories the agent needs over your broadest personal token.
+Follow the interactive prompts. Choose **GitHub.com**, **HTTPS**, and authenticate via browser. This also enables `git push/pull` over HTTPS with your GitHub credentials. The login lives in the `gh-config` named volume, so it survives rebuilds.
+
+Whatever you sign in with, every agent session in the container holds it — `gh auth token` prints it, and nothing in the deny list stops `curl` against the GitHub API with it. The browser flow above grants your account's full scopes to every repository you can reach, so prefer a **fine-grained personal access token** limited to this project:
+
+1. GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token.
+2. Repository access: **Only select repositories**, the ones this project needs.
+3. Permissions: `Contents` and `Pull requests` read/write, `Metadata` read; add `Issues` or `Actions` only if the project's workflow uses them. Nothing at the account level.
+4. Set an expiry, then sign in with it inside the container:
+
+```bash
+gh auth login --with-token < token.txt && rm token.txt
+gh auth setup-git      # so git push/pull over HTTPS use it too
+```
+
+With `cache_volume_scope=shared` (the default) the `gh` login volume is shared by every project on the machine, so the token's repository list should cover all of them — or use `per-project` and sign each container in with its own token.
 
 ### Azure CLI
 
@@ -774,10 +807,12 @@ files:
 | Container memory cap, PID limit | `runArgs` in `devcontainer.json` | Rebuild |
 | Cache and state volume names | `mounts` in `devcontainer.json` | Rebuild |
 | Claude Code plugins | `enabledPlugins` / `extraKnownMarketplaces` in `.devcontainer/config/claude/settings.json` | `post-create.sh --config-only` |
-| Bash tool limits, sandbox on/off | `env` / `sandbox` in `.devcontainer/config/claude/settings.json` (or `/sandbox` in a session) | `post-create.sh --config-only` |
+| Bash tool limits, sandbox allowlist and writable paths | `env` / `sandbox` in `.devcontainer/config/claude/settings.json` (your live `~/.claude/settings.json` values win where set) | `post-create.sh --config-only` |
+| Sandbox on/off | `sandbox.enabled` in `.devcontainer/config/claude/managed-settings.json` (policy: `/sandbox off` in a session does not hold) | Rebuild |
+| System packages (apt) | `Dockerfile` (the container has no sudo after provisioning) | Rebuild |
 | Claude Code commit/PR attribution | `attribution` in `~/.claude/settings.json` inside the container (the bundled value only applies where that key is absent) | Next session |
 | Commit author | `git config --global user.name` / `user.email` inside the container (never overwritten by a rebuild) | Immediately |
-| Permission policy (deny list, bypass lock) | `.devcontainer/config/claude/managed-settings.json` | `post-create.sh --config-only` |
+| Permission policy (deny list, bypass lock) | `.devcontainer/config/claude/managed-settings.json` | Rebuild (baked into the image; `--config-only` can only replace it while the container still has sudo) |
 | Global Claude instructions | `.devcontainer/config/claude/CLAUDE.md` | `post-create.sh --config-only` |
 | Project Claude instructions | `CLAUDE.md` at the project root | Next session |
 | Shell aliases and integrations | `.devcontainer/config/zsh/` | New shell |

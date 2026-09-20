@@ -119,6 +119,8 @@ assert_jq "template prompts for Claude attribution, off by default" "$ROOT/cooki
 # Docker-in-Docker makes the container privileged, so it must be opt-in.
 assert_jq "docker-in-docker defaults to no" "$ROOT/cookiecutter.json" \
     '.include_docker_in_docker[0] == "no"'
+assert_jq "keeping sudo defaults to no" "$ROOT/cookiecutter.json" \
+    '.keep_container_sudo[0] == "no"'
 assert_jq "managed settings and the Claude hooks are excluded from rendering" "$ROOT/cookiecutter.json" \
     '._copy_without_render
        | (index(".devcontainer/config/claude/managed-settings.json") != null)
@@ -171,6 +173,12 @@ assert_jq "gh login volume follows the shared cache scope" "$DC" \
        == ["source=devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume"]'
 assert_jq "default memory limit reaches runArgs, with swap disabled" "$DC" \
     '(.runArgs | index("--memory=8g") != null) and (.runArgs | index("--memory-swap=8g") != null)'
+assert_jq "sudo drop is published to post-create by default" "$DC" \
+    '.containerEnv.DEVCONTAINER_KEEP_SUDO == "0"'
+# Playwright's --with-deps install needs sudo during provisioning, so the
+# default render (Playwright on) relies on the post-create drop alone.
+assert_jq "no-new-privileges is left out while Playwright needs sudo to provision" "$DC" \
+    '.runArgs | index("--security-opt=no-new-privileges") == null'
 assert_jq "pids limit leaves room for parallel sessions" "$DC" \
     '.runArgs | index("--pids-limit=4096") != null'
 assert_jq "postStart output is captured like postCreate output" "$DC" \
@@ -231,6 +239,29 @@ assert "default Dockerfile installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins pre-commit" \
     grep -qE 'pip install .* pre-commit==[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile bakes the policy file into the image" \
+    grep -q '^COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json$' \
+    "$DEFAULT/.devcontainer/Dockerfile"
+assert "the build context lets the policy file through" \
+    grep -qx '!config/claude/managed-settings.json' "$DEFAULT/.devcontainer/.dockerignore"
+# Every named-volume target in devcontainer.json must be created (and owned by
+# the container user) in the image, or a fresh volume comes up root-owned in a
+# container that has no sudo to fix it.
+mkdir_layer=$(sed -n '/^RUN mkdir -p/,/^$/p' "$DEFAULT/.devcontainer/Dockerfile")
+for target in $(jq -r '.mounts[] | capture("target=(?<t>[^,]+)").t' "$DC"); do
+    assert "Dockerfile pre-creates the volume mount point $target" \
+        grep -qE "(^|[[:space:]])$target([[:space:]]|\$)" <<<"$mkdir_layer"
+done
+assert_jq "default sandbox allowlist carries the Azure endpoints" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.sandbox.network.allowedDomains
+       | (index("login.microsoftonline.com") != null) and (index("management.azure.com") != null)'
+assert_jq "default sandbox allowlist carries the Playwright download endpoints" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.sandbox.network.allowedDomains | index("cdn.playwright.dev") != null'
+assert_jq "allowlist surgery keeps the bundled starter entries first" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.sandbox.network.allowedDomains[0:3] == ["github.com", "*.github.com", "*.githubusercontent.com"]'
 assert "default Dockerfile pins the base image by digest" \
     grep -qE '^FROM .*python:3\.14-bookworm@sha256:' "$DEFAULT/.devcontainer/Dockerfile"
 assert "certs/.gitkeep survives so plain docker build works" \
@@ -241,11 +272,19 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 # Files listed in _copy_without_render must come through byte-identical —
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
-         config/claude/settings.json config/claude/CLAUDE.md \
+         config/claude/CLAUDE.md \
          config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
+# settings.json is copied unrendered too, but the default answers earn it
+# post-generation surgery (the Azure and Playwright allowlist entries), so the
+# verbatim check for it uses a render in which no answer touches the file.
+render "$WORK/plain" project_name="Plain App" \
+    include_azure_cli=no include_playwright=no claude_plugin_roster=kokko-ng claude_attribution=no
+assert "config/claude/settings.json is copied verbatim when no answer edits it" \
+    cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/config/claude/settings.json" \
+    "$WORK/plain/plain-app/.devcontainer/config/claude/settings.json"
 
 # ===========================================================================
 # 3. Everything optional turned off
@@ -301,6 +340,12 @@ assert_jq "no docker extension without docker-in-docker" "$SDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
 assert_jq "chosen memory limit reaches runArgs" "$SDC" \
     '(.runArgs | index("--memory=2048m") != null) and (.runArgs | index("--memory-swap=2048m") != null)'
+# Nothing in a Playwright-free, Docker-free provision needs sudo, so the
+# container can refuse privilege escalation outright.
+assert_jq "no-new-privileges is set when nothing needs sudo to provision" "$SDC" \
+    '.runArgs | index("--security-opt=no-new-privileges") != null'
+assert_jq "sudo drop is still published without Playwright" "$SDC" \
+    '.containerEnv.DEVCONTAINER_KEEP_SUDO == "0"'
 assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
 assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \
@@ -320,6 +365,13 @@ assert_jq "roster is emptied on request" \
 assert_jq "emptying the roster keeps the other settings" \
     "$SLIM/.devcontainer/config/claude/settings.json" \
     '.permissions.defaultMode == "auto"'
+assert_jq "slim sandbox allowlist carries no Azure or Playwright endpoints" \
+    "$SLIM/.devcontainer/config/claude/settings.json" \
+    '.sandbox.network.allowedDomains
+       | (index("management.azure.com") == null) and (index("cdn.playwright.dev") == null)'
+assert_jq "slim sandbox allowlist is exactly the bundled starter list" \
+    "$SLIM/.devcontainer/config/claude/settings.json" \
+    '.sandbox.network.allowedDomains == ["github.com", "*.github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]'
 
 refute "slim Dockerfile drops the ODBC driver" \
     grep -q msodbcsql18 "$SLIM/.devcontainer/Dockerfile"
@@ -355,6 +407,12 @@ assert "DEVCONTAINER.md says the container is privileged" \
     grep -q 'privileged' "$DIND/DEVCONTAINER.md"
 assert "generation prints the privileged note" \
     grep -q 'PRIVILEGED' "$WORK/dind.err"
+# A nested daemon runs as root and every container it starts would inherit
+# the flag, so Docker-in-Docker is the second reason to leave it out.
+assert_jq "no-new-privileges is left out with docker-in-docker" "$DDC" \
+    '.runArgs | index("--security-opt=no-new-privileges") == null'
+assert_jq "sudo is still dropped after provisioning with docker-in-docker" "$DDC" \
+    '.containerEnv.DEVCONTAINER_KEEP_SUDO == "0"'
 # claude_attribution=yes removes the empty-string override so Claude Code's own
 # default trailer and PR footer apply; nothing else in the bundle may move.
 assert_jq "attribution answer removes the override" \
@@ -368,7 +426,35 @@ assert_jq "settings.json edits keep the rest of the bundle" \
     '.permissions.defaultMode == "auto"
        and (.hooks | has("SessionStart"))
        and .env.BASH_DEFAULT_TIMEOUT_MS == "600000"
-       and .sandbox.enabled == false'
+       and .sandbox.enableWeakerNestedSandbox == true
+       and (.sandbox | has("enabled") | not)'
+
+# ===========================================================================
+# 3c. Keeping sudo: the one answer that leaves the container user able to
+#     become root. Playwright off as well, so this render is the one where
+#     no-new-privileges WOULD have applied — and must not, since sudo is
+#     what it would break.
+# ===========================================================================
+render "$WORK/sudo" project_name="Sudo App" keep_container_sudo=yes include_playwright=no
+SUDO="$WORK/sudo/sudo-app"
+assert "keep-sudo answers render" test -d "$SUDO/.devcontainer"
+
+UDC="$WORK/sudo-devcontainer.json"
+if jsonc_to_json "$SUDO/.devcontainer/devcontainer.json" > "$UDC" 2>/dev/null; then
+    ok
+else
+    bad "keep-sudo devcontainer.json parses as JSONC"
+fi
+assert_jq "keeping sudo is published to post-create" "$UDC" \
+    '.containerEnv.DEVCONTAINER_KEEP_SUDO == "1"'
+assert_jq "no-new-privileges is left out when sudo is kept" "$UDC" \
+    '.runArgs | index("--security-opt=no-new-privileges") == null'
+assert "generation warns that sudo is kept" \
+    grep -q 'KEEPS passwordless sudo' "$WORK/sudo.err"
+refute "the default render does not warn about sudo" \
+    grep -q 'KEEPS passwordless sudo' "$WORK/default.err"
+assert "the policy file is baked in regardless of the sudo answer" \
+    grep -q '^COPY config/claude/managed-settings.json' "$SUDO/.devcontainer/Dockerfile"
 
 # ===========================================================================
 # 4. Nothing anywhere is left unrendered
@@ -376,7 +462,7 @@ assert_jq "settings.json edits keep the rest of the bundle" \
 # A forgotten `{{` or `{%` in a generated file means an option silently did
 # nothing. Only real Jinja delimiters count — `${...}` variable syntax and
 # bash's `${#array[@]}` are fine.
-unrendered=$(grep -rlE '\{\{|\{%' "$DEFAULT" "$SLIM" "$DIND" 2>/dev/null || true)
+unrendered=$(grep -rlE '\{\{|\{%' "$DEFAULT" "$SLIM" "$DIND" "$SUDO" 2>/dev/null || true)
 if [[ -z "$unrendered" ]]; then
     ok
 else

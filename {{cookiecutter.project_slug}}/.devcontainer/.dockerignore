@@ -1,5 +1,8 @@
-# The Dockerfile only COPYs certs/ — keep everything else out of the build
-# context so config edits do not invalidate layers and secrets never reach
-# the daemon.
+# The Dockerfile COPYs certs/ and the Claude Code policy file — keep everything
+# else out of the build context so config edits do not invalidate layers and
+# secrets never reach the daemon. The policy file is deliberately IN the
+# context: it is baked into the image at build time (see the Dockerfile), so a
+# policy change is a rebuild, which an agent inside the container cannot do.
 *
 !certs/
+!config/claude/managed-settings.json

@@ -68,6 +68,27 @@ RUN HU="${HOST_USER:-vscode}"; mkdir -p /Users && ln -sfn /home/vscode "/Users/$
 COPY certs/ /usr/local/share/ca-certificates/host/
 RUN update-ca-certificates
 
+# Claude Code POLICY, baked into the image: the deny list, the bypass-mode
+# lock and the Bash-sandbox switch. Claude Code reads this path above every
+# user and project setting. It lives in the image rather than being installed
+# by post-create.sh because post-create runs as the container user and would
+# need sudo — and sudo is exactly what post-create.sh takes away at the end of
+# provisioning (keep_container_sudo=no, the default), so that an agent inside
+# the container cannot edit this file. A policy change is therefore a rebuild.
+# .dockerignore lets this one config file into the build context.
+COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json
+
+# Named-volume mount points, created here and owned by the container user.
+# Docker gives a fresh named volume the ownership of the directory it mounts
+# over in the image, so creating these as `vscode` means the volumes come up
+# writable without the `sudo chown` that post-create.sh otherwise needs — the
+# same sudo that is dropped after provisioning. Must match the targets of the
+# `mounts` block in devcontainer.json (unmounted ones are harmless).
+RUN mkdir -p /home/vscode/.claude /home/vscode/.config/gh /home/vscode/.cache/uv \
+        /home/vscode/.cache/ms-playwright /home/vscode/.npm /home/vscode/.azure /commandhistory \
+    && chown -R vscode:vscode /home/vscode/.claude /home/vscode/.config /home/vscode/.cache \
+        /home/vscode/.npm /home/vscode/.azure /commandhistory
+
 # Claude Code native binary, PINNED and baked into the image, so every rebuild
 # neither re-downloads it in post-create nor picks up whatever happens to be
 # the latest release that day: two rebuilds produce the same agent, which is

@@ -3,11 +3,12 @@
 Only two things happen here that Jinja could not do inline:
 
   * The bundled Claude settings.json is edited as JSON rather than templated:
-    the plugin roster is emptied on request, and the attribution override is
-    removed when Claude Code should sign its commits. Keeping that file free
-    of Jinja is deliberate — it stays valid JSON at rest, so `check-json`,
-    `jq`, and tests/merge-settings-tests.sh all run against the template
-    itself with no rendering step.
+    the plugin roster is emptied on request, the attribution override is
+    removed when Claude Code should sign its commits, and the Bash sandbox's
+    network allowlist grows the endpoints the chosen optional tools need.
+    Keeping that file free of Jinja is deliberate — it stays valid JSON at
+    rest, so `check-json`, `jq`, and tests/merge-settings-tests.sh all run
+    against the template itself with no rendering step.
   * The base image digest pin only matches the default Python version, so a
     non-default choice earns a warning rather than a silently wrong pin.
 """
@@ -19,6 +20,9 @@ import sys
 CLAUDE_PLUGIN_ROSTER = "{{ cookiecutter.claude_plugin_roster }}"
 CLAUDE_ATTRIBUTION = "{{ cookiecutter.claude_attribution }}"
 INCLUDE_DOCKER_IN_DOCKER = "{{ cookiecutter.include_docker_in_docker }}"
+INCLUDE_AZURE_CLI = "{{ cookiecutter.include_azure_cli }}"
+INCLUDE_PLAYWRIGHT = "{{ cookiecutter.include_playwright }}"
+KEEP_CONTAINER_SUDO = "{{ cookiecutter.keep_container_sudo }}"
 PYTHON_VERSION = "{{ cookiecutter.python_version }}"
 PROJECT_SLUG = "{{ cookiecutter.project_slug }}"
 CONTAINER_NAME = "{{ cookiecutter.__container_name }}"
@@ -27,6 +31,22 @@ CONTAINER_NAME = "{{ cookiecutter.__container_name }}"
 PINNED_PYTHON_VERSION = "3.14"
 
 SETTINGS = os.path.join(".devcontainer", "config", "claude", "settings.json")
+
+# Endpoints the Bash sandbox must let through for an optional tool to work.
+# The bundle ships the git/npm/PyPI starter list; these are added per answer
+# so a project without the tool does not carry its egress.
+AZURE_DOMAINS = [
+    "login.microsoftonline.com",
+    "management.azure.com",
+    "graph.microsoft.com",
+    "*.azure.com",
+    "*.azure.net",
+    "*.windows.net",
+]
+PLAYWRIGHT_DOMAINS = [
+    "cdn.playwright.dev",
+    "playwright.download.prss.microsoft.com",
+]
 
 notes = []
 
@@ -50,7 +70,24 @@ def enable_claude_attribution(settings):
     settings.pop("attribution", None)
 
 
+def allow_domains(domains):
+    """Append endpoints to the sandbox network allowlist, without duplicates."""
+
+    def edit(settings):
+        network = settings.setdefault("sandbox", {}).setdefault("network", {})
+        allowed = network.setdefault("allowedDomains", [])
+        allowed.extend(d for d in domains if d not in allowed)
+
+    return edit
+
+
 settings_edits = []
+
+if INCLUDE_AZURE_CLI == "yes":
+    settings_edits.append(allow_domains(AZURE_DOMAINS))
+
+if INCLUDE_PLAYWRIGHT == "yes":
+    settings_edits.append(allow_domains(PLAYWRIGHT_DOMAINS))
 
 if CLAUDE_PLUGIN_ROSTER == "none":
     settings_edits.append(clear_plugin_roster)
@@ -80,6 +117,14 @@ if INCLUDE_DOCKER_IN_DOCKER == "yes":
         "    An agent running in it without prompts then has, in effect, root on the\n"
         "    Colima VM, including every other project's containers and volumes. Keep\n"
         "    that in mind when deciding what runs in this container unattended."
+    )
+
+if KEEP_CONTAINER_SUDO == "yes":
+    notes.append(
+        "The container user KEEPS passwordless sudo. An agent running without\n"
+        "    prompts can then become root: rewrite the Claude Code policy file, install\n"
+        "    anything, reach every file in the container. The default answer removes\n"
+        "    sudo once provisioning is done; you chose to keep it."
     )
 
 if PYTHON_VERSION != PINNED_PYTHON_VERSION:

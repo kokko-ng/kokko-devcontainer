@@ -14,10 +14,20 @@ the container sets `gc.reflogExpire`, `gc.reflogExpireUnreachable`, and
 Commit early and often; only committed work has that safety net.
 
 A managed deny list (`/etc/claude-code/managed-settings.json`) sits under auto mode and
-blocks the irreversible operations: force-push in any spelling, `git reflog expire` and
-`git gc --prune`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
-**A denied command was denied on purpose.** Report it and ask; do not look for another
-spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
+blocks the irreversible operations: force-push in any spelling (`--force`, `-f`, the
+`+refspec` form), `git reflog expire` and `git gc --prune`, Azure `delete` and `purge`,
+Docker volume pruning, `gh repo delete`, and edits to the files the HOST executes —
+`.devcontainer/devcontainer.json` and `.devcontainer/init-host-*.sh`. **A denied
+command was denied on purpose.** Report it and ask; do not look for another spelling,
+wrapper, or program that does the same thing. For a host-executed file, put the exact
+diff in your reply for the user to apply. Bypass mode is disabled.
+
+Bash runs inside Claude Code's sandbox, switched on by the same policy file: writes land
+in the workspace, `/tmp` and the tool caches, and outbound network reaches only the
+allowlisted domains. A blocked path or host is a configuration gap — name it and ask for
+it to be added to `sandbox` in `~/.claude/settings.json` — not something to tunnel
+around. There is no sudo: a system package or anything under `/etc` is a `Dockerfile`
+change and a rebuild. Propose it; do not work around it.
 
 A `SessionStart` hook prints any provisioning step that failed when the container was
 built. If it does, the tools that step installs may be missing — fix the cause or tell

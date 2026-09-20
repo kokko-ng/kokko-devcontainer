@@ -12,12 +12,25 @@
     "BASH_MAX_OUTPUT_LENGTH": "100000"
   },
   "sandbox": {
-    "enabled": false,
     "enableWeakerNestedSandbox": true,
     "excludedCommands": [
       "docker *"
     ],
+    "filesystem": {
+      "allowWrite": [
+        "/tmp",
+        "/dev/shm",
+        "~/.cache",
+        "~/.npm",
+        "~/.local",
+        "~/.config",
+        "~/.gitconfig",
+        "~/.claude",
+        "~/.azure"
+      ]
+    },
     "network": {
+      "allowLocalBinding": true,
       "allowedDomains": [
         "github.com",
         "*.github.com",

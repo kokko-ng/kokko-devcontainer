@@ -19,8 +19,12 @@
 #     choices — including disabling a plugin with `false`, or a shorter Bash
 #     timeout — always win, while keys added to the bundle still reach
 #     long-lived setups that would otherwise never see them.
-#   * sandbox — additive per top-level key, same rule: a user who flipped
-#     `enabled` keeps that, and a key the bundle adds later still arrives.
+#   * sandbox — additive per top-level key, same rule: a user's own
+#     `network` or `filesystem` block wins, and a key the bundle adds later
+#     still arrives. The on/off switch (`sandbox.enabled`) is NOT in the
+#     bundle: it is policy, in managed-settings.json, where Claude Code
+#     enforces it over any value here — so a live `enabled: false` written by
+#     an older bundle is left alone and simply stops mattering.
 #   * hooks — the bundled SessionStart hook (session-provision-status.sh) is
 #     wired in when no hook in that event references it yet. A user's own
 #     hooks are never touched, a user's edits to the bundled entry (a
@@ -30,9 +34,10 @@
 #     the user has set — whatever it is — wins.
 #
 # Policy that must NOT be user-overridable (the deny list, the bypass-mode
-# lock) is not merged here at all: it ships in managed-settings.json, which
-# post-create.sh installs to /etc/claude-code/, where Claude Code applies it
-# above every user and project setting.
+# lock, the sandbox switch) is not merged here at all: it ships in
+# managed-settings.json, which the Dockerfile bakes into the image at
+# /etc/claude-code/, where Claude Code applies it above every user and project
+# setting.
 #
 # Three migration duties, kept until every container provisioned by an older
 # bundle has moved on:

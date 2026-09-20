@@ -160,7 +160,11 @@ jobs:
             # git-safety hook wiring or files.
             jq -e '.permissions.defaultMode == "auto"' "$HOME/.claude/settings.json"
             jq -e '.env.BASH_DEFAULT_TIMEOUT_MS == "600000"' "$HOME/.claude/settings.json"
-            jq -e '.sandbox.enabled == false and .sandbox.enableWeakerNestedSandbox == true' "$HOME/.claude/settings.json"
+            # The sandbox switch is policy (managed settings, below); the live
+            # file carries only the configuration.
+            jq -e '(.sandbox | has("enabled") | not) and .sandbox.enableWeakerNestedSandbox == true' "$HOME/.claude/settings.json"
+            jq -e '.sandbox.network.allowedDomains | index("github.com") != null' "$HOME/.claude/settings.json"
+            jq -e '.sandbox.filesystem.allowWrite | index("/tmp") != null' "$HOME/.claude/settings.json"
             jq -e '[.hooks.SessionStart[].hooks[].command] == ["$HOME/.claude/hooks/session-provision-status.sh"]' "$HOME/.claude/settings.json"
             jq -e 'has("skipDangerousModePermissionPrompt") | not' "$HOME/.claude/settings.json"
             jq -e '(tostring | test("guard-git|git-snapshot|session-git-safety")) | not' "$HOME/.claude/settings.json"
@@ -173,14 +177,34 @@ jobs:
             printf '2026-01-01T00:00:00Z FAILED: example-step\n' > /tmp/ledger
             DEVCONTAINER_PROVISION_STATUS=/tmp/ledger "$HOME/.claude/hooks/session-provision-status.sh" | grep -q 'example-step'
             # Policy lives in managed settings, above anything a user can set.
+            # Baked into the image by the Dockerfile, byte-identical to the bundle.
+            cmp .devcontainer/config/claude/managed-settings.json /etc/claude-code/managed-settings.json
             jq -e '.permissions.disableBypassPermissionsMode == "disable"' /etc/claude-code/managed-settings.json
             jq -e '.permissions.deny | index("Bash(git push --force*)") != null' /etc/claude-code/managed-settings.json
+            jq -e '.permissions.deny | index("Bash(git push * +*)") != null' /etc/claude-code/managed-settings.json
+            jq -e '.permissions.deny | index("Edit(.devcontainer/devcontainer.json)") != null' /etc/claude-code/managed-settings.json
+            jq -e '.sandbox.enabled == true' /etc/claude-code/managed-settings.json
+            # The policy file is root-owned and not writable by the container user.
+            test ! -w /etc/claude-code/managed-settings.json
+            # Provisioning ended by dropping sudo: the container user cannot
+            # become root any more, so the policy above is read-only in practice.
+            test "$DEVCONTAINER_KEEP_SUDO" = "0"
+            if sudo -n true 2>/dev/null; then echo "sudo is still available after provisioning"; exit 1; fi
+            test ! -e "/etc/sudoers.d/$(id -un)"
+            # The named volumes came up user-owned from the image's mount points,
+            # with no sudo chown needed.
+            for d in "$HOME/.claude" "$HOME/.config/gh" "$HOME/.cache/uv" "$HOME/.npm" /commandhistory; do
+              test -w "$d" || { echo "$d is not writable by $(id -un)"; exit 1; }
+            done
             # git works in the bind mount and in any worktree under it.
             git config --global --get-all safe.directory | grep -qxF '*'
             # The generated toggles must reach the container environment.
             test "$DEVCONTAINER_FRONTEND_DIR" = "ui"
-            # Idempotence smoke: a second --config-only run must succeed.
-            KOKKO_SKIP_PLUGINS=1 bash .devcontainer/post-create.sh --config-only
+            # Idempotence smoke: a second --config-only run must succeed — now
+            # without sudo, so every privileged step must degrade cleanly.
+            KOKKO_SKIP_PLUGINS=1 bash .devcontainer/post-create.sh --config-only 2>&1 | tee /tmp/post-start.log
+            grep -q 'sudo is already unavailable' /tmp/post-start.log
+            grep -q 'managed-settings.json is current' /tmp/post-start.log
 
   gitleaks:
     name: gitleaks (secret scan)

@@ -10,6 +10,7 @@
       "Bash(git push * --force*)",
       "Bash(git push * -f)",
       "Bash(git push * -f*)",
+      "Bash(git push * +*)",
       "Bash(git reflog expire*)",
       "Bash(git gc --prune*)",
       "Bash(git gc * --prune*)",
@@ -20,7 +21,12 @@
       "Bash(docker volume prune*)",
       "Bash(docker volume rm*)",
       "Bash(gh repo delete*)",
-      "Bash(gh api * DELETE*)"
+      "Bash(gh api * DELETE*)",
+      "Edit(.devcontainer/devcontainer.json)",
+      "Edit(.devcontainer/init-host-*.sh)"
     ]
+  },
+  "sandbox": {
+    "enabled": true
   }
 }

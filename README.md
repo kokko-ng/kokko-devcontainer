@@ -87,6 +87,7 @@ gave last time.
 | `include_docker_in_docker` | `no` | The `docker-in-docker` feature and the Docker VS Code extension. Off by default: the feature runs the container **privileged**, which hands an unattended agent the whole Colima VM |
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
+| `keep_container_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it as the last provisioning step, so nothing running in the container — the agent included — can become root, rewrite the Claude Code policy file, or install packages; a system package is then a `Dockerfile` line and a rebuild. When neither Playwright nor Docker-in-Docker needs sudo to provision, the container also runs with `--security-opt=no-new-privileges` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
 | `claude_attribution` | `no` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `no` hides both |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache and gh-login volumes across projects; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
@@ -184,24 +185,57 @@ git — the guard/snapshot hooks and the `snaps` CLI that earlier versions shipp
 retired, and `post-create.sh` removes their leftovers from containers that still carry
 them.
 
-Two things sit around auto mode:
+Four things sit around auto mode:
 
-- **A deny floor it cannot cross.** `managed-settings.json` is installed to
+- **A deny floor.** `managed-settings.json` is baked into the image at
   `/etc/claude-code/managed-settings.json`, the highest-precedence settings file, so
   nothing in `~/.claude` or a project can loosen it. It denies force-push in every
-  spelling, `git reflog expire` and `git gc --prune`, Azure `delete`/`purge`, Docker
-  volume pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
-  (`--dangerously-skip-permissions`; the old `skipDangerousModePermissionPrompt` is
-  gone, and the merge strips it from existing containers). Deny rules match the
-  command as Claude writes it, including inside `&&` chains and subshells, but not a
-  different program that does the same thing — a floor, not a security boundary.
-- **The Bash sandbox, ready but off.** `bubblewrap` and `socat` are in the image and
-  the bundled settings carry the container-specific sandbox configuration; `/sandbox`
-  turns it on. It ships off because its network allowlist has to match your
-  environment first.
+  spelling (`--force`, `-f`, and the `+refspec` form), `git reflog expire` and
+  `git gc --prune`, Azure `delete`/`purge`, Docker volume pruning, `gh repo delete` and
+  `gh api ... DELETE`, and edits to the host-executed files under `.devcontainer/` (see
+  below); and it disables bypass mode (`--dangerously-skip-permissions`; the old
+  `skipDangerousModePermissionPrompt` is gone, and the merge strips it from existing
+  containers). Deny rules match the command as Claude writes it, including inside `&&`
+  chains and subshells, but not a different program that does the same thing — a floor,
+  not a boundary. The boundary is the next two items.
+- **The Bash sandbox, on.** The switch (`sandbox.enabled`) is in the managed policy
+  file, where Claude Code enforces it over every user setting, so `/sandbox off` does
+  not hold. The configuration is in the bundled `settings.json`, merged and
+  user-overridable: `bubblewrap` and `socat` are in the image; writes are confined to
+  the workspace, `/tmp` and the tool caches; outbound network to an allowlist — git,
+  npm and PyPI, plus the Azure and Playwright endpoints when those tools were chosen.
+  Add your own endpoints (a proxy, the API you develop against) to
+  `sandbox.network.allowedDomains`. A blocked host or path shows up in the command's
+  output as a sandbox denial, not as a silent failure — add the endpoint rather than
+  guess.
+- **No sudo after provisioning.** Devcontainer images give the container user
+  passwordless sudo, and provisioning uses it. `post-create.sh` removes it as its last
+  step (`keep_container_sudo`, default `no`), so an agent cannot become root, rewrite
+  the policy file or install packages; a system change is a `Dockerfile` line and a
+  rebuild. When neither Playwright nor Docker-in-Docker needs sudo to provision, the
+  container also runs with `--security-opt=no-new-privileges`.
+- **The workspace is the container definition.** The one host directory that is
+  always mounted is the project itself, and it holds `devcontainer.json` (mounts,
+  `runArgs`, a possible `--privileged`) and the `init-host-*.sh` scripts that
+  `initializeCommand` runs *on the host*, as you, before every build. The deny list
+  keeps Claude Code's Edit tool away from those files, but a shell redirect is not an
+  Edit: review every diff under `.devcontainer/` before you rebuild, and protect the
+  directory with a CODEOWNERS rule or branch protection where the repository lives.
+  The same goes for `.git/hooks` and `.pre-commit-config.yaml` if you run git on the
+  host.
+
+What this contains, and what it does not: an agent that makes mistakes is contained —
+its writes stay in the workspace and the caches, its network stays on the allowlist,
+its git history is recoverable, and it cannot become root. An agent that intends harm
+still holds everything the workspace and the in-container logins (`claude`, `gh`,
+optionally `az`) can reach, so sign those in with the narrowest identity that does the
+job: a fine-grained GitHub token limited to the project's repositories, not your
+broadest personal token. Auto mode's classifier decides which commands run; the layers
+above limit what a wrong decision can cost.
 
 Docker-in-Docker is opt-in for the same reason: the feature runs the container
-privileged, which hands an unattended agent the whole Colima VM.
+privileged, which hands an unattended agent the whole Colima VM — and Colima mounts
+your home directory into that VM by default.
 
 Git recoverability rests on git itself: `gc.reflogExpire`, `gc.reflogExpireUnreachable`
 and `gc.pruneExpire` are set to `never`, so committed work is always recoverable from

@@ -12,7 +12,7 @@ Container name: `{{ cookiecutter.__container_name }}`.
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary, pinned and baked into the image; auto-update off) |
 | pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox (shipped switched off — see [Permission model](#permission-model)) |
+| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox (on — see [Permission model](#permission-model)) |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 {%- if cookiecutter.include_azure_cli == "yes" %}
 | Azure CLI | Azure resource management |
@@ -78,11 +78,13 @@ upstream [INSTRUCTIONS.md](https://github.com/kokko-ng/kokko-devcontainer/blob/m
 | `{% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %}` | Playwright browsers | Follows `cache_volume_scope` |
 {%- endif %}
 
-So you sign in to `claude` and `gh` once per project, not once per rebuild. Nothing is
-bind-mounted from the host: host credential directories (`~/.ssh`, `~/.azure`, the
-host's own `~/.claude`) stay outside, because everything reachable inside the container
-is reachable by an agent running without prompts. Sign in from inside the container
-instead, with the narrowest identity that does the job.
+So you sign in to `claude` and `gh` once per project, not once per rebuild. Nothing but
+the workspace itself is bind-mounted from the host: host credential directories
+(`~/.ssh`, `~/.azure`, the host's own `~/.claude`) stay outside, because everything
+reachable inside the container is reachable by an agent running without prompts. Sign
+in from inside the container instead, with the narrowest identity that does the job:
+for `gh`, a fine-grained token limited to this project's repositories (see
+[Permission model](#permission-model)).
 {%- if cookiecutter.include_azure_cli == "yes" %}
 A commented-out named volume for an in-container `az login` is in `devcontainer.json`;
 use a least-privilege identity for it, since every agent session then carries it.
@@ -123,8 +125,11 @@ bundled config can be re-applied with no rebuild at all.
 | Azure CLI, Docker-in-Docker | `features` in `devcontainer.json`, then rebuild |
 | ODBC driver | the apt layer in `Dockerfile`, then rebuild |
 | Claude Code version | the `install.sh \| bash -s <version>` line in `Dockerfile`, then rebuild (`cu` installs the latest release until then) |
+| System packages (apt) | the apt layer in `Dockerfile`, then rebuild — the container has no sudo after provisioning |
 | Claude settings, plugin roster, `CLAUDE.md`, the SessionStart hook, zsh config | edit under `.devcontainer/config/`, then `bash .devcontainer/post-create.sh --config-only` |
-| Permission policy (deny list, bypass lock) | `.devcontainer/config/claude/managed-settings.json`, then `bash .devcontainer/post-create.sh --config-only` |
+| Sandbox allowlist and writable paths | `sandbox` in `.devcontainer/config/claude/settings.json`, then `--config-only` (or your own `~/.claude/settings.json`) |
+| Permission policy (deny list, bypass lock, sandbox on/off) | `.devcontainer/config/claude/managed-settings.json`, then rebuild — it is baked into the image, and the container has no sudo to replace it in place |
+| Keep sudo in the container | `DEVCONTAINER_KEEP_SUDO` in `containerEnv`, then rebuild |
 
 Rebuild: `devcontainer up --workspace-folder . --remove-existing-container`.
 
@@ -158,26 +163,59 @@ disable locally stays disabled. Its network calls run at most once per 24 hours
 ## Permission model
 
 Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"`): the
-built-in classifier decides which tool calls run without a prompt. Two things sit
+built-in classifier decides which tool calls run without a prompt. Four things sit
 around it.
 
-**A deny floor that auto mode cannot cross.** `.devcontainer/config/claude/managed-settings.json`
-is installed to `/etc/claude-code/managed-settings.json`, where Claude Code applies it
-above every user and project setting. It denies force-push in every spelling,
-`git reflog expire` and `git gc --prune`, Azure `delete` and `purge`, Docker volume
-pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
-(`--dangerously-skip-permissions`). A Bash deny rule matches the command as Claude
-writes it — including inside `&&` chains, pipes and subshells — but not a different
-program that does the same thing, so it is a floor, not a security boundary. Edit the
-file and run `--config-only` to change it.
+**A deny floor.** `.devcontainer/config/claude/managed-settings.json` is baked into
+the image at `/etc/claude-code/managed-settings.json`, where Claude Code applies it
+above every user and project setting. It denies force-push in every spelling
+(`--force`, `-f`, `+refspec`), `git reflog expire` and `git gc --prune`, Azure `delete`
+and `purge`, Docker volume pruning, `gh repo delete` and `gh api ... DELETE`, and edits
+to `devcontainer.json` and the `init-host-*.sh` scripts (see below); and it disables
+bypass mode (`--dangerously-skip-permissions`). A Bash deny rule matches the command as
+Claude writes it — including inside `&&` chains, pipes and subshells — but not a
+different program that does the same thing, so it is a floor, not a security boundary.
+The boundary is the next two items. Changing the policy is a rebuild: the container
+has no sudo to replace the file in place, which is the point.
 
-**The Bash sandbox, ready but off.** `bubblewrap` and `socat` are installed, and the
-bundled settings carry the container-specific configuration (`enableWeakerNestedSandbox`,
-`docker *` excluded, a starter domain allowlist for git, npm and PyPI). Run `/sandbox`
-in Claude Code, or set `sandbox.enabled` to `true` in `~/.claude/settings.json`, to
-confine Bash commands to the workspace and the allowlisted domains at the OS level. It
-ships off because a network allowlist has to match your environment: add your Azure
-endpoints and any proxy to `sandbox.network.allowedDomains` before relying on it.
+**The Bash sandbox, on.** The switch (`sandbox.enabled`) is in the policy file, where
+Claude Code enforces it over every user setting, so `/sandbox off` does not hold. The
+configuration is in the bundled `settings.json` and is yours to widen:
+`enableWeakerNestedSandbox` (the container has no user namespaces), `docker *` excluded,
+writes allowed in the workspace, `/tmp` and the tool caches, and a network allowlist —
+git, npm and PyPI{% if cookiecutter.include_azure_cli == "yes" %}, the Azure endpoints{% endif %}{% if cookiecutter.include_playwright == "yes" %}, the Playwright download CDN{% endif %}.
+Add your proxy and the APIs the project develops against to
+`sandbox.network.allowedDomains`, in the bundle or in `~/.claude/settings.json`. A
+blocked host or path shows up in the command's output as a sandbox denial, not as a
+silent failure — add the endpoint rather than guess.
+
+**No sudo after provisioning.** `post-create.sh` removes the container user's
+passwordless sudo as its last step (`keep_container_sudo` was
+**{{ cookiecutter.keep_container_sudo }}**{% if cookiecutter.keep_container_sudo == "yes" %} — so this container KEEPS sudo, and an agent in it can become root{% endif %}).
+Without it an agent cannot become root, rewrite the policy file, or install packages;
+a system package is a `Dockerfile` line and a rebuild.
+{%- if cookiecutter.keep_container_sudo == "no" and cookiecutter.include_playwright == "no" and cookiecutter.include_docker_in_docker == "no" %}
+Nothing at run time needs sudo either, so the container runs with
+`--security-opt=no-new-privileges`: setuid binaries are inert from the first process.
+{%- endif %}
+
+**The workspace is the container definition.** The project directory is the one bind
+mount, and it holds `devcontainer.json` (mounts, `runArgs`, a possible `--privileged`)
+and the `init-host-*.sh` scripts that `initializeCommand` runs *on the host*, as you,
+before every build. The deny list keeps Claude Code's Edit tool away from those files,
+but a shell redirect is not an Edit, so the control is yours: review every diff under
+`.devcontainer/` before you rebuild, never rebuild from a branch you have not read, and
+put the directory under a CODEOWNERS rule or branch protection where this repository
+lives. `.git/hooks` and `.pre-commit-config.yaml` deserve the same look if you run git
+on the host.
+
+What this contains, and what it does not: an agent that makes mistakes is contained —
+its writes stay in the workspace and the caches, its network stays on the allowlist,
+its git history is recoverable, and it cannot become root. An agent that intends harm
+still holds everything the workspace and the in-container logins can reach. `gh auth
+token` prints the GitHub token and nothing stops `curl` against the API with it, so
+sign `gh` in with a fine-grained token limited to this project's repositories
+(`gh auth login --with-token`), with an expiry, not your broadest personal token{% if cookiecutter.include_azure_cli == "yes" %}; the same for `az login`{% endif %}.
 
 Git recoverability rests on git itself — `gc.reflogExpire`,
 `gc.reflogExpireUnreachable` and `gc.pruneExpire` are `never`, so committed work is

@@ -60,6 +60,10 @@ PROVISION_STATUS="$HOME/.devcontainer-provision-status"
 # the file stay shellcheck-clean and testable without a rendering step.
 INSTALL_COPILOT_CLI="${DEVCONTAINER_INSTALL_COPILOT_CLI:-1}"
 INSTALL_PLAYWRIGHT="${DEVCONTAINER_INSTALL_PLAYWRIGHT:-1}"
+# "1" keeps the container user's passwordless sudo; anything else removes it as
+# the LAST provisioning step (see drop_sudo). A bare run defaults to keeping it:
+# outside a devcontainer there is no policy file baked into an image to protect.
+KEEP_SUDO="${DEVCONTAINER_KEEP_SUDO:-1}"
 FRONTEND_DIR="${DEVCONTAINER_FRONTEND_DIR:-ui}"
 # Blank on a bare run: no answers were given, so touch nothing.
 GIT_USER_NAME="${DEVCONTAINER_GIT_USER_NAME:-}"
@@ -105,8 +109,12 @@ provision_summary() {
 # =====================
 # Named-volume mount points
 # =====================
-# Docker creates named-volume mount points root-owned on first use; make the
-# cache, history, Claude Code and gh volumes writable by the container user.
+# The Dockerfile creates every mount point owned by the container user, and a
+# fresh named volume inherits that ownership, so this is normally a no-op. It
+# still runs for images built before that layer existed, and for a mount
+# added to devcontainer.json without a matching Dockerfile line: those come up
+# root-owned, and only sudo can fix them — which is why it runs before
+# drop_sudo, and why a missing sudo is a warning rather than a failure.
 fix_volume_ownership() {
     local d
     # Parents before children: Docker creates a missing mount-point path
@@ -115,7 +123,7 @@ fix_volume_ownership() {
     for d in "$HOME/.cache" "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory \
              "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.azure"; do
         [[ -d "$d" && ! -w "$d" ]] || continue
-        sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
+        sudo -n chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
     done
 }
@@ -294,13 +302,18 @@ install_claude_hooks() {
 # Claude Code reads /etc/claude-code/managed-settings.json at the highest
 # precedence — above ~/.claude/settings.json and any project .claude/. That is
 # where the bundle puts POLICY: the deny list that holds under Auto mode (no
-# force-push, no Azure delete, no volume prune, ...) and the switch that
-# disables bypass mode. The DEFAULTS in settings.json go through the merge and
-# can be overridden by the user; this file cannot, which is the point. Nothing
-# merges here: the file is replaced whole, so editing the bundled copy and
-# re-running --config-only is how policy changes. Needs root: devcontainer
-# images give the container user passwordless sudo, and a container without
-# it gets a loud warning rather than a failed build.
+# force-push, no Azure delete, no volume prune, no edits to the host-executed
+# files under .devcontainer/), the switch that disables bypass mode, and the
+# Bash-sandbox switch. The DEFAULTS in settings.json go through the merge and
+# can be overridden by the user; this file cannot, which is the point.
+#
+# The Dockerfile bakes the bundled copy into the image, so in a container
+# built from the current Dockerfile this function finds the file already
+# current and does nothing. The sudo path below is for images built before
+# that layer existed: it needs root, and once drop_sudo has run (the default)
+# there is no root to be had — a policy change is then a rebuild, which is
+# exactly the property wanted: nothing running inside the container, agent
+# included, can change the policy the container runs under.
 MANAGED_SETTINGS_DST="/etc/claude-code/managed-settings.json"
 install_managed_settings() {
     local src="$BUNDLED_CLAUDE_DIR/managed-settings.json"
@@ -314,14 +327,74 @@ install_managed_settings() {
         echo "  $MANAGED_SETTINGS_DST is current"
         return 0
     fi
-    if sudo mkdir -p "$(dirname "$MANAGED_SETTINGS_DST")" 2>/dev/null \
-        && sudo cp "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null \
-        && sudo chmod 0644 "$MANAGED_SETTINGS_DST" 2>/dev/null; then
+    if sudo -n mkdir -p "$(dirname "$MANAGED_SETTINGS_DST")" 2>/dev/null \
+        && sudo -n cp "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null \
+        && sudo -n chmod 0644 "$MANAGED_SETTINGS_DST" 2>/dev/null; then
         echo "  Installed $MANAGED_SETTINGS_DST"
+    elif [[ -f "$MANAGED_SETTINGS_DST" ]]; then
+        echo "  WARNING: the bundled policy differs from the copy baked into this image,"
+        echo "           and there is no sudo to replace it in place (by design). The"
+        echo "           container is still running under the OLD policy. Rebuild:"
+        echo "           devcontainer up --workspace-folder . --remove-existing-container"
     else
-        echo "  WARNING: could not write $MANAGED_SETTINGS_DST (no sudo?). The deny list and"
-        echo "           the bypass-mode lock are NOT in force. Install it by hand as root:"
+        echo "  WARNING: $MANAGED_SETTINGS_DST is missing and there is no sudo to write it."
+        echo "           The deny list, the bypass-mode lock and the sandbox switch are NOT"
+        echo "           in force. This image predates the Dockerfile layer that bakes the"
+        echo "           policy in — rebuild the container, or install it by hand as root:"
         echo "           cp '$src' '$MANAGED_SETTINGS_DST'"
+    fi
+}
+
+# =====================
+# Drop sudo
+# =====================
+# The devcontainer base image and the common-utils feature give the container
+# user passwordless sudo, and provisioning uses it (volume chown, Playwright's
+# system libraries, the policy install on old images). Once provisioning is
+# done, that same sudo is the one thing that would let an agent running without
+# prompts rewrite /etc/claude-code/managed-settings.json, install packages, or
+# reach outside its own account — so it goes, as the last step. Removing the
+# sudoers entry is what does it; the group membership is dropped too so the
+# password-protected %sudo rule is not left as a second path (the user has no
+# password, so it is inert, but a locked door beats an unlocked empty one).
+#
+# Idempotent and quiet once nothing is left. In a container started with
+# --security-opt=no-new-privileges (see devcontainer.json) sudo never worked at
+# all; the sudoers file is then removed for tidiness only if it can be, and
+# its presence is harmless. This must stay the LAST provisioning step in both
+# modes: anything after it that needs root has lost it.
+drop_sudo() {
+    local me sudoers_file
+    if [[ "$KEEP_SUDO" == "1" ]]; then
+        echo "=== Keeping sudo (DEVCONTAINER_KEEP_SUDO=1) ==="
+        return 0
+    fi
+    me="$(id -un)"
+    sudoers_file="/etc/sudoers.d/$me"
+    if ! sudo -n true 2>/dev/null; then
+        echo "=== sudo is already unavailable to $me — nothing to drop ==="
+        return 0
+    fi
+    echo "=== Dropping sudo for $me (policy is now read-only inside the container) ==="
+    # The group removal is best-effort; the sudoers file is the entry that
+    # NOPASSWD sudo actually goes through.
+    if id -nG "$me" | tr ' ' '\n' | grep -qx sudo; then
+        sudo -n gpasswd -d "$me" sudo >/dev/null 2>&1 || true
+    fi
+    if [[ -e "$sudoers_file" ]]; then
+        # rm via sudo is the last privileged command this script runs.
+        if ! sudo -n rm -f "$sudoers_file"; then
+            echo "  WARNING: could not remove $sudoers_file — sudo is STILL available."
+            return 0
+        fi
+    fi
+    # Verify from the outside: a fresh sudo must now be refused. (Group changes
+    # apply to new processes, which is what an agent's Bash tool spawns.)
+    if sudo -n -k true 2>/dev/null; then
+        echo "  WARNING: sudo still works after removing $sudoers_file — another sudoers"
+        echo "           rule grants it. Inspect /etc/sudoers and /etc/sudoers.d/."
+    else
+        echo "  sudo removed. Root-only changes (apt-get, /etc/claude-code) now need a rebuild."
     fi
 }
 
@@ -347,7 +420,7 @@ retire_git_safety_layer() {
     done
     for f in /usr/local/bin/snaps "$HOME/.local/bin/snaps"; do
         [[ -e "$f" ]] || continue
-        if sudo rm -f "$f" 2>/dev/null || rm -f "$f" 2>/dev/null; then
+        if sudo -n rm -f "$f" 2>/dev/null || rm -f "$f" 2>/dev/null; then
             removed=1
         else
             echo "  WARNING: could not remove retired helper $f"
@@ -772,9 +845,10 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Restart Claude Code (or run /reload-plugins) to pick up plugin changes;"
     echo "  hooks and managed settings (policy) are read when a session starts."
     echo "  Open a new shell to pick up zsh changes."
-    echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
-    echo "  changes still need a container rebuild."
+    echo "  Dockerfile, devcontainer.json features/containerEnv, runArgs, and the"
+    echo "  policy file (managed-settings.json) changes still need a container rebuild."
     echo ""
+    drop_sudo
     exit 0
 fi
 
@@ -793,6 +867,8 @@ install_playwright_browsers
 install_frontend_deps
 install_precommit_hooks
 create_env_file
+# Last provisioning step, on purpose: everything above that needs root has run.
+drop_sudo
 
 # =====================
 # Done

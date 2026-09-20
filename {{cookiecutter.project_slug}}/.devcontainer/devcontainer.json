@@ -75,6 +75,15 @@
     // gave the template; flip one and rebuild to change what gets installed.
     "DEVCONTAINER_INSTALL_COPILOT_CLI": "{% if cookiecutter.include_copilot_cli == "yes" %}1{% else %}0{% endif %}",
     "DEVCONTAINER_INSTALL_PLAYWRIGHT": "{% if cookiecutter.include_playwright == "yes" %}1{% else %}0{% endif %}",
+    // Whether the container user keeps passwordless sudo after provisioning.
+    // "0" (the default answer): post-create.sh removes the sudoers entry as
+    // its last step, so an agent running without prompts cannot become root —
+    // cannot rewrite the policy file in /etc/claude-code, cannot install
+    // system packages, cannot reach outside the user account. Everything
+    // provisioning needs root for (Playwright's system libraries, the volume
+    // chown) runs before the drop. The cost: `sudo apt-get install` inside the
+    // container stops working; put the package in the Dockerfile and rebuild.
+    "DEVCONTAINER_KEEP_SUDO": "{% if cookiecutter.keep_container_sudo == "yes" %}1{% else %}0{% endif %}",
 {%- if cookiecutter.include_playwright == "yes" %}
     // Playwright browsers live in a named volume (see "mounts") so a rebuild
     // does not re-download ~400MB of Chromium; post-create skips
@@ -113,6 +122,18 @@
     // Same value again: no swap for the container, so memory pressure surfaces
     // as a kill of the culprit rather than as the VM thrashing.
     "--memory-swap={{ cookiecutter.container_memory_limit }}"
+{%- if cookiecutter.keep_container_sudo == "no" and cookiecutter.include_playwright == "no" and cookiecutter.include_docker_in_docker == "no" %},
+    // No process in this container can gain privileges it did not start with:
+    // setuid binaries (sudo, su) and file capabilities are inert. Set only when
+    // nothing at run time needs root — the policy file and the volume mount
+    // points are baked into the image, so provisioning itself needs no sudo.
+    // Left out when Playwright is on (its `--with-deps` browser install uses
+    // sudo apt-get during provisioning) or when Docker-in-Docker is on (the
+    // nested daemon runs as root and the flag is inherited by every container
+    // it starts). In those cases post-create.sh still removes the sudoers
+    // entry after provisioning, which is the part that matters.
+    "--security-opt=no-new-privileges"
+{%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %},
     // Chromium renderers share memory via /dev/shm; Docker's 64MB default
     // makes headless pages crash with cryptic tab errors.
@@ -163,6 +184,15 @@
   // reachable by an agent running without prompts, and the Claude Code docs
   // say to prefer repository-scoped or short-lived tokens. Sign in from INSIDE
   // the container instead, with the narrowest identity that does the job.
+  //
+  // The ONE host directory that is always mounted is this workspace — and it
+  // contains this file. An agent that can write here can add a mount, a
+  // `--privileged` flag or a new `initializeCommand` (which runs ON THE HOST,
+  // as you, before every build) and have it take effect the next time you
+  // rebuild. The managed deny list keeps Claude Code's Edit tool away from
+  // devcontainer.json and the init-host-*.sh scripts, but that is a floor, not
+  // a boundary: review every diff under .devcontainer/ before you rebuild, and
+  // never rebuild a container from a branch you have not read.
 {%- if cookiecutter.include_azure_cli == "yes" %}
   //
   //   // Keep an in-container `az login` across rebuilds (a named volume, not
