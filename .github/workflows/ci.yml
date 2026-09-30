@@ -229,7 +229,8 @@ jobs:
       - name: Install QEMU, Lima and Colima
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+          # ovmf: the UEFI firmware Lima boots x86_64 guests with.
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf
           curl -fsSL "https://github.com/lima-vm/lima/releases/download/v${LIMA_VERSION}/lima-${LIMA_VERSION}-Linux-x86_64.tar.gz" \
             | sudo tar -xz -C /usr/local
           curl -fsSLo colima "https://github.com/abiosoft/colima/releases/download/${COLIMA_VERSION}/colima-Linux-x86_64"
@@ -240,6 +241,12 @@ jobs:
           # Every later docker call must reach Colima's daemon, not the
           # runner's. Set only now: the context does not exist before start.
           echo "DOCKER_CONTEXT=colima" >> "$GITHUB_ENV"
+      - name: Show Lima's logs if Colima failed to start
+        if: failure()
+        run: |
+          for f in "$HOME"/.config/colima/_lima/colima/*.log; do
+            echo "::group::$f"; tail -n 60 "$f"; echo "::endgroup::"
+          done
       - name: Report the VM's security settings
         run: |
           colima ssh -- cat /etc/os-release
