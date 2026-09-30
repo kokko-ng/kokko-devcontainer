@@ -230,11 +230,18 @@ install_sandbox_runtime() {
 # not start: /sandbox would enable it and every Bash command would then fail.
 # This runs bubblewrap the way Claude Code does with enableWeakerNestedSandbox
 # and records a failure in the ledger, where the SessionStart hook shows it.
-# The usual cause is the container's security options (the seccomp profile or
-# AppArmor), which only a rebuild changes — so no retry, and no `step`.
+# The causes are the container's security options (the seccomp profile and
+# AppArmor in runArgs, which only a rebuild changes) or a VM that restricts
+# user namespaces (fixed on the host) — so no retry, and no `step`. It runs on
+# every start (--config-only too) and replaces its own ledger line, so the
+# failure clears by itself once the cause is fixed.
+COLIMA_USERNS_FIX="colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'"
 check_bash_sandbox() {
     echo "=== Checking the Bash sandbox (bubblewrap) ==="
     local err
+    if [[ -f "$PROVISION_STATUS" ]]; then
+        sed -i '/ FAILED: bash-sandbox /d' "$PROVISION_STATUS"
+    fi
     if ! command -v bwrap >/dev/null 2>&1; then
         err="bwrap not installed"
     elif err="$(bwrap --new-session --die-with-parent --ro-bind / / --dev /dev \
@@ -243,9 +250,18 @@ check_bash_sandbox() {
         return 0
     fi
     err="$(printf '%s\n' "$err" | head -n 1)"
+    # Kernel sysctls are readable from inside the container. Ubuntu 24.04 VMs
+    # (Colima's default image among them) set this to 1, which leaves
+    # bubblewrap's namespaces without capabilities ("loopback: Failed
+    # RTM_NEWADDR: Operation not permitted"). Only the VM can change it.
+    local fix="rebuild needed"
+    if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" == "1" ]]; then
+        fix="the VM restricts user namespaces; on the host run: $COLIMA_USERNS_FIX"
+    fi
     echo "  WARNING: the Bash sandbox cannot start: $err"
+    echo "  Fix: $fix"
     echo "  See DEVCONTAINER.md -> Permission model."
-    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: bash-sandbox ($err) — rebuild needed, see DEVCONTAINER.md -> Permission model" >> "$PROVISION_STATUS"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: bash-sandbox ($err) — $fix; see DEVCONTAINER.md -> Permission model" >> "$PROVISION_STATUS"
     return 0
 }
 
@@ -806,6 +822,7 @@ if [[ "$MODE" == "config" ]]; then
     echo "=== Refreshing bundled config (no rebuild) ==="
     fix_volume_ownership
     apply_bundled_config
+    check_bash_sandbox
     echo ""
     echo "=== Config refreshed ==="
     echo ""

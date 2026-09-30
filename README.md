@@ -20,6 +20,9 @@ brew install --cask ghostty
 # sshfs is ~940x slower on small-file writes. See MANAGING.md.
 # --memory should be at most half your host RAM (use 8 on a 16GB Mac).
 colima start --cpu 8 --memory 16 --disk 150 --mount-type virtiofs
+# Once per VM, so Claude Code's Bash sandbox (/sandbox) can start in the
+# container. See DEVCONTAINER.md -> Permission model.
+colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
 
 # 3. Generate a project
 cookiecutter gh:kokko-ng/kokko-devcontainer
@@ -201,8 +204,10 @@ Two things sit around auto mode:
   because its network allowlist has to match your environment first. Docker's default
   seccomp and AppArmor profiles stop bubblewrap from building its namespaces, so
   `runArgs` load `seccomp-sandbox.json` (Docker's default profile plus one rule for
-  the five syscalls bubblewrap needs) and set `apparmor=unconfined`; a full provision
-  probes bubblewrap and reports a failure in the provisioning ledger.
+  the five syscalls bubblewrap needs) and set `apparmor=unconfined`. Colima's Ubuntu
+  24.04 VM additionally needs `kernel.apparmor_restrict_unprivileged_userns=0`, set
+  once on the host (the Quickstart command). Every container start probes bubblewrap
+  and reports a failure, with the fix, in the provisioning ledger.
 
 Docker-in-Docker is opt-in for the same reason: the feature runs the container
 privileged, which hands an unattended agent the whole Colima VM.

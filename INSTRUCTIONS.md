@@ -127,6 +127,16 @@ The flag applies **only when the VM is created**. If you already have a Colima V
 
 Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 150` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
 
+### Let the Bash sandbox start
+
+Colima's VM is Ubuntu 24.04, which sets `kernel.apparmor_restrict_unprivileged_userns=1`. That leaves bubblewrap — the engine of Claude Code's Bash sandbox, `/sandbox` — without capabilities inside its namespaces, whatever the container's own options. Turn it off once per VM; the file persists across `colima stop`/`start`, and needs repeating after `colima delete`:
+
+```bash
+colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+```
+
+Other containers on the VM are unaffected: Docker's default seccomp and AppArmor profiles refuse user namespaces by themselves. Only a container that opts in — this template's `runArgs` do — can create them. See [Permission model](README.md#permission-model).
+
 ### Auto-start at login
 
 ```bash

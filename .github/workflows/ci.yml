@@ -269,6 +269,28 @@ jobs:
         run: |
           docker run --rm -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
             sandbox-probe bash /probe.sh blocked
+      # Colima's Ubuntu 24.04 image ships kernel.apparmor_restrict_unprivileged_userns=1,
+      # which leaves bubblewrap's namespaces without capabilities whatever the
+      # container's options. Report what the VM as shipped does, pass or fail.
+      - name: "Report: the template's runArgs on the VM as shipped"
+        run: |
+          if docker run --rm \
+              --security-opt "seccomp=$PWD/{{cookiecutter.project_slug}}/.devcontainer/seccomp-sandbox.json" \
+              --security-opt apparmor=unconfined \
+              -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
+              sandbox-probe bash /probe.sh works; then
+            echo "::notice::The sandbox works on this Colima VM without the userns sysctl"
+          else
+            echo "::notice::The sandbox needs the VM's userns sysctl on this Colima VM"
+          fi
+      # The one-time host fix DEVCONTAINER.md documents and post-create.sh
+      # prints, VERBATIM, then a VM restart to prove it persists.
+      - name: Apply the documented VM fix and restart Colima
+        run: |
+          colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+          colima stop
+          colima start
+          test "$(colima ssh -- sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
       - name: The template's runArgs let the sandbox work
         run: |
           # The same two options the generated devcontainer.json passes.
@@ -277,27 +299,18 @@ jobs:
             --security-opt apparmor=unconfined \
             -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
             sandbox-probe bash /probe.sh works
-      # Informational: which of the two options this VM actually needs.
+      # The VM fix must not open user namespaces to containers in general:
+      # everything else on the VM still runs under Docker's defaults.
+      - name: Docker defaults still refuse the sandbox after the VM fix
+        run: |
+          docker run --rm -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
+            sandbox-probe bash /probe.sh blocked
+      # Informational: whether this VM needs apparmor=unconfined at all.
       - name: "Diagnostic: seccomp profile alone"
         continue-on-error: true
         run: |
           docker run --rm \
             --security-opt "seccomp=$PWD/{{cookiecutter.project_slug}}/.devcontainer/seccomp-sandbox.json" \
-            -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
-            sandbox-probe bash /probe.sh works
-      # Informational: Ubuntu 24.04's AppArmor userns restriction, in case a
-      # Colima image (or another VM) turns it on. Skipped when the kernel
-      # does not have the knob.
-      - name: "Diagnostic: with AppArmor's userns restriction on"
-        continue-on-error: true
-        run: |
-          if ! colima ssh -- sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1; then
-            echo "kernel has no apparmor_restrict_unprivileged_userns — nothing to test"
-            exit 0
-          fi
-          docker run --rm \
-            --security-opt "seccomp=$PWD/{{cookiecutter.project_slug}}/.devcontainer/seccomp-sandbox.json" \
-            --security-opt apparmor=unconfined \
             -v "$PWD/tests/sandbox-probe.sh:/probe.sh:ro" \
             sandbox-probe bash /probe.sh works
 

@@ -89,8 +89,12 @@ What sits around auto mode, and where each piece lives:
   `apparmor=unconfined`. Without them bubblewrap cannot create namespaces and every
   sandboxed command fails. Never widen this to `seccomp=unconfined`, and never add
   a second rule to the profile; `template-tests.sh` pins both. `check_bash_sandbox`
-  in post-create.sh probes it, CI runs bubblewrap inside the built container, and
-  the `sandbox-colima` job runs the full sandbox on a Colima VM.
+  in post-create.sh probes it on every start, CI runs bubblewrap inside the built
+  container, and the `sandbox-colima` job runs the full sandbox on a Colima VM.
+  Colima's Ubuntu 24.04 VM also needs `kernel.apparmor_restrict_unprivileged_userns=0`
+  (a host-side, once-per-VM command; `COLIMA_USERNS_FIX` in post-create.sh). That
+  command is duplicated verbatim in the docs and the CI job; `template-tests.sh`
+  keeps the copies identical.
 
 ## Shellcheck
 

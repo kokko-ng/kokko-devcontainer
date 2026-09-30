@@ -195,9 +195,28 @@ refuse, so two `runArgs` in `devcontainer.json` make room for it:
 The cost is that code in the container may create user namespaces, which widens the
 kernel surface an escape would aim at; the gain is that sandboxed commands cannot
 write outside the workspace or reach hosts off the allowlist. Remove both lines and
-rebuild if you will never turn the sandbox on. A full provision probes bubblewrap
-the way Claude Code runs it; if it cannot start, the failure lands in the provisioning
-ledger and the first Claude session is told. Recheck by hand with
+rebuild if you will never turn the sandbox on.
+
+**One setting on the Colima VM.** Colima's VM runs Ubuntu 24.04, which sets
+`kernel.apparmor_restrict_unprivileged_userns=1`: a user namespace created outside an
+AppArmor profile gets no capabilities, so bubblewrap fails with
+`loopback: Failed RTM_NEWADDR: Operation not permitted` whatever the container's
+options. Nothing inside the container can change a kernel setting, so run this once
+on the Mac; it persists across `colima stop`/`start` (not across `colima delete`):
+
+```bash
+colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+```
+
+It restores Ubuntu's pre-24.04 behaviour for the VM. Every other container on it still
+runs under Docker's default seccomp and AppArmor profiles, which refuse user
+namespaces on their own — CI checks exactly that, on a real Colima VM, before and
+after this change.
+
+Every container start probes bubblewrap the way Claude Code runs it. If it cannot
+start, the failure — with this command when the VM setting is the cause — lands in
+the provisioning ledger and the next Claude session is told; it clears on the next
+start once the cause is fixed. Recheck by hand with
 `bwrap --ro-bind / / --dev /dev --unshare-user --unshare-net true`.
 
 Git recoverability rests on git itself — `gc.reflogExpire`,

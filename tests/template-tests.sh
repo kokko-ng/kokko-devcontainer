@@ -203,6 +203,16 @@ assert "post-create installs the sandbox seccomp filter, pinned" \
     grep -qE 'npm install -g @anthropic-ai/sandbox-runtime@[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/post-create.sh"
 assert "post-create probes bubblewrap on a full provision" \
     grep -qx 'check_bash_sandbox' "$DEFAULT/.devcontainer/post-create.sh"
+assert "post-create re-probes bubblewrap on every start (--config-only)" \
+    grep -qx '    check_bash_sandbox' "$DEFAULT/.devcontainer/post-create.sh"
+# The host-side Colima fix post-create prints must be the one the docs give
+# and the one CI proves on a real VM, character for character.
+colima_fix="$(sed -n 's/^COLIMA_USERNS_FIX="\(.*\)"$/\1/p' "$TEMPLATE_PAYLOAD/.devcontainer/post-create.sh")"
+assert "post-create defines the Colima userns fix" test -n "$colima_fix"
+for doc in "$ROOT/README.md" "$ROOT/INSTRUCTIONS.md" "$DEFAULT/DEVCONTAINER.md" "$ROOT/.github/workflows/ci.yml"; do
+    assert "${doc#"$ROOT"/} carries post-create's Colima userns fix verbatim" \
+        grep -qF -- "$colima_fix" "$doc"
+done
 assert_jq "postStart output is captured like postCreate output" "$DC" \
     '.postStartCommand | test("tee /tmp/post-start.log")'
 assert "azure volume hint is offered with the azure cli" \
