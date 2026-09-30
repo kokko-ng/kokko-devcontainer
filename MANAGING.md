@@ -464,6 +464,8 @@ manual check (quarterly is a reasonable cadence):
 | Claude Code `install.sh \| bash -s <version>` | `.devcontainer/Dockerfile` | `npm view @anthropic-ai/claude-code version` (the native binary tracks the npm release numbers). Auto-update is off in the container, so this pin is what every session runs — audit it more often than quarterly |
 | `@github/copilot@<version>` | `.devcontainer/post-create.sh` | `npm view @github/copilot version` |
 | `@playwright/cli@<version>` | `.devcontainer/post-create.sh` | `npm view @playwright/cli version` |
+| `@anthropic-ai/sandbox-runtime@<version>` | `.devcontainer/post-create.sh` | `npm view @anthropic-ai/sandbox-runtime version` |
+| Docker default seccomp profile (`seccomp/v0.2.4`) | `.devcontainer/seccomp-sandbox.json` | `git ls-remote --tags https://github.com/moby/profiles 'seccomp/*'`. Regenerate from the new tag, keeping the one appended rule: `jq --tab '.syscalls += [input.syscalls[-1]]' default.json seccomp-sandbox.json` (with `default.json` from `seccomp/default.json` at that tag), then update the tag in the rule's `comment` |
 | zsh plugin release tags | `.devcontainer/post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/zsh-autosuggestions` (and `zsh-syntax-highlighting`) |
 | Feature option versions (e.g. node `"version": "22"`) | `.devcontainer/devcontainer.json` | Node release schedule; bump when the pinned major approaches EOL. The template's `node_version` choices should track this too |
 | Devcontainer feature tags (`azure-cli:1`, `node:2`, ...) | `.devcontainer/devcontainer.json` | `devcontainer features info tags ghcr.io/devcontainers/features/node` |

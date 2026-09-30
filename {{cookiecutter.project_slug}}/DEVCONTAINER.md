@@ -12,7 +12,7 @@ Container name: `{{ cookiecutter.__container_name }}`.
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary, pinned and baked into the image; auto-update off) |
 | pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox (shipped switched off — see [Permission model](#permission-model)) |
+| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox (shipped switched off — see [Permission model](#permission-model)); the container's seccomp profile lets them run |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 {%- if cookiecutter.include_azure_cli == "yes" %}
 | Azure CLI | Azure resource management |
@@ -171,13 +171,61 @@ writes it — including inside `&&` chains, pipes and subshells — but not a di
 program that does the same thing, so it is a floor, not a security boundary. Edit the
 file and run `--config-only` to change it.
 
-**The Bash sandbox, ready but off.** `bubblewrap` and `socat` are installed, and the
+**The Bash sandbox, ready but off.** `bubblewrap` and `socat` are installed, the
+optional seccomp filter (`@anthropic-ai/sandbox-runtime`) is installed globally, and the
 bundled settings carry the container-specific configuration (`enableWeakerNestedSandbox`,
 `docker *` excluded, a starter domain allowlist for git, npm and PyPI). Run `/sandbox`
 in Claude Code, or set `sandbox.enabled` to `true` in `~/.claude/settings.json`, to
 confine Bash commands to the workspace and the allowlisted domains at the OS level. It
 ships off because a network allowlist has to match your environment: add your Azure
 endpoints and any proxy to `sandbox.network.allowedDomains` before relying on it.
+
+bubblewrap builds user, mount, PID and network namespaces, which Docker's defaults
+refuse, so two `runArgs` in `devcontainer.json` make room for it:
+
+- `--security-opt=seccomp=.../seccomp-sandbox.json` — Docker's default seccomp profile
+  (moby/profiles `seccomp/v0.2.4`) plus one rule allowing `clone`, `mount`,
+  `pivot_root`, `umount2` and `unshare`. Everything else stays filtered. Without it
+  every sandboxed command fails with `No permissions to create new namespace`.
+- `--security-opt=apparmor=unconfined` — Docker's default AppArmor profile denies
+  `mount`, which stops bubblewrap on a VM that runs AppArmor. It does nothing on one
+  that does not, and where it does, it also drops that profile's `/proc` and `/sys`
+  write denials.
+
+The cost is that code in the container may create user namespaces, which widens the
+kernel surface an escape would aim at; the gain is that sandboxed commands cannot
+write outside the workspace or reach hosts off the allowlist. Remove both lines and
+rebuild if you will never turn the sandbox on.
+
+**One setting on the Colima VM, applied for you.** Colima's VM runs Ubuntu 24.04,
+which sets `kernel.apparmor_restrict_unprivileged_userns=1`: a user namespace created
+outside an AppArmor profile gets no capabilities, so bubblewrap fails with
+`loopback: Failed RTM_NEWADDR: Operation not permitted` whatever the container's
+options. Nothing inside the container can change a kernel setting, so
+`init-host-sandbox.sh` — the last step of `initializeCommand`, on the Mac, before
+every container start — finds the Colima VM Docker is using (the current docker
+context, or `DOCKER_HOST`) and, when the setting is still `1`, writes a sysctl.d file
+in the VM setting it to `0` and prints that it did. The file persists across
+`colima stop`/`start`; after `colima delete` the next container start writes it again.
+Once it is `0` the script reads the value and does nothing else, silently. With any
+other Docker (Docker Desktop, OrbStack, native Linux) it does nothing at all. To apply
+it by hand:
+
+```bash
+colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+```
+
+It restores Ubuntu's pre-24.04 behaviour for the VM. Every other container on it still
+runs under Docker's default seccomp and AppArmor profiles, which refuse user
+namespaces on their own — CI checks exactly that, on a real Colima VM, before and
+after this change. To keep the VM restricted, remove the `init-host-sandbox.sh` step
+from `initializeCommand` (and `/sandbox` will not work).
+
+Every container start probes bubblewrap the way Claude Code runs it. If it cannot
+start, the failure — with this command when the VM setting is the cause — lands in
+the provisioning ledger and the next Claude session is told; it clears on the next
+start once the cause is fixed. Recheck by hand with
+`bwrap --ro-bind / / --dev /dev --unshare-user --unshare-net true`.
 
 Git recoverability rests on git itself — `gc.reflogExpire`,
 `gc.reflogExpireUnreachable` and `gc.pruneExpire` are `never`, so committed work is

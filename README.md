@@ -107,7 +107,7 @@ memory limit without an `m`/`g` unit or below `512m`.
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`, pinned to a version and baked into the image, auto-update off), with the `kokko-ng` plugin roster installed automatically |
 | pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox, shipped switched off and one `/sandbox` away |
+| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox, shipped switched off and one `/sandbox` away (the container's seccomp profile lets bubblewrap run) |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 | Azure CLI | Azure resource management (optional) |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc (optional) |
@@ -143,6 +143,7 @@ hooks/
     ├── devcontainer.json # Jinja-templated (JSONC)
     ├── Dockerfile        # Jinja-templated
     ├── init-host-certs.sh
+    ├── init-host-sandbox.sh  # Host side: lifts Colima's userns restriction for /sandbox
     ├── post-create.sh    # Jinja-free; options arrive as containerEnv variables
     └── config/
         ├── zsh/          # Shell config (bundled into container)
@@ -169,7 +170,7 @@ MANAGING.md               # Multi-instance management guide
 ### Which files carry Jinja
 
 Only `devcontainer.json`, the `Dockerfile`, and the Markdown (including the generated
-`CLAUDE.md`) are templated. `post-create.sh`, `init-host-certs.sh`, the `.jq` files, the
+`CLAUDE.md`) are templated. `post-create.sh`, the `init-host-*.sh` scripts, the `.jq` files, the
 bundled `settings.json` and `managed-settings.json`, the hook script, and the zsh config
 are deliberately Jinja-free, so they stay shellcheck-clean, `jq`-parseable, and directly
 testable with no rendering step. The options those files need arrive at run time as
@@ -195,10 +196,17 @@ Two things sit around auto mode:
   gone, and the merge strips it from existing containers). Deny rules match the
   command as Claude writes it, including inside `&&` chains and subshells, but not a
   different program that does the same thing — a floor, not a security boundary.
-- **The Bash sandbox, ready but off.** `bubblewrap` and `socat` are in the image and
-  the bundled settings carry the container-specific sandbox configuration; `/sandbox`
-  turns it on. It ships off because its network allowlist has to match your
-  environment first.
+- **The Bash sandbox, ready but off.** `bubblewrap` and `socat` are in the image, the
+  optional seccomp filter is installed, and the bundled settings carry the
+  container-specific sandbox configuration; `/sandbox` turns it on. It ships off
+  because its network allowlist has to match your environment first. Docker's default
+  seccomp and AppArmor profiles stop bubblewrap from building its namespaces, so
+  `runArgs` load `seccomp-sandbox.json` (Docker's default profile plus one rule for
+  the five syscalls bubblewrap needs) and set `apparmor=unconfined`. Colima's Ubuntu
+  24.04 VM additionally needs `kernel.apparmor_restrict_unprivileged_userns=0`;
+  `init-host-sandbox.sh` sets it on the host before every container start, only on
+  a Colima VM and only while it is still `1`. Every container start probes bubblewrap
+  and reports a failure, with the fix, in the provisioning ledger.
 
 Docker-in-Docker is opt-in for the same reason: the feature runs the container
 privileged, which hands an unattended agent the whole Colima VM.

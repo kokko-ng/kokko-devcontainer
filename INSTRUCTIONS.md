@@ -127,6 +127,18 @@ The flag applies **only when the VM is created**. If you already have a Colima V
 
 Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 150` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
 
+### Let the Bash sandbox start
+
+Colima's VM is Ubuntu 24.04, which sets `kernel.apparmor_restrict_unprivileged_userns=1`. That leaves bubblewrap — the engine of Claude Code's Bash sandbox, `/sandbox` — without capabilities inside its namespaces, whatever the container's own options.
+
+**Nothing to do by hand:** `.devcontainer/init-host-sandbox.sh` runs on the host before every container start (`initializeCommand`), finds the Colima VM Docker is using, and sets the value to `0` when it is still `1`, printing that it did. The setting persists across `colima stop`/`start`, and is re-applied at the next container start after a `colima delete`. With any other Docker it does nothing. The manual equivalent, for the default profile:
+
+```bash
+colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+```
+
+Other containers on the VM are unaffected: Docker's default seccomp and AppArmor profiles refuse user namespaces by themselves. Only a container that opts in — this template's `runArgs` do — can create them. See [Permission model](README.md#permission-model).
+
 ### Auto-start at login
 
 ```bash
@@ -311,6 +323,7 @@ CLAUDE.md               # Generated project instructions for Claude Code
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
 ├── init-host-certs.sh  # Extracts host CA certs (runs before build)
+├── init-host-sandbox.sh # On a Colima VM, lifts the userns restriction the Bash sandbox trips on (host)
 ├── post-create.sh      # Runs once after the container is created
 ├── .gitignore          # Keeps the extracted host CA certs out of git
 ├── certs/              # Host CA certs extracted by init-host-certs.sh
@@ -374,7 +387,7 @@ The base image (`mcr.microsoft.com/devcontainers/python`) is maintained by Micro
 
 - **uv** is the Python package manager used instead of pip/Poetry.
 - **pre-commit** is baked in because the bundled `CLAUDE.md` makes running it non-negotiable; `post-create.sh` prefers a project's own pinned copy and falls back to this one.
-- **shellcheck** lints the shell that agents write, where it runs. **bubblewrap + socat** are the Linux dependencies of Claude Code's Bash sandbox, which ships switched off and is one `/sandbox` away (see [Permission model](README.md#permission-model)).
+- **shellcheck** lints the shell that agents write, where it runs. **bubblewrap + socat** are the Linux dependencies of Claude Code's Bash sandbox, which ships switched off and is one `/sandbox` away (see [Permission model](README.md#permission-model)); the `runArgs` security options below are what let bubblewrap run inside the container.
 - **Claude Code** is pinned to a version so two rebuilds produce the same agent; the pin is a manual [pin-audit](MANAGING.md#pin-audit) item.
 - **ODBC Driver 18** is required by pyodbc for Azure SQL connectivity. Remove this block if you do not use Azure SQL.
 - **Chromium** and its system dependencies are installed by `post-create.sh` via `playwright-cli install-browser --with-deps` (the [Playwright CLI](https://playwright.dev/agent-cli/installation)), which provides browser automation capabilities to coding agents.
@@ -392,10 +405,10 @@ Key sections:
 | `build` | Points to the Dockerfile |
 | `features` | Installs composable tooling layers |
 | `containerEnv` | Environment variables set inside the container |
-| `initializeCommand` | Runs on the host before build (extracts CA certs) |
+| `initializeCommand` | Runs on the host before every container start: extracts CA certs, warns about cloud-synced folders, and on a Colima VM lifts the user-namespace restriction that would stop the Bash sandbox (`init-host-sandbox.sh`) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
-| `runArgs` | Docker run flags — the PID limit is raised to 4096 (Chromium plus parallel agent sessions) and the container gets a memory cap from the `container_memory_limit` answer (`--memory`, `--memory-swap`), so a runaway process is killed inside it rather than taking the Colima VM down. Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
+| `runArgs` | Docker run flags — the PID limit is raised to 4096 (Chromium plus parallel agent sessions) and the container gets a memory cap from the `container_memory_limit` answer (`--memory`, `--memory-swap`), so a runaway process is killed inside it rather than taking the Colima VM down. Two `--security-opt` flags let Claude Code's Bash sandbox start: `seccomp=.../seccomp-sandbox.json` (Docker's default seccomp profile plus one rule allowing the `clone`, `mount`, `pivot_root`, `umount2` and `unshare` calls bubblewrap needs) and `apparmor=unconfined` (Docker's default AppArmor profile denies `mount`). Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
 | `mounts` | Named volumes: Claude Code state (per project), the `gh` login, package caches, shell history, Playwright browsers. Nothing is bind-mounted from the host — see [Optional mounts](#optional-mounts). |
 | `customizations.vscode` | Extensions (including `anthropic.claude-code`) and settings applied when opening in VS Code |
 
@@ -452,7 +465,7 @@ That skips every tool install and every project dependency step, so it takes sec
 
 The `/devcontainer-update` command in [kokko-ng/kokko-skills](https://github.com/kokko-ng/kokko-skills) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
 
-What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, and `init-host-certs.sh` (which runs on the host). Those still need `devcontainer up --remove-existing-container`.
+What `--config-only` **cannot** apply: the `Dockerfile` and the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`. Those still need `devcontainer up --remove-existing-container`. The `init-host-*.sh` scripts run on the host, not in the container: they take effect at the next `devcontainer up` (or VS Code reopen), no rebuild needed.
 
 ---
 

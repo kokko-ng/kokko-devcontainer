@@ -209,6 +209,62 @@ install_playwright_cli() {
     step "playwright-skills" playwright-cli install --skills
 }
 
+# Claude Code's Bash sandbox (/sandbox). bubblewrap and socat come from the
+# Dockerfile; this adds the optional seccomp filter (the part that blocks Unix
+# domain sockets inside the sandbox). The native claude binary does not bundle
+# it and finds it through `npm root -g`; without it /sandbox shows a
+# Dependencies tab. Pinned: Dependabot cannot see this pin — bump it manually
+# (npm view @anthropic-ai/sandbox-runtime version); see MANAGING.md -> Pin audit.
+install_sandbox_runtime() {
+    echo "=== Installing the Bash sandbox seccomp filter ==="
+    if [[ -d "$(npm root -g 2>/dev/null)/@anthropic-ai/sandbox-runtime" ]]; then
+        echo "  @anthropic-ai/sandbox-runtime already installed"
+    elif command -v npm >/dev/null 2>&1; then
+        step "sandbox-runtime" npm install -g @anthropic-ai/sandbox-runtime@0.0.78
+    else
+        echo "  npm not available — skipping; /sandbox will list the seccomp filter as missing"
+    fi
+}
+
+# The sandbox is shipped switched off, so nothing else would notice if it could
+# not start: /sandbox would enable it and every Bash command would then fail.
+# This runs bubblewrap the way Claude Code does with enableWeakerNestedSandbox
+# and records a failure in the ledger, where the SessionStart hook shows it.
+# The causes are the container's security options (the seccomp profile and
+# AppArmor in runArgs, which only a rebuild changes) or a VM that restricts
+# user namespaces (fixed on the host) — so no retry, and no `step`. It runs on
+# every start (--config-only too) and replaces its own ledger line, so the
+# failure clears by itself once the cause is fixed.
+COLIMA_USERNS_FIX="colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'"
+check_bash_sandbox() {
+    echo "=== Checking the Bash sandbox (bubblewrap) ==="
+    local err
+    if [[ -f "$PROVISION_STATUS" ]]; then
+        sed -i '/ FAILED: bash-sandbox /d' "$PROVISION_STATUS"
+    fi
+    if ! command -v bwrap >/dev/null 2>&1; then
+        err="bwrap not installed"
+    elif err="$(bwrap --new-session --die-with-parent --ro-bind / / --dev /dev \
+            --unshare-user --unshare-net --unshare-pid --bind /proc /proc true 2>&1)"; then
+        echo "  bubblewrap can build the sandbox — /sandbox will work"
+        return 0
+    fi
+    err="$(printf '%s\n' "$err" | head -n 1)"
+    # Kernel sysctls are readable from inside the container. Ubuntu 24.04 VMs
+    # (Colima's default image among them) set this to 1, which leaves
+    # bubblewrap's namespaces without capabilities ("loopback: Failed
+    # RTM_NEWADDR: Operation not permitted"). Only the VM can change it.
+    local fix="rebuild needed"
+    if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" == "1" ]]; then
+        fix="the VM restricts user namespaces; restart the container (init-host-sandbox.sh lifts this on Colima) or on the host run: $COLIMA_USERNS_FIX"
+    fi
+    echo "  WARNING: the Bash sandbox cannot start: $err"
+    echo "  Fix: $fix"
+    echo "  See DEVCONTAINER.md -> Permission model."
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: bash-sandbox ($err) — $fix; see DEVCONTAINER.md -> Permission model" >> "$PROVISION_STATUS"
+    return 0
+}
+
 configure_claude() {
     echo "=== Configuring Claude Code ==="
     mkdir -p "$CLAUDE_DIR"
@@ -766,6 +822,7 @@ if [[ "$MODE" == "config" ]]; then
     echo "=== Refreshing bundled config (no rebuild) ==="
     fix_volume_ownership
     apply_bundled_config
+    check_bash_sandbox
     echo ""
     echo "=== Config refreshed ==="
     echo ""
@@ -786,6 +843,8 @@ install_zsh_plugins
 install_claude_cli
 install_copilot_cli
 install_playwright_cli
+install_sandbox_runtime
+check_bash_sandbox
 apply_bundled_config
 report_plugin_paths
 install_python_deps

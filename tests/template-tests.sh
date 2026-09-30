@@ -125,6 +125,23 @@ assert_jq "managed settings and the Claude hooks are excluded from rendering" "$
        and (index(".devcontainer/config/claude/hooks/*") != null)'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
+# The seccomp profile that lets Claude Code's Bash sandbox (bubblewrap) start.
+# It is Docker's default profile plus ONE appended rule; these pin that shape,
+# so a regeneration from a newer upstream cannot quietly loosen anything else.
+SECCOMP="$TEMPLATE_PAYLOAD/.devcontainer/seccomp-sandbox.json"
+assert_jq "seccomp profile is copied without rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render | index(".devcontainer/seccomp-sandbox.json") != null'
+assert_jq "seccomp profile denies by default, like Docker's" "$SECCOMP" \
+    '.defaultAction == "SCMP_ACT_ERRNO"'
+assert_jq "seccomp profile's last rule is the bubblewrap addition, unconditional and nothing more" "$SECCOMP" \
+    '.syscalls[-1] | (.names == ["clone", "mount", "pivot_root", "umount2", "unshare"])
+       and .action == "SCMP_ACT_ALLOW" and (has("args") or has("includes") or has("excludes") | not)'
+assert_jq "seccomp profile keeps Docker's CAP_SYS_ADMIN gate for everything else" "$SECCOMP" \
+    '[.syscalls[] | select(.includes.caps == ["CAP_SYS_ADMIN"]) | .names[]]
+       | (index("bpf") != null) and (index("setns") != null) and (index("mount") != null)'
+assert_jq "only the bubblewrap rule grants pivot_root" "$SECCOMP" \
+    '[.syscalls[] | select(.names | index("pivot_root"))] | length == 1'
+
 # ===========================================================================
 # 2. Default answers — the FastAPI + Vue setup this repo has always shipped
 # ===========================================================================
@@ -173,6 +190,34 @@ assert_jq "default memory limit reaches runArgs, with swap disabled" "$DC" \
     '(.runArgs | index("--memory=8g") != null) and (.runArgs | index("--memory-swap=8g") != null)'
 assert_jq "pids limit leaves room for parallel sessions" "$DC" \
     '.runArgs | index("--pids-limit=4096") != null'
+# shellcheck disable=SC2016  # ${localWorkspaceFolder} is devcontainer syntax, kept literal
+assert_jq "runArgs load the bubblewrap seccomp profile from the project" "$DC" \
+    '.runArgs | index("--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-sandbox.json") != null'
+assert_jq "runArgs lift the AppArmor mount denial bubblewrap trips over" "$DC" \
+    '.runArgs | index("--security-opt=apparmor=unconfined") != null'
+assert_jq "runArgs never switch seccomp off entirely" "$DC" \
+    '.runArgs | index("--security-opt=seccomp=unconfined") == null'
+assert "the seccomp profile runArgs names is in the generated project" \
+    test -f "$DEFAULT/.devcontainer/seccomp-sandbox.json"
+assert "post-create installs the sandbox seccomp filter, pinned" \
+    grep -qE 'npm install -g @anthropic-ai/sandbox-runtime@[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/post-create.sh"
+assert "post-create probes bubblewrap on a full provision" \
+    grep -qx 'check_bash_sandbox' "$DEFAULT/.devcontainer/post-create.sh"
+assert "post-create re-probes bubblewrap on every start (--config-only)" \
+    grep -qx '    check_bash_sandbox' "$DEFAULT/.devcontainer/post-create.sh"
+# The host-side Colima fix post-create prints must be the one the docs give
+# and the one CI proves on a real VM, character for character.
+colima_fix="$(sed -n 's/^COLIMA_USERNS_FIX="\(.*\)"$/\1/p' "$TEMPLATE_PAYLOAD/.devcontainer/post-create.sh")"
+assert "post-create defines the Colima userns fix" test -n "$colima_fix"
+for doc in "$ROOT/INSTRUCTIONS.md" "$DEFAULT/DEVCONTAINER.md"; do
+    assert "${doc#"$ROOT"/} carries post-create's Colima userns fix verbatim" \
+        grep -qF -- "$colima_fix" "$doc"
+done
+# init-host-sandbox.sh applies the same change, with a -p <profile> in front.
+assert "init-host-sandbox.sh applies post-create's Colima userns fix" \
+    grep -qF -- "${colima_fix#colima ssh -- }" "$DEFAULT/.devcontainer/init-host-sandbox.sh"
+assert_jq "initializeCommand runs the Colima userns fix on the host" "$DC" \
+    '.initializeCommand | endswith("&& bash .devcontainer/init-host-sandbox.sh")'
 assert_jq "postStart output is captured like postCreate output" "$DC" \
     '.postStartCommand | test("tee /tmp/post-start.log")'
 assert "azure volume hint is offered with the azure cli" \
@@ -242,7 +287,8 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
          config/claude/settings.json config/claude/CLAUDE.md \
-         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh; do
+         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh \
+         seccomp-sandbox.json init-host-sandbox.sh; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
@@ -301,6 +347,10 @@ assert_jq "no docker extension without docker-in-docker" "$SDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
 assert_jq "chosen memory limit reaches runArgs" "$SDC" \
     '(.runArgs | index("--memory=2048m") != null) and (.runArgs | index("--memory-swap=2048m") != null)'
+# shellcheck disable=SC2016  # ${localWorkspaceFolder} is devcontainer syntax, kept literal
+assert_jq "slim runArgs still carry the sandbox security options" "$SDC" \
+    '(.runArgs | index("--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-sandbox.json") != null)
+       and (.runArgs | index("--security-opt=apparmor=unconfined") != null)'
 assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
 assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \
@@ -384,6 +434,78 @@ else
 fi
 
 # ===========================================================================
+# 4b. init-host-sandbox.sh, against fake colima and docker commands
+# ===========================================================================
+# It runs on the host before every container start and changes a kernel
+# setting on the Colima VM, so every branch is pinned: which profile it
+# targets, that it only writes when the restriction is on, that it never
+# touches a non-Colima Docker, and that it never fails the build.
+HOST_SANDBOX="$DEFAULT/.devcontainer/init-host-sandbox.sh"
+SHIMS="$WORK/shims"
+mkdir -p "$SHIMS/with-colima" "$SHIMS/without-colima"
+cat > "$SHIMS/with-colima/colima" <<'SHIM'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG"
+case "$*" in
+    *"sysctl -n "*) echo "$FAKE_SYSCTL" ;;
+    *"sudo sh -c "*) exit "${FAKE_APPLY_RC:-0}" ;;
+esac
+SHIM
+cat > "$SHIMS/with-colima/docker" <<'SHIM'
+#!/usr/bin/env bash
+[[ "$*" == "context show" ]] && echo "$FAKE_CONTEXT"
+SHIM
+cp "$SHIMS/with-colima/docker" "$SHIMS/without-colima/docker"
+chmod +x "$SHIMS"/*/*
+
+# host_sandbox <shim dir> [VAR=value ...] — run it, capture log and output.
+host_sandbox() {
+    local dir="$1"; shift
+    : > "$WORK/fake.log"
+    env -u DOCKER_HOST PATH="$SHIMS/$dir:/usr/bin:/bin" FAKE_LOG="$WORK/fake.log" "$@" \
+        bash "$HOST_SANDBOX" > "$WORK/fake.out" 2>&1
+}
+fake_log_has() { grep -qF -- "$1" "$WORK/fake.log"; }
+applied_to() { grep -qE -- "^ssh -p $1 -- sudo sh -c " "$WORK/fake.log"; }
+
+assert "host fix: no colima on PATH exits 0" host_sandbox without-colima FAKE_CONTEXT=colima
+assert "host fix: no colima on PATH touches nothing" test ! -s "$WORK/fake.log"
+
+assert "host fix: a non-Colima docker context exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=desktop-linux FAKE_SYSCTL=1
+assert "host fix: a non-Colima docker context never reaches colima" test ! -s "$WORK/fake.log"
+
+assert "host fix: restricted default profile exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1
+assert "host fix: restricted default profile is fixed" applied_to default
+assert "host fix: says what it changed" grep -qF 'apparmor_restrict_unprivileged_userns=1' "$WORK/fake.out"
+
+assert "host fix: already-fixed VM exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima-work FAKE_SYSCTL=0
+assert "host fix: reads the named profile's setting" fake_log_has "-p work -- sysctl -n kernel.apparmor_restrict_unprivileged_userns"
+refute "host fix: never writes to an already-fixed VM" fake_log_has "sudo"
+assert "host fix: is silent on an already-fixed VM" test ! -s "$WORK/fake.out"
+
+assert "host fix: kernel without the knob exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=
+refute "host fix: never writes to a VM without the knob" fake_log_has "sudo"
+
+assert "host fix: DOCKER_HOST on a Colima socket exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=default FAKE_SYSCTL=1 \
+    DOCKER_HOST=unix:///Users/me/.colima/dev/docker.sock
+assert "host fix: DOCKER_HOST picks the profile from the socket path" applied_to dev
+
+assert "host fix: DOCKER_HOST elsewhere exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1 \
+    DOCKER_HOST=unix:///var/run/docker.sock
+assert "host fix: DOCKER_HOST elsewhere wins over a colima context" test ! -s "$WORK/fake.log"
+
+assert "host fix: a failed write still exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1 FAKE_APPLY_RC=1
+assert "host fix: a failed write warns with the manual command" \
+    grep -qF 'colima ssh -p default -- sudo sh -c' "$WORK/fake.out"
+
+# ===========================================================================
 # 5. Generated shell scripts stay lint-clean
 # ===========================================================================
 if command -v shellcheck >/dev/null 2>&1; then
@@ -392,6 +514,7 @@ if command -v shellcheck >/dev/null 2>&1; then
             shellcheck --severity=info \
                 "$project/.devcontainer/post-create.sh" \
                 "$project/.devcontainer/init-host-certs.sh" \
+                "$project/.devcontainer/init-host-sandbox.sh" \
                 "$project/.devcontainer/config/claude/hooks/session-provision-status.sh"
     done
 else
