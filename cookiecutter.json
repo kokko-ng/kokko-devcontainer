@@ -28,6 +28,7 @@
     ".devcontainer/config/claude/managed-settings.json",
     ".devcontainer/config/claude/hooks/*",
     ".devcontainer/certs/*",
-    ".devcontainer/seccomp-sandbox.json"
+    ".devcontainer/seccomp-sandbox.json",
+    ".devcontainer/init-host-sandbox.sh"
   ]
 }

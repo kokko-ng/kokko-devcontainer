@@ -43,7 +43,7 @@ option that silently stops working.
 
 | Carries Jinja | Deliberately Jinja-free |
 |---|---|
-| `devcontainer.json`, `Dockerfile`, all Markdown (including the generated `CLAUDE.md`), the cookiecutter hooks | `post-create.sh`, `init-host-certs.sh`, `*.jq`, the bundled `settings.json` and `managed-settings.json`, `config/claude/hooks/*.sh`, the zsh config, the generated `.gitignore` |
+| `devcontainer.json`, `Dockerfile`, all Markdown (including the generated `CLAUDE.md`), the cookiecutter hooks | `post-create.sh`, `init-host-certs.sh`, `init-host-sandbox.sh`, `*.jq`, the bundled `settings.json` and `managed-settings.json`, `config/claude/hooks/*.sh`, the zsh config, the generated `.gitignore` |
 
 This split is load-bearing, not stylistic. The Jinja-free files stay shellcheck-clean,
 `jq`-parseable and directly testable with no rendering step, which is why
@@ -91,10 +91,14 @@ What sits around auto mode, and where each piece lives:
   a second rule to the profile; `template-tests.sh` pins both. `check_bash_sandbox`
   in post-create.sh probes it on every start, CI runs bubblewrap inside the built
   container, and the `sandbox-colima` job runs the full sandbox on a Colima VM.
-  Colima's Ubuntu 24.04 VM also needs `kernel.apparmor_restrict_unprivileged_userns=0`
-  (a host-side, once-per-VM command; `COLIMA_USERNS_FIX` in post-create.sh). That
-  command is duplicated verbatim in the docs and the CI job; `template-tests.sh`
-  keeps the copies identical.
+  Colima's Ubuntu 24.04 VM also needs `kernel.apparmor_restrict_unprivileged_userns=0`,
+  which `init-host-sandbox.sh` (host side, last in `initializeCommand`) applies when
+  Docker is served by Colima and the value is still 1. It must stay warn-only, never
+  fail the build, and never touch a non-Colima Docker; `template-tests.sh` pins every
+  branch against fake `colima`/`docker` commands. The manual command
+  (`COLIMA_USERNS_FIX` in post-create.sh) is repeated verbatim in INSTRUCTIONS.md and
+  DEVCONTAINER.md, and the script applies the same change; `template-tests.sh` keeps
+  them identical.
 
 ## Shellcheck
 
@@ -104,6 +108,7 @@ CI and pre-commit both run at `--severity=info` — keep them aligned. Locally:
 shellcheck --severity=info \
     "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
+    "{{cookiecutter.project_slug}}/.devcontainer/init-host-sandbox.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
     tests/merge-settings-tests.sh tests/template-tests.sh tests/sandbox-probe.sh
 ```
@@ -120,6 +125,7 @@ shellcheck --severity=info \
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
 | `{{cookiecutter.project_slug}}/.devcontainer/devcontainer.json` | Templated container definition; also publishes the `DEVCONTAINER_*` toggles |
 | `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer) |
+| `{{cookiecutter.project_slug}}/.devcontainer/init-host-sandbox.sh` | Host side, in `initializeCommand`: on a Colima VM, lifts the userns restriction bubblewrap trips on; warn-only |
 | `{{cookiecutter.project_slug}}/.devcontainer/seccomp-sandbox.json` | Docker's default seccomp profile plus one rule so bubblewrap (the Bash sandbox) can start; loaded by `runArgs`, copied unrendered |
 | `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox (off), SessionStart hook wiring, plugin roster |
 | `.../config/claude/managed-settings.json` | Policy, installed to `/etc/claude-code/`: the deny list and the bypass-mode lock |

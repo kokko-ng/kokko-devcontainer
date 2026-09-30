@@ -209,10 +209,15 @@ assert "post-create re-probes bubblewrap on every start (--config-only)" \
 # and the one CI proves on a real VM, character for character.
 colima_fix="$(sed -n 's/^COLIMA_USERNS_FIX="\(.*\)"$/\1/p' "$TEMPLATE_PAYLOAD/.devcontainer/post-create.sh")"
 assert "post-create defines the Colima userns fix" test -n "$colima_fix"
-for doc in "$ROOT/README.md" "$ROOT/INSTRUCTIONS.md" "$DEFAULT/DEVCONTAINER.md" "$ROOT/.github/workflows/ci.yml"; do
+for doc in "$ROOT/INSTRUCTIONS.md" "$DEFAULT/DEVCONTAINER.md"; do
     assert "${doc#"$ROOT"/} carries post-create's Colima userns fix verbatim" \
         grep -qF -- "$colima_fix" "$doc"
 done
+# init-host-sandbox.sh applies the same change, with a -p <profile> in front.
+assert "init-host-sandbox.sh applies post-create's Colima userns fix" \
+    grep -qF -- "${colima_fix#colima ssh -- }" "$DEFAULT/.devcontainer/init-host-sandbox.sh"
+assert_jq "initializeCommand runs the Colima userns fix on the host" "$DC" \
+    '.initializeCommand | endswith("&& bash .devcontainer/init-host-sandbox.sh")'
 assert_jq "postStart output is captured like postCreate output" "$DC" \
     '.postStartCommand | test("tee /tmp/post-start.log")'
 assert "azure volume hint is offered with the azure cli" \
@@ -283,7 +288,7 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
          config/claude/settings.json config/claude/CLAUDE.md \
          config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh \
-         seccomp-sandbox.json; do
+         seccomp-sandbox.json init-host-sandbox.sh; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
@@ -429,6 +434,78 @@ else
 fi
 
 # ===========================================================================
+# 4b. init-host-sandbox.sh, against fake colima and docker commands
+# ===========================================================================
+# It runs on the host before every container start and changes a kernel
+# setting on the Colima VM, so every branch is pinned: which profile it
+# targets, that it only writes when the restriction is on, that it never
+# touches a non-Colima Docker, and that it never fails the build.
+HOST_SANDBOX="$DEFAULT/.devcontainer/init-host-sandbox.sh"
+SHIMS="$WORK/shims"
+mkdir -p "$SHIMS/with-colima" "$SHIMS/without-colima"
+cat > "$SHIMS/with-colima/colima" <<'SHIM'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG"
+case "$*" in
+    *"sysctl -n "*) echo "$FAKE_SYSCTL" ;;
+    *"sudo sh -c "*) exit "${FAKE_APPLY_RC:-0}" ;;
+esac
+SHIM
+cat > "$SHIMS/with-colima/docker" <<'SHIM'
+#!/usr/bin/env bash
+[[ "$*" == "context show" ]] && echo "$FAKE_CONTEXT"
+SHIM
+cp "$SHIMS/with-colima/docker" "$SHIMS/without-colima/docker"
+chmod +x "$SHIMS"/*/*
+
+# host_sandbox <shim dir> [VAR=value ...] — run it, capture log and output.
+host_sandbox() {
+    local dir="$1"; shift
+    : > "$WORK/fake.log"
+    env -u DOCKER_HOST PATH="$SHIMS/$dir:/usr/bin:/bin" FAKE_LOG="$WORK/fake.log" "$@" \
+        bash "$HOST_SANDBOX" > "$WORK/fake.out" 2>&1
+}
+fake_log_has() { grep -qF -- "$1" "$WORK/fake.log"; }
+applied_to() { grep -qE -- "^ssh -p $1 -- sudo sh -c " "$WORK/fake.log"; }
+
+assert "host fix: no colima on PATH exits 0" host_sandbox without-colima FAKE_CONTEXT=colima
+assert "host fix: no colima on PATH touches nothing" test ! -s "$WORK/fake.log"
+
+assert "host fix: a non-Colima docker context exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=desktop-linux FAKE_SYSCTL=1
+assert "host fix: a non-Colima docker context never reaches colima" test ! -s "$WORK/fake.log"
+
+assert "host fix: restricted default profile exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1
+assert "host fix: restricted default profile is fixed" applied_to default
+assert "host fix: says what it changed" grep -qF 'apparmor_restrict_unprivileged_userns=1' "$WORK/fake.out"
+
+assert "host fix: already-fixed VM exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima-work FAKE_SYSCTL=0
+assert "host fix: reads the named profile's setting" fake_log_has "-p work -- sysctl -n kernel.apparmor_restrict_unprivileged_userns"
+refute "host fix: never writes to an already-fixed VM" fake_log_has "sudo"
+assert "host fix: is silent on an already-fixed VM" test ! -s "$WORK/fake.out"
+
+assert "host fix: kernel without the knob exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=
+refute "host fix: never writes to a VM without the knob" fake_log_has "sudo"
+
+assert "host fix: DOCKER_HOST on a Colima socket exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=default FAKE_SYSCTL=1 \
+    DOCKER_HOST=unix:///Users/me/.colima/dev/docker.sock
+assert "host fix: DOCKER_HOST picks the profile from the socket path" applied_to dev
+
+assert "host fix: DOCKER_HOST elsewhere exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1 \
+    DOCKER_HOST=unix:///var/run/docker.sock
+assert "host fix: DOCKER_HOST elsewhere wins over a colima context" test ! -s "$WORK/fake.log"
+
+assert "host fix: a failed write still exits 0" \
+    host_sandbox with-colima FAKE_CONTEXT=colima FAKE_SYSCTL=1 FAKE_APPLY_RC=1
+assert "host fix: a failed write warns with the manual command" \
+    grep -qF 'colima ssh -p default -- sudo sh -c' "$WORK/fake.out"
+
+# ===========================================================================
 # 5. Generated shell scripts stay lint-clean
 # ===========================================================================
 if command -v shellcheck >/dev/null 2>&1; then
@@ -437,6 +514,7 @@ if command -v shellcheck >/dev/null 2>&1; then
             shellcheck --severity=info \
                 "$project/.devcontainer/post-create.sh" \
                 "$project/.devcontainer/init-host-certs.sh" \
+                "$project/.devcontainer/init-host-sandbox.sh" \
                 "$project/.devcontainer/config/claude/hooks/session-provision-status.sh"
     done
 else

@@ -91,7 +91,8 @@ jobs:
             "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
             tests/merge-settings-tests.sh \
             tests/template-tests.sh \
-            tests/sandbox-probe.sh
+            tests/sandbox-probe.sh \
+            "{{cookiecutter.project_slug}}/.devcontainer/init-host-sandbox.sh"
 
   hadolint:
     name: hadolint (rendered Dockerfiles)
@@ -142,9 +143,10 @@ jobs:
           echo "apparmor enabled: $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || echo n/a)"
           sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces || true
       # The runner is Ubuntu 24.04, restricted like Colima's VM. Apply the
-      # same setting the documented one-time Colima fix applies, so this
-      # container sees what a correctly set-up host gives it. (The
-      # sandbox-colima job proves the fix itself, verbatim, on a real VM.)
+      # setting init-host-sandbox.sh applies on a Colima host (it does nothing
+      # here: the runner's Docker is not Colima), so this container sees what
+      # a Colima host gives it. The sandbox-colima job proves the script on a
+      # real VM.
       - name: Lift the runner's AppArmor user-namespace restriction
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # Builds the generated image and runs its postCreateCommand — this is
@@ -289,14 +291,22 @@ jobs:
           else
             echo "::notice::The sandbox needs the VM's userns sysctl on this Colima VM"
           fi
-      # The one-time host fix DEVCONTAINER.md documents and post-create.sh
-      # prints, VERBATIM, then a VM restart to prove it persists.
-      - name: Apply the documented VM fix and restart Colima
+      # The generated devcontainer.json's initializeCommand runs this on the
+      # host before every container start. It must find this VM through the
+      # docker context, lift the restriction, survive a VM restart, and be a
+      # silent no-op the next time.
+      - name: init-host-sandbox.sh lifts the VM's restriction
         run: |
-          colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
+          host_script="{{cookiecutter.project_slug}}/.devcontainer/init-host-sandbox.sh"
+          before="$(colima ssh -- sysctl -n kernel.apparmor_restrict_unprivileged_userns)"
+          bash "$host_script" | tee /tmp/host-sandbox.log
+          if [ "$before" = 1 ]; then
+            grep -q 'Setting it to 0' /tmp/host-sandbox.log
+          fi
           colima stop
           colima start
           test "$(colima ssh -- sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
+          test -z "$(bash "$host_script" 2>&1)"
       - name: The template's runArgs let the sandbox work
         run: |
           # The same two options the generated devcontainer.json passes.

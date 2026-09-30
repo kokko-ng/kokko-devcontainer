@@ -256,7 +256,7 @@ check_bash_sandbox() {
     # RTM_NEWADDR: Operation not permitted"). Only the VM can change it.
     local fix="rebuild needed"
     if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" == "1" ]]; then
-        fix="the VM restricts user namespaces; on the host run: $COLIMA_USERNS_FIX"
+        fix="the VM restricts user namespaces; restart the container (init-host-sandbox.sh lifts this on Colima) or on the host run: $COLIMA_USERNS_FIX"
     fi
     echo "  WARNING: the Bash sandbox cannot start: $err"
     echo "  Fix: $fix"

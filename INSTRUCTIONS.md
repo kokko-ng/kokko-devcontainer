@@ -129,7 +129,9 @@ Disk is the one setting worth over-provisioning now: the image is sparse, so `--
 
 ### Let the Bash sandbox start
 
-Colima's VM is Ubuntu 24.04, which sets `kernel.apparmor_restrict_unprivileged_userns=1`. That leaves bubblewrap — the engine of Claude Code's Bash sandbox, `/sandbox` — without capabilities inside its namespaces, whatever the container's own options. Turn it off once per VM; the file persists across `colima stop`/`start`, and needs repeating after `colima delete`:
+Colima's VM is Ubuntu 24.04, which sets `kernel.apparmor_restrict_unprivileged_userns=1`. That leaves bubblewrap — the engine of Claude Code's Bash sandbox, `/sandbox` — without capabilities inside its namespaces, whatever the container's own options.
+
+**Nothing to do by hand:** `.devcontainer/init-host-sandbox.sh` runs on the host before every container start (`initializeCommand`), finds the Colima VM Docker is using, and sets the value to `0` when it is still `1`, printing that it did. The setting persists across `colima stop`/`start`, and is re-applied at the next container start after a `colima delete`. With any other Docker it does nothing. The manual equivalent, for the default profile:
 
 ```bash
 colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
@@ -321,6 +323,7 @@ CLAUDE.md               # Generated project instructions for Claude Code
 ├── devcontainer.json   # Container definition and VS Code settings
 ├── Dockerfile          # Base image and system-level dependencies
 ├── init-host-certs.sh  # Extracts host CA certs (runs before build)
+├── init-host-sandbox.sh # On a Colima VM, lifts the userns restriction the Bash sandbox trips on (host)
 ├── post-create.sh      # Runs once after the container is created
 ├── .gitignore          # Keeps the extracted host CA certs out of git
 ├── certs/              # Host CA certs extracted by init-host-certs.sh
@@ -402,7 +405,7 @@ Key sections:
 | `build` | Points to the Dockerfile |
 | `features` | Installs composable tooling layers |
 | `containerEnv` | Environment variables set inside the container |
-| `initializeCommand` | Runs on the host before build (extracts CA certs) |
+| `initializeCommand` | Runs on the host before every container start: extracts CA certs, warns about cloud-synced folders, and on a Colima VM lifts the user-namespace restriction that would stop the Bash sandbox (`init-host-sandbox.sh`) |
 | `postCreateCommand` | Script run once after first build |
 | `forwardPorts` | Ports exposed from the container to the host |
 | `runArgs` | Docker run flags — the PID limit is raised to 4096 (Chromium plus parallel agent sessions) and the container gets a memory cap from the `container_memory_limit` answer (`--memory`, `--memory-swap`), so a runaway process is killed inside it rather than taking the Colima VM down. Two `--security-opt` flags let Claude Code's Bash sandbox start: `seccomp=.../seccomp-sandbox.json` (Docker's default seccomp profile plus one rule allowing the `clone`, `mount`, `pivot_root`, `umount2` and `unshare` calls bubblewrap needs) and `apparmor=unconfined` (Docker's default AppArmor profile denies `mount`). Aggressive container hardening (cap drops, `no-new-privileges`) is intentionally not enabled because it breaks `sudo`, which devcontainer features and many post-create flows rely on. |
@@ -462,7 +465,7 @@ That skips every tool install and every project dependency step, so it takes sec
 
 The `/devcontainer-update` command in [kokko-ng/kokko-skills](https://github.com/kokko-ng/kokko-skills) wraps the whole flow: it diffs this project's `.devcontainer/` against the latest upstream, updates the files, runs the refresh, and reports what still needs a rebuild.
 
-What `--config-only` **cannot** apply: the `Dockerfile`, the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`, and `init-host-certs.sh` (which runs on the host). Those still need `devcontainer up --remove-existing-container`.
+What `--config-only` **cannot** apply: the `Dockerfile` and the `features` / `containerEnv` / `runArgs` / `mounts` blocks of `devcontainer.json`. Those still need `devcontainer up --remove-existing-container`. The `init-host-*.sh` scripts run on the host, not in the container: they take effect at the next `devcontainer up` (or VS Code reopen), no rebuild needed.
 
 ---
 

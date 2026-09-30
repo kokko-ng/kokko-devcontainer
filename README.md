@@ -20,9 +20,6 @@ brew install --cask ghostty
 # sshfs is ~940x slower on small-file writes. See MANAGING.md.
 # --memory should be at most half your host RAM (use 8 on a 16GB Mac).
 colima start --cpu 8 --memory 16 --disk 150 --mount-type virtiofs
-# Once per VM, so Claude Code's Bash sandbox (/sandbox) can start in the
-# container. See DEVCONTAINER.md -> Permission model.
-colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
 
 # 3. Generate a project
 cookiecutter gh:kokko-ng/kokko-devcontainer
@@ -146,6 +143,7 @@ hooks/
     ├── devcontainer.json # Jinja-templated (JSONC)
     ├── Dockerfile        # Jinja-templated
     ├── init-host-certs.sh
+    ├── init-host-sandbox.sh  # Host side: lifts Colima's userns restriction for /sandbox
     ├── post-create.sh    # Jinja-free; options arrive as containerEnv variables
     └── config/
         ├── zsh/          # Shell config (bundled into container)
@@ -172,7 +170,7 @@ MANAGING.md               # Multi-instance management guide
 ### Which files carry Jinja
 
 Only `devcontainer.json`, the `Dockerfile`, and the Markdown (including the generated
-`CLAUDE.md`) are templated. `post-create.sh`, `init-host-certs.sh`, the `.jq` files, the
+`CLAUDE.md`) are templated. `post-create.sh`, the `init-host-*.sh` scripts, the `.jq` files, the
 bundled `settings.json` and `managed-settings.json`, the hook script, and the zsh config
 are deliberately Jinja-free, so they stay shellcheck-clean, `jq`-parseable, and directly
 testable with no rendering step. The options those files need arrive at run time as
@@ -205,8 +203,9 @@ Two things sit around auto mode:
   seccomp and AppArmor profiles stop bubblewrap from building its namespaces, so
   `runArgs` load `seccomp-sandbox.json` (Docker's default profile plus one rule for
   the five syscalls bubblewrap needs) and set `apparmor=unconfined`. Colima's Ubuntu
-  24.04 VM additionally needs `kernel.apparmor_restrict_unprivileged_userns=0`, set
-  once on the host (the Quickstart command). Every container start probes bubblewrap
+  24.04 VM additionally needs `kernel.apparmor_restrict_unprivileged_userns=0`;
+  `init-host-sandbox.sh` sets it on the host before every container start, only on
+  a Colima VM and only while it is still `1`. Every container start probes bubblewrap
   and reports a failure, with the fix, in the provisioning ledger.
 
 Docker-in-Docker is opt-in for the same reason: the feature runs the container

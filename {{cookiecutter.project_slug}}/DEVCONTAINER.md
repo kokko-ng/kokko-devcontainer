@@ -197,12 +197,19 @@ kernel surface an escape would aim at; the gain is that sandboxed commands canno
 write outside the workspace or reach hosts off the allowlist. Remove both lines and
 rebuild if you will never turn the sandbox on.
 
-**One setting on the Colima VM.** Colima's VM runs Ubuntu 24.04, which sets
-`kernel.apparmor_restrict_unprivileged_userns=1`: a user namespace created outside an
-AppArmor profile gets no capabilities, so bubblewrap fails with
+**One setting on the Colima VM, applied for you.** Colima's VM runs Ubuntu 24.04,
+which sets `kernel.apparmor_restrict_unprivileged_userns=1`: a user namespace created
+outside an AppArmor profile gets no capabilities, so bubblewrap fails with
 `loopback: Failed RTM_NEWADDR: Operation not permitted` whatever the container's
-options. Nothing inside the container can change a kernel setting, so run this once
-on the Mac; it persists across `colima stop`/`start` (not across `colima delete`):
+options. Nothing inside the container can change a kernel setting, so
+`init-host-sandbox.sh` — the last step of `initializeCommand`, on the Mac, before
+every container start — finds the Colima VM Docker is using (the current docker
+context, or `DOCKER_HOST`) and, when the setting is still `1`, writes a sysctl.d file
+in the VM setting it to `0` and prints that it did. The file persists across
+`colima stop`/`start`; after `colima delete` the next container start writes it again.
+Once it is `0` the script reads the value and does nothing else, silently. With any
+other Docker (Docker Desktop, OrbStack, native Linux) it does nothing at all. To apply
+it by hand:
 
 ```bash
 colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > /etc/sysctl.d/99-bash-sandbox.conf && sysctl -p /etc/sysctl.d/99-bash-sandbox.conf'
@@ -211,7 +218,8 @@ colima ssh -- sudo sh -c 'echo kernel.apparmor_restrict_unprivileged_userns=0 > 
 It restores Ubuntu's pre-24.04 behaviour for the VM. Every other container on it still
 runs under Docker's default seccomp and AppArmor profiles, which refuse user
 namespaces on their own — CI checks exactly that, on a real Colima VM, before and
-after this change.
+after this change. To keep the VM restricted, remove the `init-host-sandbox.sh` step
+from `initializeCommand` (and `/sandbox` will not work).
 
 Every container start probes bubblewrap the way Claude Code runs it. If it cannot
 start, the failure — with this command when the VM setting is the cause — lands in
