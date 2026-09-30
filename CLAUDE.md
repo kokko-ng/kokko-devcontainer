@@ -80,6 +80,12 @@ What sits around auto mode, and where each piece lives:
   duplicates it. It is not a guard layer and must not grow into one.
 - **Docker-in-Docker** defaults to `no` because the feature runs the container
   privileged; keep that default.
+- **The Bash sandbox needs two `runArgs`**: `seccomp-sandbox.json` (Docker's default
+  profile plus ONE appended rule for the five syscalls bubblewrap needs) and
+  `apparmor=unconfined`. Without them bubblewrap cannot create namespaces and every
+  sandboxed command fails. Never widen this to `seccomp=unconfined`, and never add
+  a second rule to the profile; `template-tests.sh` pins both. `check_bash_sandbox`
+  in post-create.sh probes it, and CI runs bubblewrap inside the built container.
 
 ## Shellcheck
 
@@ -105,6 +111,7 @@ shellcheck --severity=info \
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
 | `{{cookiecutter.project_slug}}/.devcontainer/devcontainer.json` | Templated container definition; also publishes the `DEVCONTAINER_*` toggles |
 | `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer) |
+| `{{cookiecutter.project_slug}}/.devcontainer/seccomp-sandbox.json` | Docker's default seccomp profile plus one rule so bubblewrap (the Bash sandbox) can start; loaded by `runArgs`, copied unrendered |
 | `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox (off), SessionStart hook wiring, plugin roster |
 | `.../config/claude/managed-settings.json` | Policy, installed to `/etc/claude-code/`: the deny list and the bypass-mode lock |
 | `.../config/claude/hooks/session-provision-status.sh` | SessionStart hook: prints failed provisioning steps into the session |

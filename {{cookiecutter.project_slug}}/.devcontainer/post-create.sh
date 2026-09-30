@@ -209,6 +209,46 @@ install_playwright_cli() {
     step "playwright-skills" playwright-cli install --skills
 }
 
+# Claude Code's Bash sandbox (/sandbox). bubblewrap and socat come from the
+# Dockerfile; this adds the optional seccomp filter (the part that blocks Unix
+# domain sockets inside the sandbox). The native claude binary does not bundle
+# it and finds it through `npm root -g`; without it /sandbox shows a
+# Dependencies tab. Pinned: Dependabot cannot see this pin — bump it manually
+# (npm view @anthropic-ai/sandbox-runtime version); see MANAGING.md -> Pin audit.
+install_sandbox_runtime() {
+    echo "=== Installing the Bash sandbox seccomp filter ==="
+    if [[ -d "$(npm root -g 2>/dev/null)/@anthropic-ai/sandbox-runtime" ]]; then
+        echo "  @anthropic-ai/sandbox-runtime already installed"
+    elif command -v npm >/dev/null 2>&1; then
+        step "sandbox-runtime" npm install -g @anthropic-ai/sandbox-runtime@0.0.78
+    else
+        echo "  npm not available — skipping; /sandbox will list the seccomp filter as missing"
+    fi
+}
+
+# The sandbox is shipped switched off, so nothing else would notice if it could
+# not start: /sandbox would enable it and every Bash command would then fail.
+# This runs bubblewrap the way Claude Code does with enableWeakerNestedSandbox
+# and records a failure in the ledger, where the SessionStart hook shows it.
+# The usual cause is the container's security options (the seccomp profile or
+# AppArmor), which only a rebuild changes — so no retry, and no `step`.
+check_bash_sandbox() {
+    echo "=== Checking the Bash sandbox (bubblewrap) ==="
+    local err
+    if ! command -v bwrap >/dev/null 2>&1; then
+        err="bwrap not installed"
+    elif err="$(bwrap --new-session --die-with-parent --ro-bind / / --dev /dev \
+            --unshare-user --unshare-net --unshare-pid --bind /proc /proc true 2>&1)"; then
+        echo "  bubblewrap can build the sandbox — /sandbox will work"
+        return 0
+    fi
+    err="$(printf '%s\n' "$err" | head -n 1)"
+    echo "  WARNING: the Bash sandbox cannot start: $err"
+    echo "  See DEVCONTAINER.md -> Permission model."
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) FAILED: bash-sandbox ($err) — rebuild needed, see DEVCONTAINER.md -> Permission model" >> "$PROVISION_STATUS"
+    return 0
+}
+
 configure_claude() {
     echo "=== Configuring Claude Code ==="
     mkdir -p "$CLAUDE_DIR"
@@ -786,6 +826,8 @@ install_zsh_plugins
 install_claude_cli
 install_copilot_cli
 install_playwright_cli
+install_sandbox_runtime
+check_bash_sandbox
 apply_bundled_config
 report_plugin_paths
 install_python_deps

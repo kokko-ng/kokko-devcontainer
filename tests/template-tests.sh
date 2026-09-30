@@ -125,6 +125,23 @@ assert_jq "managed settings and the Claude hooks are excluded from rendering" "$
        and (index(".devcontainer/config/claude/hooks/*") != null)'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
+# The seccomp profile that lets Claude Code's Bash sandbox (bubblewrap) start.
+# It is Docker's default profile plus ONE appended rule; these pin that shape,
+# so a regeneration from a newer upstream cannot quietly loosen anything else.
+SECCOMP="$TEMPLATE_PAYLOAD/.devcontainer/seccomp-sandbox.json"
+assert_jq "seccomp profile is copied without rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render | index(".devcontainer/seccomp-sandbox.json") != null'
+assert_jq "seccomp profile denies by default, like Docker's" "$SECCOMP" \
+    '.defaultAction == "SCMP_ACT_ERRNO"'
+assert_jq "seccomp profile's last rule is the bubblewrap addition, unconditional and nothing more" "$SECCOMP" \
+    '.syscalls[-1] | (.names == ["clone", "mount", "pivot_root", "umount2", "unshare"])
+       and .action == "SCMP_ACT_ALLOW" and (has("args") or has("includes") or has("excludes") | not)'
+assert_jq "seccomp profile keeps Docker's CAP_SYS_ADMIN gate for everything else" "$SECCOMP" \
+    '[.syscalls[] | select(.includes.caps == ["CAP_SYS_ADMIN"]) | .names[]]
+       | (index("bpf") != null) and (index("setns") != null) and (index("mount") != null)'
+assert_jq "only the bubblewrap rule grants pivot_root" "$SECCOMP" \
+    '[.syscalls[] | select(.names | index("pivot_root"))] | length == 1'
+
 # ===========================================================================
 # 2. Default answers — the FastAPI + Vue setup this repo has always shipped
 # ===========================================================================
@@ -173,6 +190,19 @@ assert_jq "default memory limit reaches runArgs, with swap disabled" "$DC" \
     '(.runArgs | index("--memory=8g") != null) and (.runArgs | index("--memory-swap=8g") != null)'
 assert_jq "pids limit leaves room for parallel sessions" "$DC" \
     '.runArgs | index("--pids-limit=4096") != null'
+# shellcheck disable=SC2016  # ${localWorkspaceFolder} is devcontainer syntax, kept literal
+assert_jq "runArgs load the bubblewrap seccomp profile from the project" "$DC" \
+    '.runArgs | index("--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-sandbox.json") != null'
+assert_jq "runArgs lift the AppArmor mount denial bubblewrap trips over" "$DC" \
+    '.runArgs | index("--security-opt=apparmor=unconfined") != null'
+assert_jq "runArgs never switch seccomp off entirely" "$DC" \
+    '.runArgs | index("--security-opt=seccomp=unconfined") == null'
+assert "the seccomp profile runArgs names is in the generated project" \
+    test -f "$DEFAULT/.devcontainer/seccomp-sandbox.json"
+assert "post-create installs the sandbox seccomp filter, pinned" \
+    grep -qE 'npm install -g @anthropic-ai/sandbox-runtime@[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/post-create.sh"
+assert "post-create probes bubblewrap on a full provision" \
+    grep -qx 'check_bash_sandbox' "$DEFAULT/.devcontainer/post-create.sh"
 assert_jq "postStart output is captured like postCreate output" "$DC" \
     '.postStartCommand | test("tee /tmp/post-start.log")'
 assert "azure volume hint is offered with the azure cli" \
@@ -242,7 +272,8 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
          config/claude/settings.json config/claude/CLAUDE.md \
-         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh; do
+         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh \
+         seccomp-sandbox.json; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
@@ -301,6 +332,10 @@ assert_jq "no docker extension without docker-in-docker" "$SDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
 assert_jq "chosen memory limit reaches runArgs" "$SDC" \
     '(.runArgs | index("--memory=2048m") != null) and (.runArgs | index("--memory-swap=2048m") != null)'
+# shellcheck disable=SC2016  # ${localWorkspaceFolder} is devcontainer syntax, kept literal
+assert_jq "slim runArgs still carry the sandbox security options" "$SDC" \
+    '(.runArgs | index("--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-sandbox.json") != null)
+       and (.runArgs | index("--security-opt=apparmor=unconfined") != null)'
 assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
 assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \

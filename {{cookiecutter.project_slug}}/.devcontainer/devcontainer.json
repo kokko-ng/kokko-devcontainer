@@ -112,7 +112,21 @@
     "--memory={{ cookiecutter.container_memory_limit }}",
     // Same value again: no swap for the container, so memory pressure surfaces
     // as a kill of the culprit rather than as the VM thrashing.
-    "--memory-swap={{ cookiecutter.container_memory_limit }}"
+    "--memory-swap={{ cookiecutter.container_memory_limit }}",
+    // Claude Code's Bash sandbox (/sandbox) runs each command under
+    // bubblewrap, which builds user, mount, PID and network namespaces. Docker's
+    // default seccomp profile refuses those to a container without
+    // CAP_SYS_ADMIN, so every sandboxed command would fail with "No permissions
+    // to create new namespace". seccomp-sandbox.json is Docker's default profile
+    // plus ONE rule allowing the five syscalls bubblewrap needs; everything else
+    // stays filtered. The docker CLI reads the file on the host at create time.
+    "--security-opt=seccomp=${localWorkspaceFolder}/.devcontainer/seccomp-sandbox.json",
+    // Docker's default AppArmor profile carries `deny mount`, which blocks
+    // bubblewrap's bind mounts even inside its own namespace on a VM that runs
+    // AppArmor. A no-op on one that does not. post-create.sh probes bubblewrap
+    // and records a failure in the provisioning ledger if the sandbox still
+    // cannot start.
+    "--security-opt=apparmor=unconfined"
 {%- if cookiecutter.include_playwright == "yes" %},
     // Chromium renderers share memory via /dev/shm; Docker's 64MB default
     // makes headless pages crash with cryptic tab errors.

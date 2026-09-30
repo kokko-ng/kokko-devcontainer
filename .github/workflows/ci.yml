@@ -154,6 +154,18 @@ jobs:
             test "$CLAUDE_CONFIG_DIR" = "$HOME/.claude"
             # The image-level tooling the bundled CLAUDE.md and the sandbox rely on.
             command -v pre-commit shellcheck bwrap socat
+            # The Bash sandbox can actually START, not just be installed:
+            # bubblewrap run the way Claude Code runs it with
+            # enableWeakerNestedSandbox. This needs the runArgs seccomp
+            # profile, and the runner's AppArmor makes it exercise
+            # apparmor=unconfined too. post-create's own probe must agree,
+            # and the optional seccomp filter must be where claude looks.
+            bwrap --new-session --die-with-parent --ro-bind / / --dev /dev \
+                --unshare-user --unshare-net --unshare-pid --bind /proc /proc true
+            if grep -q 'bash-sandbox' "$HOME/.devcontainer-provision-status"; then
+                echo "post-create recorded the Bash sandbox as broken"; exit 1
+            fi
+            test -d "$(npm root -g)/@anthropic-ai/sandbox-runtime"
             # The live settings.json the merge produced must be valid, run in
             # Auto permission mode, carry the bundled defaults, wire the
             # SessionStart status hook, and carry none of the retired

@@ -27,6 +27,7 @@
     ".devcontainer/config/claude/settings.json",
     ".devcontainer/config/claude/managed-settings.json",
     ".devcontainer/config/claude/hooks/*",
-    ".devcontainer/certs/*"
+    ".devcontainer/certs/*",
+    ".devcontainer/seccomp-sandbox.json"
   ]
 }
