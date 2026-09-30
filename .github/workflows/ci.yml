@@ -236,7 +236,7 @@ jobs:
           sudo install colima /usr/local/bin/colima
       - name: Start Colima
         run: |
-          colima start --runtime docker --vm-type qemu --cpu 2 --memory 4 --disk 20
+          colima start --runtime docker --cpus 2 --memory 4 --disk 20
           # Every later docker call must reach Colima's daemon, not the
           # runner's. Set only now: the context does not exist before start.
           echo "DOCKER_CONTEXT=colima" >> "$GITHUB_ENV"

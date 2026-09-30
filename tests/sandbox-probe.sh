@@ -48,7 +48,7 @@ finish() {
 
 # bubblewrap exactly as Claude Code runs it with enableWeakerNestedSandbox
 # (the same flags as post-create.sh's check_bash_sandbox).
-# shellcheck disable=SC2329  # invoked through check/refute
+# shellcheck disable=SC2317,SC2329  # invoked through check/refute (SC2317 before shellcheck 0.11)
 bwrap_probe() {
     bwrap --new-session --die-with-parent --ro-bind / / --dev /dev \
         --unshare-user --unshare-net --unshare-pid --bind /proc /proc true
@@ -76,7 +76,7 @@ cat > "$settings" <<EOF
 }
 EOF
 
-# shellcheck disable=SC2329  # invoked through check/refute
+# shellcheck disable=SC2317,SC2329  # invoked through check/refute (SC2317 before shellcheck 0.11)
 sandboxed() { srt --settings "$settings" -c "$1"; }
 
 # A Unix-domain connect that fails with EPERM was refused by the sandbox's
