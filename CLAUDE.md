@@ -22,6 +22,10 @@ bash tests/template-tests.sh         # bash + jq + python3 + cookiecutter
 
 No framework — two scripts. CI runs both on every push.
 
+`tests/sandbox-probe.sh` is not run locally: CI's `sandbox-colima` job boots a real
+Colima VM and runs it inside containers there, proving Docker's defaults refuse the
+Bash sandbox and the template's `runArgs` let it work end to end.
+
 **The settings pipeline and its tests move together.** Any change to
 `merge-settings.jq`, `prune-roster.jq`, the bundled `settings.json`,
 `managed-settings.json`, the hook script under `config/claude/hooks/`, or the
@@ -85,7 +89,8 @@ What sits around auto mode, and where each piece lives:
   `apparmor=unconfined`. Without them bubblewrap cannot create namespaces and every
   sandboxed command fails. Never widen this to `seccomp=unconfined`, and never add
   a second rule to the profile; `template-tests.sh` pins both. `check_bash_sandbox`
-  in post-create.sh probes it, and CI runs bubblewrap inside the built container.
+  in post-create.sh probes it, CI runs bubblewrap inside the built container, and
+  the `sandbox-colima` job runs the full sandbox on a Colima VM.
 
 ## Shellcheck
 
@@ -96,7 +101,7 @@ shellcheck --severity=info \
     "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
-    tests/merge-settings-tests.sh tests/template-tests.sh
+    tests/merge-settings-tests.sh tests/template-tests.sh tests/sandbox-probe.sh
 ```
 
 ## Layout — what runs where
