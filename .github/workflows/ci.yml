@@ -141,6 +141,12 @@ jobs:
         run: |
           echo "apparmor enabled: $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || echo n/a)"
           sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces || true
+      # The runner is Ubuntu 24.04, restricted like Colima's VM. Apply the
+      # same setting the documented one-time Colima fix applies, so this
+      # container sees what a correctly set-up host gives it. (The
+      # sandbox-colima job proves the fix itself, verbatim, on a real VM.)
+      - name: Lift the runner's AppArmor user-namespace restriction
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       # Builds the generated image and runs its postCreateCommand — this is
       # what catches a Dockerfile or post-create.sh regression before a human
       # hits it. Requires .devcontainer/certs/.gitkeep to be committed so the
