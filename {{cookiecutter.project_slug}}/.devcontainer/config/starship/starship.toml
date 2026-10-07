@@ -7,7 +7,7 @@
 add_newline = true
 
 format = """
-$directory$git_branch$git_state$git_status${custom.git_identity}$python$nodejs$docker_context$azure${custom.gh}${custom.claude}$container$cmd_duration
+$directory$git_branch$git_state$git_status${custom.git_identity}$python$nodejs$docker_context$azure${custom.gh}${custom.claude}$container${custom.host}${custom.colima}$cmd_duration
 $character"""
 
 [directory]
@@ -80,6 +80,25 @@ style = "bold red"
 [container]
 format = "[⬢ $name]($style) "
 style = "bold red"
+
+# The counterpart of [container]: shown when this shell is NOT in a container
+# (Docker, Podman, devcontainer or Codespaces), so you always know which side
+# you are on.
+[custom.host]
+command = "echo host"
+when = "[ ! -e /.dockerenv ] && [ ! -e /run/.containerenv ] && [ -z \"$REMOTE_CONTAINERS\" ] && [ -z \"$CODESPACES\" ]"
+shell = ["sh"]
+format = "[⌂ $output]($style) "
+style = "green"
+
+# Shown on a machine with Colima installed while its VM is not running
+# (no Lima host agent for the default `colima` instance). Hidden in containers.
+[custom.colima]
+command = "echo colima off"
+when = "command -v colima >/dev/null && ! pgrep -qf 'limact[l].* hostagent .*colima'"
+shell = ["sh"]
+format = "[$output]($style) "
+style = "dimmed red"
 
 # Shown whenever Docker points at a non-default context (e.g. colima),
 # not only in folders with a Dockerfile.

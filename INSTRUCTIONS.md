@@ -503,7 +503,8 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 The prompt is [Starship](https://starship.rs), baked into the image at a pinned
 version and configured by `config/starship/starship.toml` (linked to
 `~/.config/starship.toml`). Besides directory and git branch/status it shows, when they
-apply: a `⬢` marker inside the container, the git `user.email` when a repo overrides the
+apply: a `⬢` marker inside the container (`⌂ host` outside one, and `colima off` on a
+host with Colima installed but stopped), the git `user.email` when a repo overrides the
 global identity, the Docker context when it is not the default, the Azure subscription,
 the GitHub account (read from `~/.config/gh/hosts.yml`, no network call) and the Claude
 account (read from `$CLAUDE_CONFIG_DIR/.claude.json`). Colours are ANSI names, so the
