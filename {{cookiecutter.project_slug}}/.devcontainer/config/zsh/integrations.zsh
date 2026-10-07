@@ -12,7 +12,7 @@ path_prepend() { [[ ":$PATH:" != *":$1:"* ]] && export PATH="$1:$PATH" }
 # COLORTERM is lost and TERM arrives as plain "xterm". Chalk-based CLIs
 # (Claude Code, Copilot CLI, ...) then drop to 16-color mode and downsample
 # their brand colors to the nearest ANSI color — Claude Code's orange becomes
-# ANSI red, which the bundled Ghostty palette renders as maroon (#590008).
+# ANSI red instead of orange.
 # devcontainer.json sets COLORTERM container-wide; this guard covers shells
 # that reach zsh without it (older containers, plain docker exec, ssh).
 # Both documented hosts (Ghostty, VS Code) are truecolor terminals.
@@ -28,10 +28,27 @@ fi
 # Oh My Zsh
 # ===================
 export ZSH="$HOME/.oh-my-zsh"
-ZSH_THEME="awesomepanda"
-plugins=(git zsh-autosuggestions zsh-syntax-highlighting)
+# The prompt comes from Starship (below), baked into the image by the
+# Dockerfile. An image built before that layer has no starship binary, so
+# fall back to an Oh My Zsh theme there rather than a bare prompt.
+if command -v starship &>/dev/null; then
+    ZSH_THEME=""
+else
+    ZSH_THEME="awesomepanda"
+fi
+# 'git' plugin left out: it defines ~200 aliases. The prompt's git info comes
+# from Starship (or, in the fallback, oh-my-zsh lib/git.zsh, not the plugin).
+plugins=(zsh-autosuggestions zsh-syntax-highlighting)
 
 [[ -f "$ZSH/oh-my-zsh.sh" ]] && source "$ZSH/oh-my-zsh.sh"
+
+# ===================
+# Starship prompt (config: ~/.config/starship.toml, linked by post-create.sh
+# to the bundled config/starship/starship.toml)
+# ===================
+if command -v starship &>/dev/null; then
+    eval "$(starship init zsh)"
+fi
 
 # ===================
 # Ghostty Integration

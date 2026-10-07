@@ -1,0 +1,98 @@
+# Starship prompt
+# Colours are ANSI names, so they follow the terminal theme
+# (Gruvbox Material in Ghostty). No Nerd Font glyphs required.
+
+"$schema" = "https://starship.rs/config-schema.json"
+
+add_newline = true
+
+format = """
+$directory$git_branch$git_state$git_status${custom.git_identity}$python$nodejs$docker_context$azure${custom.gh}${custom.claude}$container$cmd_duration
+$character"""
+
+[directory]
+style = "bold blue"
+truncation_length = 3
+truncate_to_repo = true
+
+[git_branch]
+format = "[on](dimmed) [$branch]($style) "
+style = "bold purple"
+
+[git_state]
+style = "bold yellow"
+
+[git_status]
+format = "([$all_status$ahead_behind]($style) )"
+style = "yellow"
+conflicted = "="
+ahead = "^${count}"
+behind = "v${count}"
+diverged = "^${ahead_count}v${behind_count}"
+untracked = "?"
+stashed = "*"
+modified = "!"
+staged = "+"
+renamed = ">"
+deleted = "x"
+
+[python]
+format = "[py $version( \\($virtualenv\\))]($style) "
+style = "yellow"
+
+[nodejs]
+format = "[node $version]($style) "
+style = "green"
+
+[azure]
+disabled = false
+format = "[az $subscription]($style) "
+style = "cyan"
+
+# Active GitHub account (what `ghw` reports), read from gh's local config so
+# the prompt makes no network call. Only the `user:` line is read.
+[custom.gh]
+command = "awk '/^github.com:/{h=1;next} /^[^ ]/{h=0} h&&/^    user:/{print $2;exit}' ~/.config/gh/hosts.yml"
+when = "test -f ~/.config/gh/hosts.yml"
+shell = ["sh"]
+format = "[gh $output]($style) "
+style = "purple"
+
+# Claude account Claude Code is logged in as, read from .claude.json
+# (inside $CLAUDE_CONFIG_DIR when set, as in kokko-devcontainer; else $HOME).
+[custom.claude]
+command = "jq -r '.oauthAccount.emailAddress // empty' \"${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json\""
+when = "test -f \"${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json\" && command -v jq >/dev/null"
+shell = ["sh"]
+format = "[claude $output]($style) "
+style = "yellow"
+
+# Git commit identity, shown only inside a repo whose user.email differs from
+# the global one (or when no global identity is set, as in a fresh container).
+[custom.git_identity]
+command = "git config user.email"
+when = "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ \"$(git config user.email)\" != \"$(git config --global user.email)\" ]"
+shell = ["sh"]
+format = "[as $output]($style) "
+style = "bold red"
+
+# Shown only inside a container (devcontainer shells via `dce`).
+[container]
+format = "[⬢ $name]($style) "
+style = "bold red"
+
+# Shown whenever Docker points at a non-default context (e.g. colima),
+# not only in folders with a Dockerfile.
+[docker_context]
+only_with_files = false
+format = "[docker $context]($style) "
+style = "blue"
+
+[cmd_duration]
+min_time = 2_000
+format = "[took $duration]($style) "
+style = "dimmed"
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
