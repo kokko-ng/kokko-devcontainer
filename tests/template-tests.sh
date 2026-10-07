@@ -191,6 +191,11 @@ assert_jq "bundled settings.json stays valid JSON" \
 assert_jq "default roster ships the kokko-ng plugins" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.enabledPlugins | length > 0 and (keys | any(test("@kokko-ng-")))'
+assert_jq "default roster includes the context-bar mod" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.enabledPlugins["context-bar@kokko-ng-claude-context-bar"] == true'
+assert_jq "default render ships the dark-ansi theme" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" '.theme == "dark-ansi"'
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'

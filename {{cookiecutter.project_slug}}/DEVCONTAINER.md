@@ -142,7 +142,8 @@ plugins to `settings.json`, then run `bash .devcontainer/post-create.sh --config
 {%- else -%}
 This project ships the `kokko-ng` roster
 ([kokko-skills](https://github.com/kokko-ng/kokko-skills),
-[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill)). A plugin set to
+[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill),
+[claude-context-bar](https://github.com/kokko-ng/claude-context-bar)). A plugin set to
 `false` is never installed.
 {%- endif %}
 

@@ -50,7 +50,8 @@
     "kokko-notifications@kokko-ng-kokko-cmds": true,
     "kokko-validation@kokko-ng-kokko-cmds": true,
     "kokko-viz@kokko-ng-kokko-cmds": true,
-    "kokko-janitor@kokko-ng-kokko-janitor": true
+    "kokko-janitor@kokko-ng-kokko-janitor": true,
+    "context-bar@kokko-ng-claude-context-bar": true
   },
   "extraKnownMarketplaces": {
     "kokko-ng-kokko-cmds": {
@@ -64,7 +65,14 @@
         "source": "github",
         "repo": "kokko-ng/kokko-janitor-skill"
       }
+    },
+    "kokko-ng-claude-context-bar": {
+      "source": {
+        "source": "github",
+        "repo": "kokko-ng/claude-context-bar"
+      }
     }
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "theme": "dark-ansi"
 }

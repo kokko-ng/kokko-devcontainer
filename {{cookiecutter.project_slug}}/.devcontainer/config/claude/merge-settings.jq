@@ -25,9 +25,10 @@
 #     wired in when no hook in that event references it yet. A user's own
 #     hooks are never touched, a user's edits to the bundled entry (a
 #     different timeout, say) survive, and a second run adds nothing.
-#   * attribution, permissions.defaultMode, alwaysThinkingEnabled — only when
-#     absent: a fresh settings.json gets the bundled defaults, while any value
-#     the user has set — whatever it is — wins.
+#   * attribution, permissions.defaultMode, alwaysThinkingEnabled, theme —
+#     only when absent: a fresh settings.json gets the bundled defaults, while
+#     any value the user has set — whatever it is, a /theme pick included —
+#     wins.
 #
 # Policy that must NOT be user-overridable (the deny list, the bypass-mode
 # lock) is not merged here at all: it ships in managed-settings.json, which
@@ -98,6 +99,9 @@ def wired($groups):
   else . end
 | if (has("alwaysThinkingEnabled") | not) and ($new | has("alwaysThinkingEnabled"))
   then .alwaysThinkingEnabled = $new.alwaysThinkingEnabled
+  else . end
+| if (has("theme") | not) and ($new | has("theme"))
+  then .theme = $new.theme
   else . end
 | if .skipDangerousModePermissionPrompt == true
   then del(.skipDangerousModePermissionPrompt)

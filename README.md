@@ -220,9 +220,11 @@ plugin set to `true` in `enabledPlugins`, both read from
 plugin that is already installed, so without this step a fresh container comes up with an
 empty plugin directory.
 
-With `claude_plugin_roster=kokko-ng` (the default) that is all 9 `kokko-ng` plugins across
-[kokko-skills](https://github.com/kokko-ng/kokko-skills) and
-[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill). With `none` the roster is empty
+With `claude_plugin_roster=kokko-ng` (the default) that is all 10 `kokko-ng` plugins across
+[kokko-skills](https://github.com/kokko-ng/kokko-skills),
+[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill) and
+[claude-context-bar](https://github.com/kokko-ng/claude-context-bar) (a mod that draws a
+context-window bar above the prompt). With `none` the roster is empty
 and you add your own. Either way, edit `enabledPlugins` afterwards to change it; a plugin
 set to `false` is never installed.
 

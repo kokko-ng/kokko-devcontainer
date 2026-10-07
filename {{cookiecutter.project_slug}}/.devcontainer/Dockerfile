@@ -98,7 +98,7 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
 # mapping the base image owns and silently rot when that image changes it.
 # hadolint ignore=DL3066
 USER vscode
-RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.274
+RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.292
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
 # hadolint ignore=DL3002,DL3066

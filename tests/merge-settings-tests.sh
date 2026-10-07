@@ -74,6 +74,12 @@ check "bundle wires only the SessionStart status hook" \
        and ([.hooks.SessionStart[].hooks[].command] == [\"$HOOK_CMD\"])" "$BUNDLE_JSON"
 check "bundle does not roster kokko-safety" \
     '.enabledPlugins | has("kokko-safety@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
+check "bundle ships the dark-ansi theme (the terminal's palette)" \
+    '.theme == "dark-ansi"' "$BUNDLE_JSON"
+check "bundle rosters context-bar from its own public marketplace" \
+    '.enabledPlugins["context-bar@kokko-ng-claude-context-bar"] == true
+       and .extraKnownMarketplaces["kokko-ng-claude-context-bar"].source
+           == {"source": "github", "repo": "kokko-ng/claude-context-bar"}' "$BUNDLE_JSON"
 check "bundle no longer ships skipDangerousModePermissionPrompt" \
     'has("skipDangerousModePermissionPrompt") | not' "$BUNDLE_JSON"
 check "bundle raises the Bash tool limits" \
@@ -181,6 +187,15 @@ check "user's sandbox toggle wins, bundled sandbox keys fill the gaps" \
     '.sandbox.enabled == true
        and .sandbox.enableWeakerNestedSandbox == true
        and (.sandbox.excludedCommands | index("docker *") != null)' "$m1"
+
+check "bundled theme added when absent" '.theme == "dark-ansi"' "$m1"
+check "bundled context-bar roster entry added when absent" \
+    '.enabledPlugins["context-bar@kokko-ng-claude-context-bar"] == true
+       and (.extraKnownMarketplaces | has("kokko-ng-claude-context-bar"))' "$m1"
+
+# A theme the user picked (with /theme) is theirs: the merge never resets it.
+m_theme=$(jq -s -f "$MERGE_JQ" <(echo '{"theme":"light"}') "$BUNDLED_SETTINGS")
+check "user-chosen theme is preserved" '.theme == "light"' "$m_theme"
 
 # A defaultMode the user chose (anything but the old bundled acceptEdits)
 # must never be migrated.
