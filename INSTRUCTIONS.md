@@ -464,8 +464,10 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 .devcontainer/config/
 ├── zsh/
 │   ├── .zshrc           # Entry point — sources integrations and aliases
-│   ├── integrations.zsh # oh-my-zsh, fzf, Ghostty shell integration
-│   └── aliases.zsh      # Aliases for Claude, devcontainer, etc.
+│   ├── integrations.zsh # oh-my-zsh, Starship, fzf, Ghostty shell integration
+│   └── aliases.zsh      # Aliases for Claude, devcontainer, etc. (`als` lists them)
+├── starship/
+│   └── starship.toml    # Prompt config, linked to ~/.config/starship.toml
 └── claude/
     ├── CLAUDE.md              # Global Claude Code instructions
     ├── settings.json          # Claude Code defaults (merged; the user's values win)
@@ -475,7 +477,7 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
     └── prune-roster.jq        # Prunes roster entries the bundle dropped
 ```
 
-`post-create.sh` symlinks `config/zsh/` into `~/.config/zsh` and `~/.zshrc`, so edits to the bundled files take effect after reopening the shell.
+`post-create.sh` symlinks `config/zsh/` into `~/.config/zsh` and `~/.zshrc`, and `config/starship/starship.toml` to `~/.config/starship.toml`, so edits to the bundled files take effect after reopening the shell.
 
 ### Aliases
 
@@ -483,13 +485,31 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 |-------|---------|---------|
 | `cca` | `claude --permission-mode auto` | Claude in Auto mode (built-in classifier approves safe tool calls) |
 | `ccac` | `claude --permission-mode auto --continue` | Claude in Auto mode, continuing last session |
+| `ccar` | `claude --permission-mode auto --resume` | Claude in Auto mode, picking a past session to resume |
 | `cu` | `curl -fsSL https://claude.ai/install.sh \| bash` | Install the latest Claude Code release now (the image pins a version and auto-update is off; a rebuild restores the pin) |
 | `caat` | `copilot --allow-all-tools --banner` | GitHub Copilot CLI with all tools |
 | `azw` | `az account show --query "{user:user.name, subscription:name, tenant:tenantId}" -o table` | Which Azure account, subscription and tenant am I on |
+| `azl` | `az login` | Log in to Azure |
 | `ghw` | `gh auth status` | Which GitHub account the CLI is authenticated as |
+| `ghl` | `gh auth login` | Log in to GitHub |
+| `gs` | `git status --short --untracked-files=no` | Short status of tracked files |
 | `dce` | `devcontainer exec --workspace-folder . zsh` | Open a shell in the running container |
 | `dcu` | `devcontainer up --workspace-folder .` | Start the devcontainer |
 | `dcur` | `devcontainer up --workspace-folder . --remove-existing-container` | Rebuild the container from scratch |
+| `als` | (function) | List these aliases, grouped by section |
+
+### Prompt
+
+The prompt is [Starship](https://starship.rs), baked into the image at a pinned
+version and configured by `config/starship/starship.toml` (linked to
+`~/.config/starship.toml`). Besides directory and git branch/status it shows, when they
+apply: a `⬢` marker inside the container (`⌂ host` outside one, and `colima off` on a
+host with Colima installed but stopped), the git `user.email` when a repo overrides the
+global identity, the Docker context when it is not the default, the Azure subscription,
+the GitHub account (read from `~/.config/gh/hosts.yml`, no network call) and the Claude
+account (read from `$CLAUDE_CONFIG_DIR/.claude.json`). Colours are ANSI names, so the
+prompt takes its palette from the terminal theme. An image built before the Starship
+layer falls back to the `awesomepanda` Oh My Zsh theme.
 
 ---
 
@@ -630,9 +650,9 @@ docker volume rm dind-var-lib-docker-<hash>
 
 Note that Colima does not create `/var/run/docker.sock` on the host by default; see [Colima socket path](#colima-socket-path-in-ci-or-other-tools) for the symlink.
 
-### Claude Code (and other CLI) colors look wrong — orange renders as maroon
+### Claude Code (and other CLI) colors look wrong — orange renders as red
 
-`devcontainer exec` / `docker exec` do not forward the host terminal's environment: inside the container `COLORTERM` is unset and `TERM` is plain `xterm`. Chalk-based CLIs such as Claude Code read those variables to pick a color depth, fall back to 16-color mode, and downsample their true-color UI to the nearest ANSI color — Claude Code's orange becomes ANSI red, which the bundled Ghostty palette (`palette = 1=#590008`) renders as dark maroon.
+`devcontainer exec` / `docker exec` do not forward the host terminal's environment: inside the container `COLORTERM` is unset and `TERM` is plain `xterm`. Chalk-based CLIs such as Claude Code read those variables to pick a color depth, fall back to 16-color mode, and downsample their true-color UI to the nearest ANSI color — Claude Code's orange becomes ANSI red, which the terminal palette renders as red rather than orange.
 
 Two layers fix this:
 
