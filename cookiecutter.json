@@ -22,6 +22,7 @@
   "__volume_prefix": "{% if cookiecutter.cache_volume_scope == 'per-project' %}{{ cookiecutter.project_slug }}{% else %}devcontainer{% endif %}",
   "_copy_without_render": [
     ".devcontainer/config/zsh/*",
+    ".devcontainer/config/starship/*",
     ".devcontainer/config/claude/*.jq",
     ".devcontainer/config/claude/CLAUDE.md",
     ".devcontainer/config/claude/settings.json",
