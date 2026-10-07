@@ -1,4 +1,4 @@
-# Ghostty configuration - matching iTerm2 nvimlight settings
+# Ghostty configuration
 
 # Font settings
 font-family = JetBrains Mono
@@ -12,12 +12,16 @@ adjust-cell-width = -8%
 copy-on-select = true
 
 # Window size (columns x rows)
-window-width = 80
-window-height = 25
+window-width = 120
+window-height = 36
 
 # Cursor settings
 cursor-style = block
 cursor-style-blink = false
+
+# No progress bar along the top of the window: apps (Claude Code included)
+# report progress with OSC 9;4, which Ghostty otherwise draws as a moving bar.
+progress-style = false
 
 # Bell - audible bell on BEL character (used by devcontainer hook notifications)
 # Uses the same Mac system sound as kokko-notifications hooks
@@ -28,27 +32,9 @@ bell-audio-volume = 1.0
 # Shell settings - ensure zsh loads with login shell for oh-my-zsh
 command = /bin/zsh --login
 
-# nvimlight color scheme with custom light gray background
-background = #d1d2d7
-foreground = #14161b
-cursor-color = #9b9ea4
-selection-background = #9b9ea4
-selection-foreground = #14161b
-
-# ANSI colors (nvimlight palette from iTerm2)
-palette = 0=#07080d
-palette = 1=#590008
-palette = 2=#005523
-palette = 3=#6b5300
-palette = 4=#004c73
-palette = 5=#470045
-palette = 6=#007373
-palette = 7=#eef1f8
-palette = 8=#4f5258
-palette = 9=#590008
-palette = 10=#005523
-palette = 11=#6b5300
-palette = 12=#004c73
-palette = 13=#470045
-palette = 14=#007373
-palette = 15=#eef1f8
+# Theme: Gruvbox Material, medium contrast, dark by default.
+# For light/dark following macOS instead:
+#   theme = light:Gruvbox Material Light,dark:Gruvbox Material Dark
+# Starship, the Claude Code statusline and the dark-ansi Claude Code theme
+# use ANSI colour names, so they take their colours from this theme.
+theme = Gruvbox Material Dark

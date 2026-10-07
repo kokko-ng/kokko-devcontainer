@@ -123,6 +123,8 @@ assert_jq "managed settings and the Claude hooks are excluded from rendering" "$
     '._copy_without_render
        | (index(".devcontainer/config/claude/managed-settings.json") != null)
        and (index(".devcontainer/config/claude/hooks/*") != null)'
+assert_jq "the Starship config is excluded from rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render | index(".devcontainer/config/starship/*") != null'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
 # ===========================================================================
@@ -229,6 +231,8 @@ assert "default Dockerfile pins the Claude Code version" \
     grep -qE 'install\.sh \| bash -s [0-9]+\.[0-9]+\.[0-9]+$' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile pins the Starship version" \
+    grep -qE 'starship/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins pre-commit" \
     grep -qE 'pip install .* pre-commit==[0-9]+\.[0-9]+\.[0-9]+' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins the base image by digest" \
@@ -242,7 +246,8 @@ assert "extracted host certs are gitignored inside .devcontainer" \
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
          config/claude/settings.json config/claude/CLAUDE.md \
-         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh; do
+         config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh \
+         config/starship/starship.toml; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
 done
@@ -323,6 +328,8 @@ assert_jq "emptying the roster keeps the other settings" \
 
 refute "slim Dockerfile drops the ODBC driver" \
     grep -q msodbcsql18 "$SLIM/.devcontainer/Dockerfile"
+assert "slim Dockerfile still installs Starship" \
+    grep -q 'starship/releases/download/' "$SLIM/.devcontainer/Dockerfile"
 assert "slim Dockerfile still installs jq" \
     grep -q 'install -y --no-install-recommends jq' "$SLIM/.devcontainer/Dockerfile"
 assert "non-default python version reaches FROM" \

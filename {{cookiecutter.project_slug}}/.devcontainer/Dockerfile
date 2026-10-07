@@ -68,6 +68,16 @@ RUN HU="${HOST_USER:-vscode}"; mkdir -p /Users && ln -sfn /home/vscode "/Users/$
 COPY certs/ /usr/local/share/ca-certificates/host/
 RUN update-ca-certificates
 
+# Starship prompt, PINNED: the static musl build from the release page, picked
+# by architecture (aarch64 on Apple Silicon hosts, x86_64 on CI). The bundled
+# zsh config falls back to an Oh My Zsh theme when the binary is absent, so an
+# image built before this layer still gets a prompt. Placed after the CA layer
+# so the download trusts corporate-proxy certs. Dependabot cannot see this pin
+# (MANAGING.md -> Pin audit).
+RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/starship-$(uname -m)-unknown-linux-musl.tar.gz" \
+    | tar -xz -C /usr/local/bin starship \
+    && starship --version
+
 # Claude Code native binary, PINNED and baked into the image, so every rebuild
 # neither re-downloads it in post-create nor picks up whatever happens to be
 # the latest release that day: two rebuilds produce the same agent, which is
