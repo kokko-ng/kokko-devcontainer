@@ -61,10 +61,15 @@ so keep that below the VM's own `--memory`.
 dev                 # start Colima and the container if needed, then a shell in it
 dev -t              # ... in a new Ghostty tab
 dev claude          # ... straight into Claude Code
+dev code            # ... VS Code, attached to the container dev started
 dev guide           # everything else (stop, rebuild, root shell, VM size)
 
-code .              # or VS Code: accept "Reopen in Container"
+code .              # or VS Code on its own: accept "Reopen in Container"
 ```
+
+With the outbound firewall on, set `"remote.downloadExtensionsLocally": true` in your
+VS Code user settings: extensions then download on the Mac and are copied in, since
+the extension gallery's download hosts cannot all be allowlisted.
 
 `dev` is `bin/dev` in the upstream repo, linked onto your PATH. It sizes the Colima VM
 for your Mac, runs one devcontainer at a time on a Mac under 16 GB, and fills the shared
