@@ -219,7 +219,7 @@ Enter to accept any default.
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
 | `claude_attribution` | `host` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `host` copies your own Claude Code setting (`attribution` in `~/.claude/settings.json`) at generation; `no` hides both; `yes` keeps Claude Code's default |
-| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or turn the sandbox off; `dev root` gives you root from the host |
+| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or open the firewall; `dev root` gives you root from the host |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache and sign-in volumes (gh, Claude token, Azure) across projects, so you sign in once per Mac; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
 | `container_memory_limit` | `5g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory`. `dev` overrides it with 1 GB under the VM it sized for your Mac |
 | `git_user_name` | blank | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Blank (the default) uses the host's own `git config user.name/user.email`, recorded before every build. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds |
@@ -717,8 +717,9 @@ dev auth
 
 With `cache_volume_scope: shared` every project uses the same volumes. The sign-ins are
 yours, so an agent in Auto mode can do with gh and az what you can, short of the
-managed deny list; the locked sandbox keeps its commands from sending them anywhere but
-GitHub and Azure, and the policy denies printing or reading the tokens. Renew the Claude
+managed deny list; the outbound firewall keeps anything in the container from sending
+them anywhere but the allowlisted hosts, and the policy denies printing or reading the
+tokens. Renew the Claude
 token with `dev auth --claude`.
 
 ### Git identity

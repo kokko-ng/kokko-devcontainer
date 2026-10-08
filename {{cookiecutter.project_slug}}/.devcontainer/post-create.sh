@@ -75,6 +75,9 @@ fi
 # else removes it (lock_sudo), which is what keeps the policy out of an
 # agent's reach.
 AGENT_SUDO="${DEVCONTAINER_AGENT_SUDO:-1}"
+# 1 applies the outbound firewall (devcontainer-firewall, baked into the image)
+# on every start. Off on a bare run, where the image may not carry it.
+FIREWALL="${DEVCONTAINER_FIREWALL:-0}"
 
 # =====================
 # Retry / degrade helpers
@@ -342,10 +345,31 @@ install_managed_settings() {
 }
 
 # =====================
+# Outbound firewall
+# =====================
+# Limits every process in the container to the hosts in the baked-in
+# allowlist (firewall/allowed-domains.txt). Runs on every start because a
+# restarted container gets a fresh network namespace without the rules. The
+# script is root-owned in the image and the only thing the container user may
+# run through sudo after lock_sudo; it only ever rebuilds the same rules.
+apply_firewall() {
+    if [[ "$FIREWALL" != "1" ]]; then
+        echo "=== Outbound firewall off (DEVCONTAINER_FIREWALL=$FIREWALL) ==="
+        return 0
+    fi
+    echo "=== Applying the outbound firewall ==="
+    if sudo -n /usr/local/sbin/devcontainer-firewall 2>&1 | sed 's/^/  /'; then
+        return 0
+    fi
+    echo "  WARNING: the firewall did not apply; outbound traffic is NOT limited"
+    echo "firewall" >>"$PROVISION_STATUS"
+}
+
+# =====================
 # Sudo lock
 # =====================
 # Devcontainer images give the container user passwordless sudo, and with it
-# an agent could rewrite the policy above, edit the sandbox out, or install
+# an agent could rewrite the policy above, flush the firewall, or install
 # whatever it likes. Once provisioning has done its root steps, remove that
 # grant unless DEVCONTAINER_AGENT_SUDO=1. Runs at the end of both modes, so a
 # restarted container is locked again too; a rebuild restores sudo for the
@@ -363,9 +387,11 @@ lock_sudo() {
     fi
     local user f
     user="$(id -un)"
+    # Only blanket grants (NOPASSWD: ALL) go; the rule that lets the user
+    # re-run the firewall script, and nothing else, stays.
     for f in /etc/sudoers.d/*; do
         [[ -f "$f" ]] || continue
-        if sudo -n grep -qE "^[[:space:]]*($user|%sudo)[[:space:]].*NOPASSWD" "$f" 2>/dev/null; then
+        if sudo -n grep -qE "^[[:space:]]*($user|%sudo)[[:space:]].*NOPASSWD:[[:space:]]*ALL[[:space:]]*$" "$f" 2>/dev/null; then
             sudo -n rm -f "$f" && echo "  removed $f"
         fi
     done
@@ -845,6 +871,7 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."
     echo ""
+    apply_firewall
     lock_sudo
     exit 0
 fi
@@ -864,6 +891,7 @@ install_playwright_browsers
 install_frontend_deps
 install_precommit_hooks
 create_env_file
+apply_firewall
 
 # =====================
 # Done

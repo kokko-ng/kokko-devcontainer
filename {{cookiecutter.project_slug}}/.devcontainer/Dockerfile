@@ -39,7 +39,7 @@ RUN . /etc/os-release \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/${VERSION_ID}/prod ${VERSION_CODENAME} main" > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
-    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev jq fzf fd-find shellcheck bubblewrap socat \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc-dev jq fzf fd-find shellcheck bubblewrap socat iptables ipset dnsutils iproute2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 {%- else -%}
 # jq is a HARD dependency of post-create.sh — the settings merge, roster prune,
@@ -50,7 +50,7 @@ RUN . /etc/os-release \
 # with /sandbox.
 # hadolint ignore=DL3008
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq fzf fd-find shellcheck bubblewrap socat \
+    && apt-get install -y --no-install-recommends jq fzf fd-find shellcheck bubblewrap socat iptables ipset dnsutils iproute2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 {%- endif %}
 
@@ -68,10 +68,20 @@ RUN HU="${HOST_USER:-vscode}"; mkdir -p /Users && ln -sfn /home/vscode "/Users/$
 COPY certs/ /usr/local/share/ca-certificates/host/
 RUN update-ca-certificates
 
-# Claude Code policy (deny list, bypass lock, sandbox), root-owned in the image.
+# Claude Code policy (deny list, bypass lock), root-owned in the image.
 # post-create.sh removes the container user's sudo after provisioning, so an
 # agent cannot rewrite it; a policy change takes a rebuild, which only you run.
 COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json
+
+# Outbound firewall (firewall/init-firewall.sh): root-owned script and
+# allowlist, and the one thing the container user may still run through sudo
+# once post-create.sh has removed the rest. It only rebuilds the same rules.
+COPY firewall/init-firewall.sh /usr/local/sbin/devcontainer-firewall
+COPY firewall/allowed-domains.txt /etc/devcontainer/allowed-domains.txt
+RUN chmod 0755 /usr/local/sbin/devcontainer-firewall \
+    && chmod 0644 /etc/devcontainer/allowed-domains.txt \
+    && echo 'vscode ALL=(root) NOPASSWD: /usr/local/sbin/devcontainer-firewall' > /etc/sudoers.d/devcontainer-firewall \
+    && chmod 0440 /etc/sudoers.d/devcontainer-firewall
 
 # Starship prompt, PINNED: the static musl build from the release page, picked
 # by architecture (aarch64 on Apple Silicon hosts, x86_64 on CI). The bundled
