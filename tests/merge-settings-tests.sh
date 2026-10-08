@@ -103,8 +103,24 @@ check "managed settings deny the destructive cloud, docker and gh operations" \
        and (index("Bash(gh repo delete*)") != null)' "$MANAGED_JSON"
 # A bare "Bash" deny would remove the tool from Claude entirely; every rule
 # must be scoped to a command pattern.
-check "every deny rule is a scoped Bash pattern" \
-    '.permissions.deny | all(test("^Bash\\(.+\\)$"))' "$MANAGED_JSON"
+check "every deny rule is a scoped Bash, Read or Edit pattern" \
+    '.permissions.deny | all(test("^(Bash|Read|Edit)\\(.+\\)$"))' "$MANAGED_JSON"
+# The shared sign-ins are reachable inside the container (the firewall, not
+# the policy, limits where they can go); the policy at least refuses to read
+# the Claude token file or print the gh and az tokens on an agent's behalf.
+# Claude Code's own Bash sandbox is not used: bubblewrap cannot create user
+# namespaces in an unprivileged container, and the policy must not turn it on.
+check "policy does not switch on the Bash sandbox" \
+    '(.sandbox.enabled // false) == false' "$MANAGED_JSON"
+check "policy denies reading the shared Claude token" \
+    '.permissions.deny | index("Read(~/.config/claude-auth/**)") != null' "$MANAGED_JSON"
+# CLAUDE_CODE_SUBPROCESS_ENV_SCRUB forces the permission mode back to default,
+# which would switch Auto mode off: the policy must never set it.
+check "policy leaves Auto mode on (no subprocess env scrub)" \
+    '(.env // {}) | has("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB") | not' "$MANAGED_JSON"
+check "policy denies printing gh and az tokens" \
+    '(.permissions.deny | index("Bash(gh auth token*)") != null)
+       and (.permissions.deny | index("Bash(az account get-access-token*)") != null)' "$MANAGED_JSON"
 check "managed settings carry no allow rules or defaults" \
     '(.permissions | has("allow") or has("defaultMode")) | not' "$MANAGED_JSON"
 

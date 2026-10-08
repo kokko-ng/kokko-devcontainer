@@ -19,6 +19,22 @@ blocks the irreversible operations: force-push in any spelling, `git reflog expi
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
+**The container has an outbound firewall** that you cannot change and must not try to:
+everything here reaches only an allowlist of hosts (GitHub, Copilot, Anthropic, npm, PyPI,
+Azure, and what the project added). A request that fails with "connection refused" to a
+host outside that list is the firewall, not a bug: say which host it needed and let the
+user add it to `.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
+allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
+(the only thing sudo does here). There is no other sudo; system packages need a
+Dockerfile change and a rebuild, which the user runs. Do not read the gh, Azure or Claude
+credential files or print their tokens.
+
+**This may be a small machine.** The container has a hard memory cap (a few GB on an
+8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
+time: no `pytest -n auto`, no `make -j`, no several installs or builds at once, no more
+dev servers than the task needs, and stop the ones you started when you are done. If a
+step looks likely to need more than about 2 GB of memory, ask first.
+
 A `SessionStart` hook prints any provisioning step that failed when the container was
 built. If it does, the tools that step installs may be missing — fix the cause or tell
 the user before working around it.

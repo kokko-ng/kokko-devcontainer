@@ -60,18 +60,21 @@ Claude Code runs in Auto mode. A managed deny list in
 `/etc/claude-code/managed-settings.json` blocks the irreversible operations: force-push,
 `git reflog expire`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
 A denied command was denied on purpose — report it and ask, do not look for another
-spelling of the same operation. Bypass mode is disabled.
+spelling of the same operation. Bypass mode is disabled. There is no sudo.
+{%- if cookiecutter.network_firewall == "on" %} An outbound
+firewall limits the container to the hosts in `.devcontainer/firewall/allowed-domains.txt`;
+"connection refused" to anything else is the firewall — name the host and let the user
+add it.{% endif %}
 
 ## Git
 
-- {% if cookiecutter.git_user_name -%}
-  The author identity is preconfigured.
-  {%- else -%}
-  No author identity is configured: set `git config --global user.name` and `user.email`
-  before the first commit.
-  {%- endif %}
+- The author identity is preconfigured (the template's answers, or the host's own git
+  identity); commit as it, never as yourself.
 - {% if cookiecutter.claude_attribution == "yes" -%}
   Claude Code adds its own `Co-Authored-By` trailer; do not add another by hand.
+  {%- elif cookiecutter.claude_attribution == "host" -%}
+  Whether Claude Code adds its `Co-Authored-By` trailer follows `attribution` in
+  `~/.claude/settings.json`; never add one by hand.
   {%- else -%}
   Claude Code's `Co-Authored-By` trailer is switched off for this project; do not add
   one by hand.

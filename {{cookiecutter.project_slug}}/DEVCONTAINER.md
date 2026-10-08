@@ -44,25 +44,31 @@ count it. Prune it periodically from inside the container with `docker system pr
 | Frontend package root | `{{ cookiecutter.frontend_dir }}/` | `devcontainer.json` -> `DEVCONTAINER_FRONTEND_DIR` |
 | Backend port | `{{ cookiecutter.backend_port }}` | `devcontainer.json` -> `forwardPorts` |
 | Frontend port | `{{ cookiecutter.frontend_port }}` | `devcontainer.json` -> `forwardPorts` |
-| Container memory cap | `{{ cookiecutter.container_memory_limit }}` | `devcontainer.json` -> `runArgs` (`--memory`, `--memory-swap`) |
+| Container memory cap | 1 GB under the Colima VM when started with `dev`, else `{{ cookiecutter.container_memory_limit }}` | `devcontainer.json` -> `runArgs` (`--memory`, `--memory-swap`) |
 
 `post-create.sh` runs `uv sync` when a `pyproject.toml` exists and installs
 frontend dependencies when `{{ cookiecutter.frontend_dir }}/` exists. Neither is required — the
 container comes up either way.
 
 The memory cap is per container: a runaway process gets killed inside this container
-instead of taking the whole Colima VM (and every other project) down. Keep it below the
-VM's own `--memory`.
+instead of taking the whole Colima VM (and every other project) down. `dev` sets it to
+1 GB under the VM it sized for your Mac; started any other way, the answer above applies,
+so keep that below the VM's own `--memory`.
 
 ## Starting it
 
 ```bash
-code .                                   # then accept "Reopen in Container"
+dev                 # start Colima and the container if needed, then a shell in it
+dev -t              # ... in a new Ghostty tab
+dev claude          # ... straight into Claude Code
+dev guide           # everything else (stop, rebuild, root shell, VM size)
 
-# — or — without VS Code
-devcontainer up --workspace-folder .
-devcontainer exec --workspace-folder . zsh
+code .              # or VS Code: accept "Reopen in Container"
 ```
+
+`dev` is `bin/dev` in the upstream repo, linked onto your PATH. It sizes the Colima VM
+for your Mac, runs one devcontainer at a time on a Mac under 16 GB, and fills the shared
+sign-in volumes below from your Mac on first start.
 
 Host prerequisites (Colima, the devcontainer CLI, Ghostty) are covered in the
 upstream [INSTRUCTIONS.md](https://github.com/kokko-ng/kokko-devcontainer/blob/main/INSTRUCTIONS.md).
@@ -71,22 +77,26 @@ upstream [INSTRUCTIONS.md](https://github.com/kokko-ng/kokko-devcontainer/blob/m
 
 | Volume | Holds | Scope |
 |---|---|---|
-| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code login, installed plugins, session transcripts, auto-memory | Always this project only. `post-create.sh` merges this project's bundled settings and plugin roster into the `settings.json` inside it on every start, and two projects sharing one file would undo each other's roster |
-| `{{ cookiecutter.__volume_prefix }}-gh-config` | `gh auth login` | Follows `cache_volume_scope` |
+| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code installed plugins, settings, session transcripts, auto-memory | Always this project only. `post-create.sh` merges this project's bundled settings and plugin roster into the `settings.json` inside it on every start, and two projects sharing one file would undo each other's roster |
+| `{{ cookiecutter.__volume_prefix }}-gh-config` | The gh sign-in (also used by git over https and by Copilot CLI) | Follows `cache_volume_scope` |
+| `{{ cookiecutter.__volume_prefix }}-claude-auth` | A long-lived Claude Code token (`claude setup-token`) | Follows `cache_volume_scope` |
+{%- if cookiecutter.include_azure_cli == "yes" %}
+| `{{ cookiecutter.__volume_prefix }}-azure-config` | The Azure CLI sign-in | Follows `cache_volume_scope` |
+{%- endif %}
 | `{{ cookiecutter.__volume_prefix }}-uv-cache`, `-npm-cache`, `-zsh-history` | Package caches and shell history | Follows `cache_volume_scope` |
 {%- if cookiecutter.include_playwright == "yes" %}
 | `{% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %}` | Playwright browsers | Follows `cache_volume_scope` |
 {%- endif %}
 
-So you sign in to `claude` and `gh` once per project, not once per rebuild. Nothing is
-bind-mounted from the host: host credential directories (`~/.ssh`, `~/.azure`, the
-host's own `~/.claude`) stay outside, because everything reachable inside the container
-is reachable by an agent running without prompts. Sign in from inside the container
-instead, with the narrowest identity that does the job.
-{%- if cookiecutter.include_azure_cli == "yes" %}
-A commented-out named volume for an in-container `az login` is in `devcontainer.json`;
-use a least-privilege identity for it, since every agent session then carries it.
-{%- endif %}
+With the shared scope, you sign in once per Mac, not per project or rebuild: `dev`
+copies your Mac's gh token{% if cookiecutter.include_azure_cli == "yes" %} and az token cache{% endif %} into these volumes on first start, Copilot CLI
+reuses the gh sign-in, and `dev auth` creates the Claude Code token once and keeps it in
+the macOS Keychain. Nothing is bind-mounted from the host: host credential directories
+(`~/.ssh`, `~/.azure`, the host's own `~/.claude`) stay outside, because everything
+reachable inside the container is reachable by an agent running without prompts. The
+outbound firewall below keeps anything in the container from sending these sign-ins
+anywhere but the allowlisted hosts, but they are as powerful as your own: Auto mode can do with gh and az what you
+can, short of the deny list.
 
 ## Commit authorship
 
@@ -96,12 +106,15 @@ Every commit made in this container, by you or by Claude Code, is authored as
 `user.email` on first provision and never overwrites a value that is already set, so a
 change you make inside the container survives rebuilds.
 {%- else -%}
-No git identity was given to the template, so `post-create.sh` leaves `user.name` and
-`user.email` alone. Set them inside the container before the first commit.
+Every commit made in this container, by you or by Claude Code, is authored as you: no
+identity was given to the template, so `post-create.sh` uses the one your Mac commits
+with here (`git config user.name` and `user.email`, recorded by `init-host-identity.sh`
+before every build). It sets them on first provision and never overwrites a value that
+is already set, so a change you make inside the container survives rebuilds.
 {%- endif %}
 
 Claude Code's own signature, the `Co-Authored-By` trailer on commits and the footer on
-pull requests, is **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}** for this project (`claude_attribution`).
+pull requests, {% if cookiecutter.claude_attribution == "host" %}follows your own Claude Code setting as it was when this project was generated (`claude_attribution: host`){% else %}is **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}** for this project (`claude_attribution`){% endif %}.
 To change it later, edit or remove `attribution` in `~/.claude/settings.json` inside the
 container: the bundled default only applies where that key is absent, so a rebuild
 does not undo the change.
@@ -168,16 +181,27 @@ above every user and project setting. It denies force-push in every spelling,
 pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
 (`--dangerously-skip-permissions`). A Bash deny rule matches the command as Claude
 writes it — including inside `&&` chains, pipes and subshells — but not a different
-program that does the same thing, so it is a floor, not a security boundary. Edit the
-file and run `--config-only` to change it.
+program that does the same thing, so it is a floor, not a security boundary. The policy
+is baked into the image, so changing it means editing the file and rebuilding
+(`dev rebuild`).
 
-**The Bash sandbox, ready but off.** `bubblewrap` and `socat` are installed, and the
-bundled settings carry the container-specific configuration (`enableWeakerNestedSandbox`,
-`docker *` excluded, a starter domain allowlist for git, npm and PyPI). Run `/sandbox`
-in Claude Code, or set `sandbox.enabled` to `true` in `~/.claude/settings.json`, to
-confine Bash commands to the workspace and the allowlisted domains at the OS level. It
-ships off because a network allowlist has to match your environment: add your Azure
-endpoints and any proxy to `sandbox.network.allowedDomains` before relying on it.
+**A network agents cannot leave.** An outbound firewall, applied on every start,
+limits everything in this container (Claude Code, Copilot CLI, gh, az, MCP servers and
+the commands they run) to the hosts in `.devcontainer/firewall/allowed-domains.txt` plus
+GitHub's published ranges: GitHub, Copilot, Anthropic, npm, PyPI and Azure's control
+plane. `gh` and `az` work; `localhost` is unaffected. A request to any other host fails
+at once with "connection refused". Add your project's hosts (Azure storage accounts,
+Key Vaults, OpenAI deployments, databases, APIs) to that file, one exact name per line,
+and rebuild. `sudo devcontainer-firewall` refreshes the resolved addresses when a CDN
+rotates them. Claude Code's own Bash sandbox stays off: it cannot run in an unprivileged
+container.
+
+**No sudo for agents.** Once provisioning has done its root steps, `post-create.sh`
+removes the container user's passwordless sudo (`agent_sudo` was `{{ cookiecutter.agent_sudo }}`; flip
+`DEVCONTAINER_AGENT_SUDO` in `devcontainer.json` and rebuild to change it), so nothing
+in the container can rewrite the policy, install system packages or open the firewall
+(the firewall script is the one thing sudo still runs, and it only re-applies the rules). For a root shell,
+run `dev root` on the host.
 
 Git recoverability rests on git itself — `gc.reflogExpire`,
 `gc.reflogExpireUnreachable` and `gc.pruneExpire` are `never`, so committed work is

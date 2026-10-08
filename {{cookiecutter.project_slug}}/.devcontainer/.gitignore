@@ -5,3 +5,6 @@
 # root-.gitignore entry can.
 certs/*
 !certs/.gitkeep
+
+# The host's git identity, recorded by init-host-identity.sh on every build.
+.host-git-identity

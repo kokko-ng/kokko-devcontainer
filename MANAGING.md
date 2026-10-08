@@ -165,20 +165,25 @@ The bundled aliases (`dcu`, `dce`, `dcur`) use `--workspace-folder .`, so they o
 All containers share the Colima VM's CPU, memory, and disk budget.
 
 ```bash
-colima stop
-colima start --cpu 8 --memory 16 --disk 150
+dev vm              # current size and what suits this Mac
+dev vm resize       # restart the VM at that size (stops running containers)
 ```
 
-Keep `--memory` at or below half your host RAM — the VM reserves it rather than sharing it back, so over-allocating pushes macOS into swap and reads as container slowness. Use `--memory 8` on a 16 GB machine.
+`dev` sizes the VM from the Mac's RAM: half the cores (2 to 8), 3 GB of memory on an
+8 GB Mac, 6 GB on 16 GB, half the RAM less 4 GB above that, and a 60 GB (8 GB Mac) or
+100 GB disk. Override with `DEV_VM_CPUS`, `DEV_VM_MEMORY`, `DEV_VM_DISK`. Keep `--memory`
+at or below half your host RAM: the VM does not hand memory back while it runs, so
+over-allocating pushes macOS into swap and reads as container slowness.
 
-Each container also carries its own cap, from the `container_memory_limit` answer
-(`--memory` and `--memory-swap` in `runArgs`, `8g` by default). Keep it below the VM's
-`--memory`: it is what lets a runaway process in one project — a test suite that forks
-without limit, a build that balloons — be killed inside that container instead of taking
-the VM and every other project's container down with it. On a VM with `--memory 8`,
-answer `4g` or so.
+Each container also carries its own cap (`--memory` and `--memory-swap` in `runArgs`):
+1 GB under the VM when `dev` starts it, the `container_memory_limit` answer (`5g` by
+default) otherwise. It is what lets a runaway process in one project — a test suite that
+forks without limit, a build that balloons — be killed inside that container instead of
+taking the VM and every other project's container down with it. On a Mac under 16 GB,
+`dev` also stops the other running devcontainers before starting one
+(`DEV_ALLOW_MULTIPLE=1` to allow several).
 
-Note that `--disk 150` is deliberately generous — see [Disk management](#disk-management) for why. The disk is sparse, so it only consumes host space as it actually fills. CPU and memory are cheap to change later; **the disk is not** — Colima can grow a disk but not shrink it, so starting too small is the expensive mistake.
+Note that the disk is deliberately generous — see [Disk management](#disk-management) for why. The disk is sparse, so it only consumes host space as it actually fills. CPU and memory are cheap to change later; **the disk is not** — Colima can grow a disk but not shrink it, so starting too small is the expensive mistake.
 
 To check CPU and memory usage:
 
@@ -425,7 +430,7 @@ colima ssh -- sudo systemctl reset-failed containerd docker
 colima ssh -- sudo systemctl start containerd docker
 
 # Full restart, which also recreates the host socket and docker context
-colima stop && colima start --cpu 8 --memory 16
+colima stop && dev vm start
 ```
 
 ### The orphaned `overlay2` store
