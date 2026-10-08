@@ -48,6 +48,10 @@ plugins=(zsh-autosuggestions zsh-syntax-highlighting)
 # ===================
 if command -v starship &>/dev/null; then
     eval "$(starship init zsh)"
+    # Session context (Docker, Azure, gh, Claude, container, Colima) once per
+    # new shell, to a terminal only; the prompt itself is one line. Cleared
+    # STARSHIP_SHELL keeps the output plain ANSI, not zsh prompt escapes.
+    [[ -o interactive && -t 1 ]] && STARSHIP_SHELL= starship prompt --profile context 2>/dev/null
 fi
 
 # ===================

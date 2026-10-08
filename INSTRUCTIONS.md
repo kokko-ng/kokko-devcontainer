@@ -233,7 +233,7 @@ abort generation with an explanation and leave no directory behind.
 ### Pinning a template version
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.0.0
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.1.0
 ```
 
 Releases are tagged from the `VERSION` file, so `--checkout` pins a project to a
@@ -511,12 +511,15 @@ Shell and Claude Code configuration is bundled inside the devcontainer so no hos
 
 The prompt is [Starship](https://starship.rs), baked into the image at a pinned
 version and configured by `config/starship/starship.toml` (linked to
-`~/.config/starship.toml`). Besides directory and git branch/status it shows, when they
-apply: a `⬢` marker inside the container (`⌂ host` outside one, and `colima off` on a
-host with Colima installed but stopped), the git `user.email` when a repo overrides the
-global identity, the Docker context when it is not the default, the Azure subscription,
-the GitHub account (read from `~/.config/gh/hosts.yml`, no network call) and the Claude
-account (read from `$CLAUDE_CONFIG_DIR/.claude.json`). Colours are ANSI names, so the
+`~/.config/starship.toml`). Each prompt is one line: directory, git branch/status (and
+the git `user.email` when a repo overrides the global identity), the Python or Node
+version and the last command's duration when they apply, then `❯`. The session context
+prints once when a shell opens, above the first prompt (the `context` profile, printed by
+`integrations.zsh`): a `⬢` marker inside the container (`⌂ host` outside one, and
+`colima off` on a host with Colima installed but stopped), the Docker context when it is
+not the default, the Azure subscription, the GitHub account (read from
+`~/.config/gh/hosts.yml`, no network call) and the Claude account (read from
+`$CLAUDE_CONFIG_DIR/.claude.json`). Colours are ANSI names, so the
 prompt takes its palette from the terminal theme. An image built before the Starship
 layer falls back to the `awesomepanda` Oh My Zsh theme.
 

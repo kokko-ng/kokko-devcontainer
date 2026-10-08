@@ -176,6 +176,13 @@ assert_jq "the firewall is published to post-create" "$DC" \
     '.containerEnv.DEVCONTAINER_FIREWALL == "1"'
 assert_jq "the firewall gets the capabilities it needs" "$DC" \
     '(.runArgs | index("--cap-add=NET_ADMIN") != null) and (.runArgs | index("--cap-add=NET_RAW") != null)'
+# shellcheck disable=SC2016  # $docker_context is Starship syntax, not shell
+assert "the prompt is one line, with the session context in its own profile" \
+    grep -q '^context = """\$docker_context' "$DEFAULT/.devcontainer/config/starship/starship.toml"
+refute "the per-command prompt carries no session context" \
+    grep -qE '^format = .*docker_context' "$DEFAULT/.devcontainer/config/starship/starship.toml"
+assert "the shell prints the session context once, to a terminal" \
+    grep -q 'starship prompt --profile context' "$DEFAULT/.devcontainer/config/zsh/integrations.zsh"
 assert "the image installs the firewall tools" \
     grep -qE 'install .* iptables ipset dnsutils iproute2' "$DEFAULT/.devcontainer/Dockerfile"
 assert "the image bakes in the firewall script and allowlist" \
