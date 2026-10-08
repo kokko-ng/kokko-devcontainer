@@ -61,9 +61,20 @@ PROVISION_STATUS="$HOME/.devcontainer-provision-status"
 INSTALL_COPILOT_CLI="${DEVCONTAINER_INSTALL_COPILOT_CLI:-1}"
 INSTALL_PLAYWRIGHT="${DEVCONTAINER_INSTALL_PLAYWRIGHT:-1}"
 FRONTEND_DIR="${DEVCONTAINER_FRONTEND_DIR:-ui}"
-# Blank on a bare run: no answers were given, so touch nothing.
+# Blank answers fall back to the host's own identity, which
+# init-host-identity.sh records next to this script before every build; blank
+# there too (or a bare run) means touch nothing.
 GIT_USER_NAME="${DEVCONTAINER_GIT_USER_NAME:-}"
 GIT_USER_EMAIL="${DEVCONTAINER_GIT_USER_EMAIL:-}"
+HOST_GIT_IDENTITY="$SCRIPT_DIR/.host-git-identity"
+if [[ -z "$GIT_USER_NAME" && -z "$GIT_USER_EMAIL" && -f "$HOST_GIT_IDENTITY" ]]; then
+    GIT_USER_NAME="$(sed -n 's/^name=//p' "$HOST_GIT_IDENTITY" | head -1)"
+    GIT_USER_EMAIL="$(sed -n 's/^email=//p' "$HOST_GIT_IDENTITY" | head -1)"
+fi
+# 1 keeps the container user's passwordless sudo after provisioning; anything
+# else removes it (lock_sudo), which is what keeps the policy out of an
+# agent's reach.
+AGENT_SUDO="${DEVCONTAINER_AGENT_SUDO:-1}"
 
 # =====================
 # Retry / degrade helpers
@@ -113,7 +124,7 @@ fix_volume_ownership() {
     # root-owned all the way down, so ~/.config must be fixed before
     # ~/.config/gh can be, and ~/.cache before ~/.cache/uv.
     for d in "$HOME/.cache" "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory \
-             "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.azure"; do
+             "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.config/claude-auth" "$HOME/.azure"; do
         [[ -d "$d" && ! -w "$d" ]] || continue
         sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
@@ -314,14 +325,54 @@ install_managed_settings() {
         echo "  $MANAGED_SETTINGS_DST is current"
         return 0
     fi
-    if sudo mkdir -p "$(dirname "$MANAGED_SETTINGS_DST")" 2>/dev/null \
-        && sudo cp "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null \
-        && sudo chmod 0644 "$MANAGED_SETTINGS_DST" 2>/dev/null; then
+    if sudo -n mkdir -p "$(dirname "$MANAGED_SETTINGS_DST")" 2>/dev/null \
+        && sudo -n cp "$src" "$MANAGED_SETTINGS_DST" 2>/dev/null \
+        && sudo -n chmod 0644 "$MANAGED_SETTINGS_DST" 2>/dev/null; then
         echo "  Installed $MANAGED_SETTINGS_DST"
+    elif [[ -f "$MANAGED_SETTINGS_DST" ]]; then
+        # The image bakes the policy in; once sudo is locked, only a rebuild
+        # (which you run, not an agent) installs a changed bundle.
+        echo "  The bundled policy changed, but sudo is locked: rebuild the container"
+        echo "  (dev rebuild) to install it. The policy baked into the image stays in force."
     else
         echo "  WARNING: could not write $MANAGED_SETTINGS_DST (no sudo?). The deny list and"
         echo "           the bypass-mode lock are NOT in force. Install it by hand as root:"
         echo "           cp '$src' '$MANAGED_SETTINGS_DST'"
+    fi
+}
+
+# =====================
+# Sudo lock
+# =====================
+# Devcontainer images give the container user passwordless sudo, and with it
+# an agent could rewrite the policy above, edit the sandbox out, or install
+# whatever it likes. Once provisioning has done its root steps, remove that
+# grant unless DEVCONTAINER_AGENT_SUDO=1. Runs at the end of both modes, so a
+# restarted container is locked again too; a rebuild restores sudo for the
+# next provision and this takes it away again. From the host, `dev root`
+# (docker exec -u root) still gives you a root shell.
+lock_sudo() {
+    if [[ "$AGENT_SUDO" == "1" ]]; then
+        echo "=== Keeping passwordless sudo (DEVCONTAINER_AGENT_SUDO=1) ==="
+        return 0
+    fi
+    echo "=== Locking sudo ==="
+    if ! sudo -n true 2>/dev/null; then
+        echo "  already locked"
+        return 0
+    fi
+    local user f
+    user="$(id -un)"
+    for f in /etc/sudoers.d/*; do
+        [[ -f "$f" ]] || continue
+        if sudo -n grep -qE "^[[:space:]]*($user|%sudo)[[:space:]].*NOPASSWD" "$f" 2>/dev/null; then
+            sudo -n rm -f "$f" && echo "  removed $f"
+        fi
+    done
+    if sudo -n true 2>/dev/null; then
+        echo "  WARNING: sudo still works without a password; check /etc/sudoers by hand"
+    else
+        echo "  $user no longer has passwordless sudo (dev root on the host for a root shell)"
     fi
 }
 
@@ -556,6 +607,16 @@ configure_git() {
     git config --global gc.pruneExpire never
     git config --global rerere.enabled true
     echo "  reflog retention: never expire; unreachable objects: never pruned"
+    # https pushes and clones of github.com use the gh sign-in (shared volume),
+    # so git never asks for a password. The empty value first clears any
+    # helper a feature configured.
+    if command -v gh >/dev/null 2>&1 &&
+        [[ "$(git config --global --get-all credential.https://github.com.helper 2>/dev/null | tail -1)" != '!gh auth git-credential' ]]; then
+        git config --global --unset-all credential.https://github.com.helper 2>/dev/null || true
+        git config --global --add credential.https://github.com.helper ''
+        git config --global --add credential.https://github.com.helper '!gh auth git-credential'
+        echo "  github.com credentials: gh auth git-credential"
+    fi
     configure_git_identity
 }
 
@@ -577,7 +638,7 @@ configure_git_identity() {
     for key in name email; do
         if [[ "$key" == "name" ]]; then value="$GIT_USER_NAME"; else value="$GIT_USER_EMAIL"; fi
         if [[ -z "$value" ]]; then
-            echo "  user.$key: no answer given, leaving it unset"
+            echo "  user.$key: no answer and no host identity, leaving it unset"
         elif git config --global --get "user.$key" >/dev/null 2>&1; then
             echo "  user.$key: already set to $(git config --global --get "user.$key"), left alone"
         else
@@ -784,6 +845,7 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."
     echo ""
+    lock_sudo
     exit 0
 fi
 
@@ -818,3 +880,4 @@ echo ""
 
 provision_summary
 check_vm_disk || true
+lock_sudo

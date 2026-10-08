@@ -3,8 +3,9 @@
 Only two things happen here that Jinja could not do inline:
 
   * The bundled Claude settings.json is edited as JSON rather than templated:
-    the plugin roster is emptied on request, and the attribution override is
-    removed when Claude Code should sign its commits. Keeping that file free
+    the plugin roster is emptied on request, and the attribution follows the
+    answer: the host's own Claude Code setting (`host`, the default), hidden
+    (`no`) or Claude Code's default trailer (`yes`). Keeping that file free
     of Jinja is deliberate — it stays valid JSON at rest, so `check-json`,
     `jq`, and tests/merge-settings-tests.sh all run against the template
     itself with no rendering step.
@@ -37,6 +38,36 @@ def clear_plugin_roster(settings):
     settings["extraKnownMarketplaces"] = {}
 
 
+def host_claude_attribution():
+    """The attribution the host's own Claude Code uses, or None for its default.
+
+    Read from the host's user settings (CLAUDE_CONFIG_DIR, else ~/.claude), so
+    a generated container signs commits the way its owner's Claude Code
+    already does. The legacy `includeCoAuthoredBy: false` counts as "off".
+    """
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    try:
+        with open(os.path.join(config_dir, "settings.json"), encoding="utf-8") as handle:
+            host = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    attribution = host.get("attribution")
+    if isinstance(attribution, dict):
+        return {key: attribution[key] for key in ("commit", "pr") if isinstance(attribution.get(key), str)}
+    if host.get("includeCoAuthoredBy") is False:
+        return {"commit": "", "pr": ""}
+    return None
+
+
+def mirror_host_attribution(settings):
+    """Apply the host's attribution: its strings, or Claude Code's default."""
+    host = host_claude_attribution()
+    if host:
+        settings["attribution"] = host
+    else:
+        settings.pop("attribution", None)
+
+
 def enable_claude_attribution(settings):
     """Let Claude Code sign the commits and pull requests it makes.
 
@@ -62,6 +93,8 @@ if CLAUDE_PLUGIN_ROSTER == "none":
 
 if CLAUDE_ATTRIBUTION == "yes":
     settings_edits.append(enable_claude_attribution)
+elif CLAUDE_ATTRIBUTION == "host":
+    settings_edits.append(mirror_host_attribution)
 
 if settings_edits:
     # One read and one write, however many answers touch the file, so the

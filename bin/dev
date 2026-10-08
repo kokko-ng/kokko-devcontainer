@@ -1,0 +1,584 @@
+#!/usr/bin/env bash
+# dev — create, start, sign in to and open kokko-devcontainer projects from
+# the macOS host, in one command, without overloading the Mac.
+#
+#   dev [options] [PROJECT] [-- COMMAND...]   start the container and open a shell (or COMMAND) in it
+#   dev claude [options] [PROJECT]            ... and start Claude Code in it
+#   dev new NAME [key=value...]               generate ~/code/NAME from the template, then open it
+#   dev up [PROJECT]                          start the container without opening anything
+#   dev auth [--claude] [PROJECT]             sign in once, for every devcontainer on this Mac
+#   dev rebuild [PROJECT]                     recreate the container, then open it
+#   dev stop [--keep-vm] [PROJECT]            stop the container; stop Colima when none is left
+#   dev root [PROJECT]                        a root shell in the container (the agent has no sudo)
+#   dev vm [status|start|stop|resize]         the Colima VM, sized for this Mac
+#   dev ls                                    list devcontainers
+#   dev guide                                 a short walkthrough, with this Mac's state
+#
+# Options:  -t  open in a new Ghostty tab    -w  open in a new Ghostty window
+#
+# PROJECT is a folder name under $DEV_HOME (default ~/code) or a path; without
+# one, the current folder or the nearest parent with a .devcontainer/.
+#
+# Sign-ins live in volumes every devcontainer shares, and `dev` fills them from
+# this Mac on first start, so nothing needs a login per project or rebuild:
+#   gh       copied from the host's own `gh` login
+#   Copilot  reuses the gh login (the container's `copilot` passes it on)
+#   Azure    copied from the host's own `az login` (its token cache)
+#   Claude   a long-lived `claude setup-token` token kept in the macOS
+#            Keychain; `dev auth` creates it once per Mac (one browser click)
+#
+# Resources: the Colima VM is sized from this Mac's RAM (an 8 GB Mac gets
+# 2 CPUs / 3 GB), each container is capped below the VM, a Mac under 16 GB
+# runs one devcontainer at a time, and nothing starts the VM while macOS is
+# already short of memory without asking first.
+#
+# Environment:
+#   DEV_HOME            where projects live (default ~/code)
+#   DEV_TEMPLATE        cookiecutter template (default gh:kokko-ng/kokko-devcontainer)
+#   DEV_VM_CPUS / DEV_VM_MEMORY / DEV_VM_DISK   override the VM size (GB for memory, disk)
+#   DEV_ALLOW_MULTIPLE=1   let a Mac under 16 GB run several devcontainers at once
+#   DEV_FORCE=1            start the VM even when macOS is short of memory
+set -euo pipefail
+
+DEV_HOME="${DEV_HOME:-$HOME/code}"
+DEV_TEMPLATE="${DEV_TEMPLATE:-gh:kokko-ng/kokko-devcontainer}"
+KEYCHAIN_SERVICE="kokko-devcontainer-claude-oauth-token"
+CLAUDE_TOKEN_PATH="/home/vscode/.config/claude-auth/oauth-token"
+
+say() { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
+note() { printf '    %s\n' "$*" >&2; }
+die() {
+    printf '\033[1;31mdev:\033[0m %s\n' "$*" >&2
+    exit 1
+}
+
+# ------------------------------------------------------------------ sizing
+
+HOST_GB=$(($(sysctl -n hw.memsize) / 1073741824))
+HOST_CPUS=$(sysctl -n hw.ncpu)
+
+# VM memory: macOS, a browser, an editor and Claude Code on the host need
+# about half of a small Mac, and a VM's memory is not handed back to macOS
+# until it stops. So: 3 GB on 8 GB, 6 GB on 16 GB, then half the RAM less 4.
+vm_memory() {
+    if [[ -n "${DEV_VM_MEMORY:-}" ]]; then
+        echo "$DEV_VM_MEMORY"
+    elif ((HOST_GB <= 8)); then
+        echo 3
+    elif ((HOST_GB <= 16)); then
+        echo 6
+    else
+        echo $((HOST_GB / 2 - 4))
+    fi
+}
+# Half the cores, at least 2 and at most 8.
+vm_cpus() {
+    local c=$((HOST_CPUS / 2))
+    ((c < 2)) && c=2
+    ((c > 8)) && c=8
+    echo "${DEV_VM_CPUS:-$c}"
+}
+# The disk image is sparse, so this is a ceiling, not an allocation.
+vm_disk() {
+    if [[ -n "${DEV_VM_DISK:-}" ]]; then echo "$DEV_VM_DISK"; elif ((HOST_GB <= 8)); then echo 60; else echo 100; fi
+}
+# Each container stays 1 GB under the VM, so a runaway process is killed
+# inside its container rather than taking the VM (and Docker) down.
+container_memory() {
+    local m
+    m=$(($(vm_memory) - 1))
+    ((m < 2)) && m=2
+    echo "${m}g"
+}
+is_small_mac() { ((HOST_GB < 16)); }
+
+# macOS's own measure of how much memory is free, in percent.
+host_free_pct() {
+    memory_pressure 2>/dev/null | sed -n 's/.*free percentage: \([0-9]*\)%.*/\1/p'
+}
+
+# ---------------------------------------------------------------- projects
+
+# The project folder: a path, a name under $DEV_HOME, or the nearest folder
+# from here up that has a .devcontainer/.
+project_dir() {
+    local arg="${1:-}" dir
+    if [[ -n "$arg" ]]; then
+        if [[ -d "$arg" ]]; then
+            dir="$arg"
+        elif [[ -d "$DEV_HOME/$arg" ]]; then
+            dir="$DEV_HOME/$arg"
+        else
+            die "no project '$arg' (looked for ./$arg and $DEV_HOME/$arg)"
+        fi
+        dir="$(cd "$dir" && pwd -P)"
+    else
+        dir="$(pwd -P)"
+        while [[ "$dir" != "/" && ! -f "$dir/.devcontainer/devcontainer.json" ]]; do
+            dir="$(dirname "$dir")"
+        done
+        [[ "$dir" != "/" ]] || die "not inside a devcontainer project; name one: dev <project>"
+    fi
+    [[ -f "$dir/.devcontainer/devcontainer.json" ]] || die "$dir has no .devcontainer/devcontainer.json"
+    printf '%s\n' "$dir"
+}
+
+container_id() {
+    docker ps -q --filter "label=devcontainer.local_folder=$1" | head -1
+}
+
+confirm() {
+    local answer
+    [[ -t 0 ]] || return 1
+    printf '    %s [y/N] ' "$1" >&2
+    read -r answer
+    [[ "$answer" == [yY]* ]]
+}
+
+# ---------------------------------------------------------------------- VM
+
+vm_running() { docker info >/dev/null 2>&1; }
+
+# Memory of the running VM in GB, or empty.
+vm_current_memory() {
+    colima list -j 2>/dev/null | sed -n 's/.*"memory":\([0-9]*\).*/\1/p' | head -1 |
+        awk '{ if ($1 > 0) printf "%d", $1 / 1073741824 }'
+}
+
+vm_start() {
+    command -v colima >/dev/null 2>&1 || die "Docker is not reachable and Colima is not installed"
+    local free mem cpus disk
+    mem="$(vm_memory)"
+    cpus="$(vm_cpus)"
+    disk="$(vm_disk)"
+    free="$(host_free_pct)"
+    if [[ -n "$free" ]] && ((free < 25)) && [[ "${DEV_FORCE:-}" != "1" ]]; then
+        say "macOS has only ${free}% of its memory free; a ${mem} GB VM now would push it into swap."
+        note "Close some apps first, or start anyway with DEV_FORCE=1."
+        confirm "Start the VM anyway?" || die "not starting the VM"
+    fi
+    say "Starting Colima: ${cpus} CPUs, ${mem} GB memory, ${disk} GB disk (sized for this ${HOST_GB} GB Mac)"
+    colima start --cpu "$cpus" --memory "$mem" --disk "$disk" --mount-type virtiofs >&2 ||
+        die "colima start failed"
+    vm_running || die "Colima started but Docker is still not reachable"
+}
+
+# An oversized VM from before (a manual `colima start --memory 16`) keeps its
+# size across restarts; say so, since it is the usual way a Mac gets swamped.
+vm_check_size() {
+    local cur want
+    cur="$(vm_current_memory)"
+    want="$(vm_memory)"
+    if [[ -n "$cur" ]] && ((cur > want)); then
+        say "The Colima VM has ${cur} GB of memory; ${want} GB suits this ${HOST_GB} GB Mac. Shrink it with: dev vm resize"
+    fi
+}
+
+ensure_vm() {
+    if vm_running; then
+        vm_check_size
+    else
+        vm_start
+    fi
+}
+
+cmd_vm() {
+    case "${1:-status}" in
+        status)
+            local cur
+            cur="$(vm_current_memory)"
+            if vm_running; then
+                say "Colima running with ${cur:-?} GB; recommended for this ${HOST_GB} GB Mac: $(vm_cpus) CPUs, $(vm_memory) GB"
+            else
+                say "Colima stopped; it starts with $(vm_cpus) CPUs, $(vm_memory) GB, $(vm_disk) GB disk"
+            fi
+            note "free memory on macOS: $(host_free_pct)%"
+            ;;
+        start) ensure_vm ;;
+        stop) colima stop >&2 && say "Colima stopped; its memory is back with macOS" ;;
+        resize)
+            if [[ -n "$(docker ps -q 2>/dev/null)" ]]; then
+                confirm "Resizing restarts the VM and stops the running containers. Go on?" || exit 1
+            fi
+            colima stop >&2 || true
+            vm_start
+            ;;
+        *) die "usage: dev vm [status|start|stop|resize]" ;;
+    esac
+}
+
+# On a Mac under 16 GB one devcontainer at a time: stop the others first.
+make_room() {
+    local dir="$1" others cid folder
+    is_small_mac || return 0
+    [[ "${DEV_ALLOW_MULTIPLE:-}" == "1" ]] && return 0
+    others="$(docker ps -q --filter label=devcontainer.local_folder)"
+    [[ -n "$others" ]] || return 0
+    for cid in $others; do
+        folder="$(docker inspect -f '{{ index .Config.Labels "devcontainer.local_folder" }}' "$cid")"
+        [[ "$folder" == "$dir" ]] && continue
+        say "This ${HOST_GB} GB Mac runs one devcontainer at a time: stopping $(basename "$folder")"
+        docker stop "$cid" >/dev/null
+    done
+}
+
+# ---------------------------------------------------------------- containers
+
+# Secrets for the lifecycle scripts only (postCreate's plugin bootstrap clones
+# marketplaces over https): the devcontainer CLI hands them to those scripts
+# without storing them in the container's configuration.
+secrets_file() {
+    local file token
+    file="$(mktemp "${TMPDIR:-/tmp}/dev-secrets.XXXXXX")"
+    chmod 600 "$file"
+    token="$(gh auth token 2>/dev/null || true)"
+    if [[ -n "$token" ]]; then
+        printf '{"GH_TOKEN": "%s"}\n' "$token" >"$file"
+    else
+        printf '{}\n' >"$file"
+    fi
+    printf '%s\n' "$file"
+}
+
+container_up() {
+    local dir="$1" log secrets status=0
+    shift
+    log="${TMPDIR:-/tmp}/dev-$(basename "$dir").log"
+    ensure_vm
+    if [[ -n "$(container_id "$dir")" && $# -eq 0 ]]; then
+        return 0
+    fi
+    make_room "$dir"
+    say "Starting $(basename "$dir") (capped at $(container_memory); the first build takes a few minutes; log: $log)"
+    secrets="$(secrets_file)"
+    # devcontainer.json reads the cap as ${localEnv:DEVCONTAINER_MEMORY_LIMIT}.
+    DEVCONTAINER_MEMORY_LIMIT="$(container_memory)" \
+        devcontainer up --workspace-folder "$dir" --secrets-file "$secrets" "$@" >"$log" 2>&1 || status=$?
+    rm -f "$secrets"
+    if ((status != 0)); then
+        tail -25 "$log" >&2
+        die "devcontainer up failed (full log: $log)"
+    fi
+}
+
+# ----------------------------------------------------------------- sign-ins
+
+in_container() {
+    local cid="$1"
+    shift
+    docker exec -i -u vscode "$cid" "$@"
+}
+
+keychain_token() {
+    security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true
+}
+
+seed_claude_token() {
+    local cid="$1" token="$2"
+    # shellcheck disable=SC2016 # $1 expands in the container's shell
+    printf '%s' "$token" | in_container "$cid" sh -c \
+        'umask 077; mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$CLAUDE_TOKEN_PATH"
+}
+
+# The host's az sign-in is a plain MSAL token cache plus the subscription
+# list; the container's az reads the same files. Service principal secrets
+# (service_principal_entries.json) are deliberately not copied.
+seed_azure() {
+    local cid="$1" az_dir="$HOME/.azure" files=() f
+    [[ -f "$az_dir/msal_token_cache.json" && -f "$az_dir/azureProfile.json" ]] || return 1
+    for f in azureProfile.json msal_token_cache.json clouds.config; do
+        [[ -f "$az_dir/$f" ]] && files+=("$f")
+    done
+    # shellcheck disable=SC2016 # $HOME expands in the container's shell
+    COPYFILE_DISABLE=1 tar --no-xattrs -C "$az_dir" -cf - "${files[@]}" |
+        in_container "$cid" sh -c 'umask 077; mkdir -p "$HOME/.azure" && tar -C "$HOME/.azure" -xf -' &&
+        in_container "$cid" az account show >/dev/null 2>&1
+}
+
+seed_gh() {
+    local cid="$1" token
+    token="$(gh auth token 2>/dev/null || true)"
+    [[ -n "$token" ]] || return 1
+    printf '%s\n' "$token" | in_container "$cid" gh auth login --with-token -h github.com -p https >/dev/null 2>&1
+}
+
+has_az() { in_container "$1" sh -c 'command -v az' >/dev/null 2>&1; }
+
+# Quietly fill in whatever sign-in the shared volumes still lack and this Mac
+# can supply, then say what is still missing.
+ensure_logins() {
+    local cid="$1" token missing=()
+    if ! in_container "$cid" gh auth status -h github.com >/dev/null 2>&1; then
+        if seed_gh "$cid"; then
+            say "gh + Copilot: signed in with this Mac's GitHub login (shared by every devcontainer)"
+        else
+            missing+=("gh")
+        fi
+    fi
+    if has_az "$cid" && ! in_container "$cid" az account show >/dev/null 2>&1; then
+        if seed_azure "$cid"; then
+            say "Azure: signed in with this Mac's az login (shared by every devcontainer)"
+        else
+            missing+=("Azure")
+        fi
+    fi
+    if ! in_container "$cid" test -s "$CLAUDE_TOKEN_PATH"; then
+        token="$(keychain_token)"
+        if [[ -n "$token" ]]; then
+            seed_claude_token "$cid" "$token"
+            say "Claude Code: signed in with the token in your Keychain"
+        else
+            missing+=("Claude Code")
+        fi
+    fi
+    if ((${#missing[@]} > 0)); then
+        say "Not signed in yet: ${missing[*]}. Run 'dev auth' once; every devcontainer shares it."
+    fi
+}
+
+cmd_auth() {
+    local refresh_claude=0 dir cid token typescript
+    while [[ "${1:-}" == -* ]]; do
+        case "$1" in
+            --claude) refresh_claude=1 ;;
+            *) die "dev auth: unknown option $1" ;;
+        esac
+        shift
+    done
+    dir="$(project_dir "${1:-}")"
+    container_up "$dir"
+    cid="$(container_id "$dir")"
+
+    say "GitHub (gh, git push, Copilot CLI)"
+    if in_container "$cid" gh auth status -h github.com >/dev/null 2>&1; then
+        note "already signed in"
+    elif seed_gh "$cid"; then
+        note "signed in with this Mac's GitHub login"
+    else
+        docker exec -it -u vscode "$cid" gh auth login -h github.com -p https -w
+    fi
+
+    if has_az "$cid"; then
+        say "Azure"
+        if in_container "$cid" az account show >/dev/null 2>&1; then
+            note "already signed in"
+        elif seed_azure "$cid"; then
+            note "signed in with this Mac's az login"
+        else
+            docker exec -it -u vscode "$cid" az login --use-device-code
+        fi
+    fi
+
+    say "Claude Code"
+    token="$(keychain_token)"
+    if [[ -z "$token" || $refresh_claude -eq 1 ]]; then
+        command -v claude >/dev/null 2>&1 || die "Claude Code is not installed on this Mac"
+        note "'claude setup-token' opens the browser once and creates a token valid for a year."
+        typescript="$(mktemp "${TMPDIR:-/tmp}/dev-setup-token.XXXXXX")"
+        script -q "$typescript" claude setup-token || true
+        token="$(grep -aoE 'sk-ant-[A-Za-z0-9_-]{20,}' "$typescript" | tail -1 || true)"
+        rm -f "$typescript"
+        if [[ -z "$token" ]]; then
+            printf '    Paste the token it printed (input hidden): ' >&2
+            IFS= read -rs token
+            printf '\n' >&2
+        fi
+        [[ "$token" == sk-ant-* ]] || die "that does not look like a Claude Code token (sk-ant-...)"
+        # Through `security -i` so the token never appears on a command line.
+        printf 'add-generic-password -U -a %q -s %q -l %q -w %q\n' \
+            "$USER" "$KEYCHAIN_SERVICE" "Claude Code token for devcontainers" "$token" | security -i >/dev/null
+        [[ -n "$(keychain_token)" ]] || die "could not save the token in the Keychain"
+        note "saved in your Keychain (service $KEYCHAIN_SERVICE)"
+    else
+        note "token already in your Keychain (dev auth --claude makes a new one)"
+    fi
+    seed_claude_token "$cid" "$token"
+    note "every devcontainer on this Mac now signs in with it"
+    say "Done. Open a shell with: dev $(basename "$dir")"
+}
+
+# ------------------------------------------------------------------- opening
+
+ghostty_open() {
+    local where="$1" title="$2"
+    shift 2
+    local cmd arg
+    cmd="$(command -v dev 2>/dev/null || printf '%s' "$0") attach"
+    for arg in "$@"; do
+        cmd="$cmd $(printf '%q' "$arg")"
+    done
+    osascript - "$cmd" "$where" >/dev/null <<'APPLESCRIPT'
+on run argv
+    set theCommand to item 1 of argv
+    set theWhere to item 2 of argv
+    tell application "Ghostty"
+        activate
+        set cfg to new surface configuration
+        set command of cfg to "/bin/zsh -lc " & quoted form of theCommand
+        if theWhere is "window" or (count of windows) is 0 then
+            new window with configuration cfg
+        else
+            new tab in front window with configuration cfg
+        end if
+    end tell
+end run
+APPLESCRIPT
+    say "Opened $title in a new Ghostty $where"
+}
+
+# Open a shell (or COMMAND) in a running container, in this terminal.
+cmd_attach() {
+    local dir="$1"
+    shift
+    if [[ $# -eq 0 ]]; then set -- zsh -l; fi
+    exec devcontainer exec --workspace-folder "$dir" "$@"
+}
+
+cmd_open() {
+    local where="" arg dir="" cmd=()
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        shift
+        case "$arg" in
+            -t | --tab) where="tab" ;;
+            -w | --window) where="window" ;;
+            --)
+                cmd=("$@")
+                break
+                ;;
+            -*) die "unknown option $arg (see dev guide)" ;;
+            *) dir="$arg" ;;
+        esac
+    done
+    dir="$(project_dir "$dir")"
+    container_up "$dir"
+    ensure_logins "$(container_id "$dir")"
+    if [[ -n "$where" ]]; then
+        ghostty_open "$where" "$(basename "$dir")" "$dir" ${cmd[@]+"${cmd[@]}"}
+    else
+        cmd_attach "$dir" ${cmd[@]+"${cmd[@]}"}
+    fi
+}
+
+# ------------------------------------------------------------------ commands
+
+cmd_new() {
+    local name="${1:-}" slug dir
+    [[ -n "$name" ]] || die "usage: dev new NAME [key=value...]"
+    shift
+    slug="$(printf '%s' "$name" | tr '[:upper:] _' '[:lower:]--')"
+    dir="$DEV_HOME/$slug"
+    [[ ! -e "$dir" ]] || die "$dir already exists"
+    command -v uvx >/dev/null 2>&1 || die "uvx (uv) is needed to run cookiecutter"
+    say "Generating $dir from $DEV_TEMPLATE"
+    mkdir -p "$DEV_HOME"
+    uvx cookiecutter "$DEV_TEMPLATE" --no-input -o "$DEV_HOME" "project_name=$name" "$@" >&2
+    [[ -d "$dir" ]] || die "cookiecutter did not create $dir"
+    git -C "$dir" init -q -b main
+    git -C "$dir" add -A
+    git -C "$dir" commit -q -m "chore: scaffold from kokko-devcontainer" || true
+    cmd_open "$dir"
+}
+
+cmd_rebuild() {
+    local dir
+    dir="$(project_dir "${1:-}")"
+    container_up "$dir" --remove-existing-container
+    ensure_logins "$(container_id "$dir")"
+    cmd_attach "$dir"
+}
+
+cmd_stop() {
+    local keep_vm=0 dir cid
+    if [[ "${1:-}" == "--keep-vm" ]]; then
+        keep_vm=1
+        shift
+    fi
+    dir="$(project_dir "${1:-}")"
+    cid="$(container_id "$dir")"
+    if [[ -n "$cid" ]]; then
+        docker stop "$cid" >/dev/null
+        say "Stopped $(basename "$dir")"
+    else
+        say "$(basename "$dir") is not running"
+    fi
+    if ((keep_vm == 0)) && command -v colima >/dev/null 2>&1 && vm_running &&
+        [[ -z "$(docker ps -q 2>/dev/null)" ]]; then
+        colima stop >&2 && say "Nothing else running: stopped Colima, its memory is back with macOS"
+    fi
+}
+
+cmd_root() {
+    local dir
+    dir="$(project_dir "${1:-}")"
+    container_up "$dir"
+    exec docker exec -it -u root -w "/workspaces/$(basename "$dir")" "$(container_id "$dir")" bash -l
+}
+
+cmd_ls() {
+    vm_running || {
+        say "Colima is stopped"
+        return 0
+    }
+    docker ps -a --filter "label=devcontainer.local_folder" \
+        --format 'table {{.Label "devcontainer.local_folder"}}\t{{.Status}}\t{{.Names}}'
+}
+
+# A short walkthrough with this Mac's state, like `als` for aliases.
+cmd_guide() {
+    local b=$'\033[1;33m' g=$'\033[1;32m' d=$'\033[2m' r=$'\033[0m' vm token running=0
+    if vm_running; then
+        vm="${g}running${r} ($(vm_current_memory) GB)"
+        running="$(docker ps -q --filter label=devcontainer.local_folder | wc -l | tr -d ' ')"
+    else
+        vm="${d}stopped${r}"
+    fi
+    if [[ -n "$(keychain_token)" ]]; then token="${g}in Keychain${r}"; else token="${b}missing, run dev auth${r}"; fi
+    cat <<GUIDE
+
+${b}Once per Mac${r}                                        ${d}Claude token:${r} $token
+  ${g}dev auth${r}              sign in for every devcontainer: gh and Azure come from this
+                        Mac, Copilot reuses gh, Claude gets a year-long token
+
+${b}Start${r}
+  ${g}dev new NAME${r}          generate ~/code/NAME from the template and open it
+  ${g}dev [PROJECT]${r}         start the VM and container if needed, then a shell in it
+  ${g}dev -t [PROJECT]${r}      ... in a new Ghostty tab (-w for a window)
+  ${g}dev claude [PROJECT]${r}  ... straight into Claude Code (Auto mode, sandboxed)
+
+${b}Manage${r}                      ${d}VM:${r} $vm  ${d}devcontainers running:${r} $running
+  ${g}dev ls${r}                every devcontainer and its state
+  ${g}dev stop [PROJECT]${r}    stop it, and the VM when nothing else runs
+  ${g}dev rebuild${r}           recreate the container after Dockerfile or devcontainer.json edits
+  ${g}dev root${r}              root shell (agents have no sudo)
+  ${g}dev vm${r}                VM size for this ${HOST_GB} GB Mac: $(vm_cpus) CPUs, $(vm_memory) GB ${d}(resize to apply)${r}
+
+${d}PROJECT: a folder under ${DEV_HOME/#"$HOME"/\~} or a path; default the project you are in.${r}
+
+GUIDE
+}
+
+main() {
+    case "${1:-}" in
+        new) shift && cmd_new "$@" ;;
+        claude) shift && cmd_open "$@" -- claude --permission-mode auto ;;
+        up)
+            shift
+            local dir
+            dir="$(project_dir "${1:-}")"
+            container_up "$dir"
+            ensure_logins "$(container_id "$dir")"
+            ;;
+        attach) shift && cmd_attach "$@" ;;
+        auth) shift && cmd_auth "$@" ;;
+        rebuild) shift && cmd_rebuild "$@" ;;
+        stop) shift && cmd_stop "$@" ;;
+        root) shift && cmd_root "$@" ;;
+        vm) shift && cmd_vm "$@" ;;
+        ls) cmd_ls ;;
+        guide | help | -h | --help) cmd_guide ;;
+        *) cmd_open "$@" ;;
+    esac
+}
+
+main "$@"

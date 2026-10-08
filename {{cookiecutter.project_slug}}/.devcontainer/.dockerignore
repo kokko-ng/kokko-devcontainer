@@ -1,5 +1,6 @@
-# The Dockerfile only COPYs certs/ — keep everything else out of the build
-# context so config edits do not invalidate layers and secrets never reach
-# the daemon.
+# The Dockerfile only COPYs certs/ and the Claude Code policy — keep
+# everything else out of the build context so config edits do not invalidate
+# layers and secrets never reach the daemon.
 *
 !certs/
+!config/claude/managed-settings.json

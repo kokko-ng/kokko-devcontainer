@@ -68,6 +68,11 @@ RUN HU="${HOST_USER:-vscode}"; mkdir -p /Users && ln -sfn /home/vscode "/Users/$
 COPY certs/ /usr/local/share/ca-certificates/host/
 RUN update-ca-certificates
 
+# Claude Code policy (deny list, bypass lock, sandbox), root-owned in the image.
+# post-create.sh removes the container user's sudo after provisioning, so an
+# agent cannot rewrite it; a policy change takes a rebuild, which only you run.
+COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json
+
 # Starship prompt, PINNED: the static musl build from the release page, picked
 # by architecture (aarch64 on Apple Silicon hosts, x86_64 on CI). The bundled
 # zsh config falls back to an Oh My Zsh theme when the binary is absent, so an
