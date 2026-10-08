@@ -233,7 +233,7 @@ abort generation with an explanation and leave no directory behind.
 ### Pinning a template version
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.1.0
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.2.0
 ```
 
 Releases are tagged from the `VERSION` file, so `--checkout` pins a project to a

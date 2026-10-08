@@ -4,6 +4,7 @@
 #
 #   dev [options] [PROJECT] [-- COMMAND...]   start the container and open a shell (or COMMAND) in it
 #   dev claude [options] [PROJECT]            ... and start Claude Code in it
+#   dev code [PROJECT]                        ... and open VS Code attached to it
 #   dev new NAME [key=value...]               generate ~/code/NAME from the template, then open it
 #   dev up [PROJECT]                          start the container without opening anything
 #   dev auth [--claude] [PROJECT]             sign in once, for every devcontainer on this Mac
@@ -483,6 +484,20 @@ cmd_new() {
     cmd_open "$dir"
 }
 
+# VS Code attached to the container dev started (VM sized, sign-ins filled),
+# rather than "Reopen in Container" building one on its own. The URI names the
+# host folder in hex, which is how the Dev Containers extension finds it.
+cmd_code() {
+    local dir hex
+    dir="$(project_dir "${1:-}")"
+    command -v code >/dev/null 2>&1 || die "the VS Code 'code' command is not on PATH"
+    container_up "$dir"
+    ensure_logins "$(container_id "$dir")"
+    hex="$(printf '%s' "$dir" | od -An -tx1 | tr -d ' \n')"
+    code --folder-uri "vscode-remote://dev-container+${hex}/workspaces/$(basename "$dir")"
+    say "Opened $(basename "$dir") in VS Code, attached to its container"
+}
+
 cmd_rebuild() {
     local dir
     dir="$(project_dir "${1:-}")"
@@ -569,6 +584,7 @@ cmd_guide() {
     guide_row "dev [PROJECT]" "dev" "start the VM and container if needed, then a shell in it"
     guide_row "dev -t [PROJECT]" "dev -t" "... in a new Ghostty tab (-w for a window)"
     guide_row "dev claude [PROJECT]" "dev claude" "... straight into Claude Code (Auto mode)"
+    guide_row "dev code [PROJECT]" "dev code" "... in VS Code, attached to the container"
 
     printf '\n%sManage%s               %sVM:%s %s   %sdevcontainers running:%s %s\n' "$b" "$r" "$d" "$r" "$vm" "$d" "$r" "$running"
     guide_row "dev ls" "dev ls" "every devcontainer and its state"
@@ -601,6 +617,7 @@ main() {
     case "${1:-}" in
         new) shift && cmd_new "$@" ;;
         claude) shift && cmd_open "$@" -- claude --permission-mode auto ;;
+        code) shift && cmd_code "$@" ;;
         up)
             shift
             local dir
