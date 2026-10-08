@@ -112,12 +112,20 @@ brew install colima docker docker-compose
 ### Start Colima
 
 ```bash
-colima start --cpu 8 --memory 16 --disk 150 --mount-type virtiofs
+dev vm start        # sized for this Mac; `dev vm` shows the size, `dev vm resize` applies it
 ```
 
-Adjust `--cpu` and `--memory` to suit your machine. 4 CPUs and 8 GB RAM is a workable baseline for a single FastAPI + Vue project with hot reload; 8 and 16 are comfortable if you run more than one container or build images.
+`dev` (see [Quick start](README.md#quick-start)) sizes the VM from your Mac's RAM, so an
+accidental oversize is hard to make: half the cores (2 to 8), and 3 GB of memory on an
+8 GB Mac, 6 GB on 16 GB, half the RAM less 4 GB above that. It asks before starting the VM
+while macOS reports under 25% of its memory free, and on a Mac under 16 GB it runs one
+devcontainer at a time. The equivalent by hand, for a 16 GB Mac:
 
-**Do not give the VM more than about half your host RAM.** The allocation is reserved for the VM, not shared back with macOS, so `--memory 16` on a 16 GB machine leaves nothing for the host and pushes it into swap — which reads as the container being slow. On a 16 GB Mac use `--memory 8`; `--memory 16` assumes 32 GB or more.
+```bash
+colima start --cpu 4 --memory 6 --disk 100 --mount-type virtiofs
+```
+
+**Do not give the VM more than about half your host RAM.** A VM's memory is not handed back to macOS while it runs, so `--memory 16` on a 16 GB machine leaves nothing for the host and pushes it into swap — which reads as the container being slow. `dev vm stop` (or `dev stop` on the last container) gives it back.
 
 **`--mount-type virtiofs` is the setting that matters most for speed.** It is already the default on `vmType: vz` in current Colima, so on a fresh install the flag is a no-op — pass it anyway to be explicit. The alternative, `sshfs`, is around 940x slower on small-file writes and makes `dce` unstable, not merely slow.
 
@@ -125,7 +133,7 @@ The flag applies **only when the VM is created**. If you already have a Colima V
 
 **Size `--disk` generously from the start.** Each devcontainer image built from this template is 5-6 GB, every rebuild leaves the previous image behind, and the `docker-in-docker` feature keeps a second, nested image store per container. A 60 GB disk fills up faster than expected, and a full disk takes the Docker daemon down in a way that is hard to diagnose (see [Disk management](MANAGING.md#disk-management)).
 
-Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 150` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
+Disk is the one setting worth over-provisioning now: the image is sparse, so `--disk 100` only consumes host space as it actually fills, and while Colima can grow a disk later, it cannot shrink one.
 
 ### Auto-start at login
 
@@ -210,11 +218,12 @@ Enter to accept any default.
 | `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
-| `claude_attribution` | `no` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `no` hides both |
-| `cache_volume_scope` | `shared` | `shared` reuses one set of cache and gh-login volumes across projects; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
-| `container_memory_limit` | `8g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory` |
-| `git_user_name` | `kokko-ng` | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds. Leave both blank to leave git untouched |
-| `git_user_email` | `Kokko.Ng@insight.com` | See `git_user_name`; both or neither |
+| `claude_attribution` | `host` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `host` copies your own Claude Code setting (`attribution` in `~/.claude/settings.json`) at generation; `no` hides both; `yes` keeps Claude Code's default |
+| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or turn the sandbox off; `dev root` gives you root from the host |
+| `cache_volume_scope` | `shared` | `shared` reuses one set of cache and sign-in volumes (gh, Claude token, Azure) across projects, so you sign in once per Mac; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
+| `container_memory_limit` | `5g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory`. `dev` overrides it with 1 GB under the VM it sized for your Mac |
+| `git_user_name` | blank | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Blank (the default) uses the host's own `git config user.name/user.email`, recorded before every build. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds |
+| `git_user_email` | blank | See `git_user_name`; both or neither |
 
 Answers are validated before anything is written. A slug that is not lowercase, a port
 below 1024, two services on the same port, a source directory that is absolute or
@@ -224,7 +233,7 @@ abort generation with an explanation and leave no directory behind.
 ### Pinning a template version
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v4.0.0
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.0.0
 ```
 
 Releases are tagged from the `VERSION` file, so `--checkout` pins a project to a
@@ -524,7 +533,8 @@ across rebuilds lives in named volumes instead:
 | `<prefix>-gh-config` | `gh auth login` | Follows `cache_volume_scope` |
 | `<prefix>-uv-cache`, `<prefix>-npm-cache`, `<prefix>-zsh-history`, `pw-browsers` | Package caches, shell history, Playwright browsers | Follows `cache_volume_scope` |
 
-So `claude` and `gh` are signed in once per project, not once per rebuild.
+With the shared scope, gh, Azure and Claude Code are signed in once per Mac (see
+[Sign in to CLIs](#sign-in-to-clis)), not once per project or rebuild.
 `CLAUDE_CONFIG_DIR` in `containerEnv` points Claude Code at its volume, because it keeps
 the OAuth session in a `.claude.json` outside `~/.claude` by default and a volume alone
 would still lose the login.
@@ -576,7 +586,7 @@ If your project uses a different layout, update these two locations before build
 Docker is not reachable. Usually Colima is simply not running — start it:
 
 ```bash
-colima start --cpu 8 --memory 16 --disk 150
+dev vm start        # or: colima start --cpu 4 --memory 6 --disk 100
 ```
 
 Then retry `devcontainer up`. You can verify Docker is available with:
@@ -692,12 +702,31 @@ If the mount is already `virtiofs`, check the VM disk (`colima ssh -- df -h /`) 
 
 ## Sign in to CLIs
 
-After entering the container for the first time, authenticate the following CLIs:
+Once per Mac, not per project or rebuild, and mostly automatic:
+
+```bash
+dev auth
+```
+
+| CLI | How it is signed in | Where it lives |
+|---|---|---|
+| `gh` (and git over https) | `dev` copies your Mac's `gh auth token` in on first start | `<prefix>-gh-config` volume |
+| Copilot CLI | Reuses the gh sign-in: the container's `copilot` passes it as `COPILOT_GITHUB_TOKEN` | nothing extra |
+| Azure CLI | `dev` copies your Mac's az token cache (`azureProfile.json`, `msal_token_cache.json`) in on first start; `az login --use-device-code` when the Mac has none | `<prefix>-azure-config` volume |
+| Claude Code | `dev auth` runs `claude setup-token` on the Mac once (one browser click, valid a year), keeps the token in the Keychain and copies it into each new VM; `.zshrc` exports it as `CLAUDE_CODE_OAUTH_TOKEN` | `<prefix>-claude-auth` volume |
+
+With `cache_volume_scope: shared` every project uses the same volumes. The sign-ins are
+yours, so an agent in Auto mode can do with gh and az what you can, short of the
+managed deny list; the locked sandbox keeps its commands from sending them anywhere but
+GitHub and Azure, and the policy denies printing or reading the tokens. Renew the Claude
+token with `dev auth --claude`.
 
 ### Git identity
 
 Usually nothing to do: `post-create.sh` sets it on first provision from the
-`git_user_name` and `git_user_email` answers you gave the template. Verify with:
+`git_user_name` and `git_user_email` answers you gave the template or, when those were
+left blank (the default), from your Mac's own `git config user.name` and `user.email`,
+which `init-host-identity.sh` records before every build. Verify with:
 
 ```bash
 git config --global --get user.name
@@ -735,31 +764,15 @@ For anything that is not work, override inside that clone with
 
 Claude Code's commits carry the same author. Whether it also adds its own
 `Co-Authored-By` trailer (and a footer on pull requests) is the `claude_attribution`
-answer, off by default; see the generated `DEVCONTAINER.md` -> Commit authorship.
+answer, which by default copies your own Claude Code setting; see the generated
+`DEVCONTAINER.md` -> Commit authorship.
 
-### GitHub CLI
+### Without `dev`
 
-```bash
-gh auth login
-```
-
-Follow the interactive prompts. Choose **GitHub.com**, **HTTPS**, and authenticate via browser. This also enables `git push/pull` over HTTPS with your GitHub credentials. The login lives in the `gh-config` named volume, so it survives rebuilds. Prefer a fine-grained token scoped to the repositories the agent needs over your broadest personal token.
-
-### Azure CLI
-
-```bash
-az login
-```
-
-A browser window opens for Microsoft authentication. Follow the prompts to complete sign-in. The session does not survive a rebuild unless you enable the optional named volume (see [Optional mounts](#optional-mounts)); if you do, sign in with a least-privilege identity, since every agent session then carries it.
-
-### Claude Code
-
-```bash
-claude
-```
-
-On first launch Claude Code prompts you to authenticate. Follow the instructions to sign in via browser. The session, installed plugins and history live in the `<slug>-claude-config` named volume, so this is once per project rather than once per rebuild.
+Inside a container started some other way (VS Code's "Reopen in Container"), sign in by
+hand once and the shared volumes keep it for every project: `gh auth login -w`,
+`az login --use-device-code`, and `claude setup-token` with the token written to
+`~/.config/claude-auth/oauth-token`.
 
 ---
 

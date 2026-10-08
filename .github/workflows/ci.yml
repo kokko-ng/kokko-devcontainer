@@ -88,9 +88,11 @@ jobs:
           shellcheck --severity=info \
             "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
+            "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
             tests/merge-settings-tests.sh \
-            tests/template-tests.sh
+            tests/template-tests.sh \
+            bin/dev
 
   hadolint:
     name: hadolint (rendered Dockerfiles)

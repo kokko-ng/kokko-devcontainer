@@ -19,6 +19,21 @@ blocks the irreversible operations: force-push in any spelling, `git reflog expi
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
+**Your Bash commands run in a sandbox** the user cannot loosen from inside the container
+and neither can you: network only to an allowlist (GitHub, Copilot, Anthropic, npm, PyPI,
+Azure), writes only in the workspace, `/tmp` and the tool caches. A command that fails
+with a connection or permission error to a host or path outside that is the sandbox, not
+a bug: say which domain or path it needed and let the user decide; do not try to route
+around it. There is no sudo; system packages need a Dockerfile change and a rebuild,
+which the user runs. Do not try to read the gh, Azure or Claude credentials, or print
+their tokens.
+
+**This may be a small machine.** The container has a hard memory cap (a few GB on an
+8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
+time: no `pytest -n auto`, no `make -j`, no several installs or builds at once, no more
+dev servers than the task needs, and stop the ones you started when you are done. If a
+step looks likely to need more than about 2 GB of memory, ask first.
+
 A `SessionStart` hook prints any provisioning step that failed when the container was
 built. If it does, the tools that step installs may be missing — fix the cause or tell
 the user before working around it.

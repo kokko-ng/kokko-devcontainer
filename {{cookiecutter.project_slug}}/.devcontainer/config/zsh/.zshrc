@@ -18,6 +18,28 @@ DOTFILES_ZSH="${0:A:h}"
 [[ ":$PATH:" == *":$HOME/.local/bin:"* ]] || export PATH="$HOME/.local/bin:$PATH"
 
 # ===================
+# Shared sign-ins
+# ===================
+# Every devcontainer shares these volumes, filled once by the host `dev`
+# command (dev auth). Claude Code: a long-lived `claude setup-token` token,
+# so no per-project /login. The Claude Code policy scrubs it from the
+# environment of the commands an agent runs and denies reading the file.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$HOME/.config/claude-auth/oauth-token" ]]; then
+    export CLAUDE_CODE_OAUTH_TOKEN="$(<"$HOME/.config/claude-auth/oauth-token")"
+fi
+# Copilot CLI: reuse the gh sign-in instead of a separate /login. Passed to
+# copilot alone rather than exported, so no other process sees it.
+copilot() {
+    local token="${COPILOT_GITHUB_TOKEN:-}"
+    [[ -n "$token" ]] || token="$(gh auth token 2>/dev/null)"
+    if [[ -n "$token" ]]; then
+        COPILOT_GITHUB_TOKEN="$token" command copilot "$@"
+    else
+        command copilot "$@"
+    fi
+}
+
+# ===================
 # History
 # ===================
 # /commandhistory is a named volume (see devcontainer.json mounts), so shell

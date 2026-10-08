@@ -103,8 +103,27 @@ check "managed settings deny the destructive cloud, docker and gh operations" \
        and (index("Bash(gh repo delete*)") != null)' "$MANAGED_JSON"
 # A bare "Bash" deny would remove the tool from Claude entirely; every rule
 # must be scoped to a command pattern.
-check "every deny rule is a scoped Bash pattern" \
-    '.permissions.deny | all(test("^Bash\\(.+\\)$"))' "$MANAGED_JSON"
+check "every deny rule is a scoped Bash, Read or Edit pattern" \
+    '.permissions.deny | all(test("^(Bash|Read|Edit)\\(.+\\)$"))' "$MANAGED_JSON"
+# The sandbox is policy: on, with no way out for an agent and no domains
+# beyond the managed list, so an agent in Auto mode cannot reach the network
+# except through the allowlist, and cannot read the shared Claude token.
+check "policy turns the Bash sandbox on and fails closed" \
+    '.sandbox.enabled == true and .sandbox.failIfUnavailable == true' "$MANAGED_JSON"
+check "policy allows no unsandboxed escape" \
+    '.sandbox.allowUnsandboxedCommands == false' "$MANAGED_JSON"
+check "policy locks the domain allowlist to the managed one" \
+    '.sandbox.network.allowManagedDomainsOnly == true
+       and (.sandbox.network.allowedDomains | index("api.anthropic.com") != null)
+       and (.sandbox.network.allowedDomains | index("github.com") != null)
+       and (.sandbox.network.allowedDomains | index("management.azure.com") != null)' "$MANAGED_JSON"
+check "policy hides the shared Claude token from agent commands" \
+    '(.sandbox.filesystem.denyRead | index("~/.config/claude-auth") != null)
+       and (.permissions.deny | index("Read(~/.config/claude-auth/**)") != null)
+       and .env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB == "1"' "$MANAGED_JSON"
+check "policy denies printing gh and az tokens" \
+    '(.permissions.deny | index("Bash(gh auth token*)") != null)
+       and (.permissions.deny | index("Bash(az account get-access-token*)") != null)' "$MANAGED_JSON"
 check "managed settings carry no allow rules or defaults" \
     '(.permissions | has("allow") or has("defaultMode")) | not' "$MANAGED_JSON"
 
