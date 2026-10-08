@@ -6,9 +6,16 @@
 
 add_newline = true
 
-format = """
-$directory$git_branch$git_state$git_status${custom.git_identity}$python$nodejs$docker_context$azure${custom.gh}${custom.claude}$container${custom.host}${custom.colima}$cmd_duration
-$character"""
+# One line: where you are (directory, git), the project's runtimes and the
+# last command's duration when they apply, then the prompt character.
+format = """$directory$git_branch$git_state$git_status${custom.git_identity}$python$nodejs$cmd_duration$character"""
+
+# The session context (Docker, Azure, gh and Claude accounts, host or
+# container, Colima): printed once when a terminal opens, above the first
+# prompt, by integrations.zsh (`starship prompt --profile context`), rather
+# than under every prompt.
+[profiles]
+context = """$docker_context$azure${custom.gh}${custom.claude}$container${custom.host}${custom.colima}"""
 
 [directory]
 style = "bold blue"
@@ -23,12 +30,12 @@ style = "bold purple"
 style = "bold yellow"
 
 [git_status]
-format = "([$all_status$ahead_behind]($style) )"
+format = "([$all_status( $ahead_behind)]($style) )"
 style = "yellow"
 conflicted = "="
-ahead = "^${count}"
-behind = "v${count}"
-diverged = "^${ahead_count}v${behind_count}"
+ahead = "⇡${count}"
+behind = "⇣${count}"
+diverged = "⇡${ahead_count}⇣${behind_count}"
 untracked = "?"
 stashed = "*"
 modified = "!"
@@ -37,16 +44,18 @@ renamed = ">"
 deleted = "x"
 
 [python]
+version_format = "${raw}"
 format = "[py $version( \\($virtualenv\\))]($style) "
 style = "yellow"
 
 [nodejs]
+version_format = "${raw}"
 format = "[node $version]($style) "
 style = "green"
 
 [azure]
 disabled = false
-format = "[az $subscription]($style) "
+format = "[az $subscription]($style)\n"
 style = "cyan"
 
 # Active GitHub account (what `ghw` reports), read from gh's local config so
@@ -55,7 +64,7 @@ style = "cyan"
 command = "awk '/^github.com:/{h=1;next} /^[^ ]/{h=0} h&&/^    user:/{print $2;exit}' ~/.config/gh/hosts.yml"
 when = "test -f ~/.config/gh/hosts.yml"
 shell = ["sh"]
-format = "[gh $output]($style) "
+format = "[gh $output]($style)\n"
 style = "purple"
 
 # Claude account Claude Code is logged in as, read from .claude.json
@@ -64,7 +73,7 @@ style = "purple"
 command = "jq -r '.oauthAccount.emailAddress // empty' \"${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json\""
 when = "test -f \"${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json\" && command -v jq >/dev/null"
 shell = ["sh"]
-format = "[claude $output]($style) "
+format = "[claude $output]($style)\n"
 style = "yellow"
 
 # Git commit identity, shown only inside a repo whose user.email differs from
@@ -78,7 +87,7 @@ style = "bold red"
 
 # Shown only inside a container (devcontainer shells via `dce`).
 [container]
-format = "[⬢ $name]($style) "
+format = "[⬢ $name]($style)\n"
 style = "bold red"
 
 # The counterpart of [container]: shown when this shell is NOT in a container
@@ -88,7 +97,7 @@ style = "bold red"
 command = "echo host"
 when = "[ ! -e /.dockerenv ] && [ ! -e /run/.containerenv ] && [ -z \"$REMOTE_CONTAINERS\" ] && [ -z \"$CODESPACES\" ]"
 shell = ["sh"]
-format = "[⌂ $output]($style) "
+format = "[⌂ $output]($style)\n"
 style = "green"
 
 # Shown on a machine with Colima installed while its VM is not running
@@ -97,14 +106,14 @@ style = "green"
 command = "echo colima off"
 when = "command -v colima >/dev/null && ! pgrep -qf 'limact[l].* hostagent .*colima'"
 shell = ["sh"]
-format = "[$output]($style) "
+format = "[$output]($style)\n"
 style = "dimmed red"
 
 # Shown whenever Docker points at a non-default context (e.g. colima),
 # not only in folders with a Dockerfile.
 [docker_context]
 only_with_files = false
-format = "[docker $context]($style) "
+format = "[docker $context]($style)\n"
 style = "blue"
 
 [cmd_duration]
