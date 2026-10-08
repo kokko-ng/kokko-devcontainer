@@ -125,6 +125,10 @@ assert_jq "template prompts for Claude attribution, following the host by defaul
     '.claude_attribution == ["host", "no", "yes"]'
 assert_jq "agent sudo is off by default" "$ROOT/cookiecutter.json" \
     '.agent_sudo[0] == "no"'
+assert_jq "the outbound firewall is on by default" "$ROOT/cookiecutter.json" \
+    '.network_firewall[0] == "on"'
+assert_jq "the firewall files are copied without rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render | index(".devcontainer/firewall/*") != null'
 assert_jq "the git identity defaults to blank (the host's own)" "$ROOT/cookiecutter.json" \
     '.git_user_name == "" and .git_user_email == ""'
 # Docker-in-Docker makes the container privileged, so it must be opt-in.
@@ -168,6 +172,20 @@ assert "the recorded host identity is gitignored" \
     grep -qx '.host-git-identity' "$DEFAULT/.devcontainer/.gitignore"
 assert_jq "agent sudo is locked by default" "$DC" \
     '.containerEnv.DEVCONTAINER_AGENT_SUDO == "0"'
+assert_jq "the firewall is published to post-create" "$DC" \
+    '.containerEnv.DEVCONTAINER_FIREWALL == "1"'
+assert_jq "the firewall gets the capabilities it needs" "$DC" \
+    '(.runArgs | index("--cap-add=NET_ADMIN") != null) and (.runArgs | index("--cap-add=NET_RAW") != null)'
+assert "the image installs the firewall tools" \
+    grep -qE 'install .* iptables ipset dnsutils iproute2' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the image bakes in the firewall script and allowlist" \
+    grep -q 'COPY firewall/allowed-domains.txt /etc/devcontainer/allowed-domains.txt' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the only sudo left is the firewall script" \
+    grep -q "vscode ALL=(root) NOPASSWD: /usr/local/sbin/devcontainer-firewall'" "$DEFAULT/.devcontainer/Dockerfile"
+assert "the allowlist covers Claude, GitHub and Azure" \
+    grep -qxE 'api.anthropic.com|api.github.com|management.azure.com' "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+assert "the firewall files are in the build context" \
+    grep -qx '!firewall/' "$DEFAULT/.devcontainer/.dockerignore"
 assert_jq "the Claude sign-in volume is shared" "$DC" \
     '[.mounts[] | select(test("target=/home/vscode/.config/claude-auth,"))]
        == ["source=devcontainer-claude-auth,target=/home/vscode/.config/claude-auth,type=volume"]'
@@ -291,7 +309,7 @@ render "$WORK/slim" \
     include_azure_cli=no include_azure_sql_driver=no include_docker_in_docker=no \
     include_copilot_cli=no include_playwright=no \
     claude_plugin_roster=none cache_volume_scope=per-project \
-    container_memory_limit=2048m agent_sudo=yes \
+    container_memory_limit=2048m agent_sudo=yes network_firewall=off \
     git_user_name="Slim Dev" git_user_email=slim@example.com
 SLIM="$WORK/slim/slim-app"
 assert "slim answers render" test -d "$SLIM/.devcontainer"
@@ -341,6 +359,8 @@ assert_jq "an explicit git identity is published to post-create" "$SDC" \
        and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == "slim@example.com"'
 assert_jq "agent_sudo=yes keeps sudo" "$SDC" \
     '.containerEnv.DEVCONTAINER_AGENT_SUDO == "1"'
+assert_jq "network_firewall=off publishes 0 and drops the capabilities" "$SDC" \
+    '.containerEnv.DEVCONTAINER_FIREWALL == "0" and (.runArgs | index("--cap-add=NET_ADMIN") == null)'
 assert_jq "per-project Claude sign-in volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-claude-auth,"))] | length == 1'
 refute "no azure volume without the azure cli" \

@@ -19,14 +19,15 @@ blocks the irreversible operations: force-push in any spelling, `git reflog expi
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
-**Your Bash commands run in a sandbox** the user cannot loosen from inside the container
-and neither can you: network only to an allowlist (GitHub, Copilot, Anthropic, npm, PyPI,
-Azure), writes only in the workspace, `/tmp` and the tool caches. A command that fails
-with a connection or permission error to a host or path outside that is the sandbox, not
-a bug: say which domain or path it needed and let the user decide; do not try to route
-around it. There is no sudo; system packages need a Dockerfile change and a rebuild,
-which the user runs. Do not try to read the gh, Azure or Claude credentials, or print
-their tokens.
+**The container has an outbound firewall** that you cannot change and must not try to:
+everything here reaches only an allowlist of hosts (GitHub, Copilot, Anthropic, npm, PyPI,
+Azure, and what the project added). A request that fails with "connection refused" to a
+host outside that list is the firewall, not a bug: say which host it needed and let the
+user add it to `.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
+allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
+(the only thing sudo does here). There is no other sudo; system packages need a
+Dockerfile change and a rebuild, which the user runs. Do not read the gh, Azure or Claude
+credential files or print their tokens.
 
 **This may be a small machine.** The container has a hard memory cap (a few GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a

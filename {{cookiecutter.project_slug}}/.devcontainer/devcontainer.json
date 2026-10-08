@@ -79,9 +79,13 @@
     // Whether the container user keeps passwordless sudo after provisioning.
     // 0 (the default): post-create.sh removes it once the root steps are done,
     // so an agent cannot rewrite the Claude Code policy in /etc/claude-code,
-    // install system packages or change the sandbox. You still get root from
+    // install system packages or open the firewall. You still get root from
     // the host with `dev root`. 1 keeps sudo for everyone in the container.
     "DEVCONTAINER_AGENT_SUDO": "{% if cookiecutter.agent_sudo == "yes" %}1{% else %}0{% endif %}",
+    // The outbound firewall (firewall/init-firewall.sh): 1 limits every
+    // process in the container to the hosts in firewall/allowed-domains.txt
+    // (applied by post-create.sh on every start); 0 leaves the network open.
+    "DEVCONTAINER_FIREWALL": "{% if cookiecutter.network_firewall == "on" %}1{% else %}0{% endif %}",
     "DEVCONTAINER_INSTALL_PLAYWRIGHT": "{% if cookiecutter.include_playwright == "yes" %}1{% else %}0{% endif %}",
 {%- if cookiecutter.include_playwright == "yes" %}
     // Playwright browsers live in a named volume (see "mounts") so a rebuild
@@ -89,6 +93,11 @@
     // the install when this directory is already populated.
     "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
 {%- endif %}
+    // Which kokko-notifications sounds play (`completion`, `attention`; empty
+    // means both), mirrored from the host: `dev` passes on the value in the
+    // host's ~/.claude/settings.json `env`. Inside the container the sounds
+    // reach you as a terminal bell, which Ghostty can play as audio.
+    "KOKKO_SOUND_EVENTS": "${localEnv:KOKKO_SOUND_EVENTS}",
     // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
     // post-create skips the plugin bootstrap (network calls that need a
     // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
@@ -107,6 +116,13 @@
   // Two containers cannot forward the same host port — see MANAGING.md -> Port conflicts.
   "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
+{%- if cookiecutter.network_firewall == "on" %}
+    // The outbound firewall needs these to install its iptables rules. They
+    // apply to root in the container only; the container user has no sudo
+    // beyond the firewall script itself, so nothing else can use them.
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+{%- endif %}
     // Chromium spawns many short-lived processes, and parallel agent sessions
     // (subagents, test runners, Vite) add more. 512 was too low for Chromium
     // alone; 4096 leaves room for several sessions before EAGAIN errors.
@@ -186,7 +202,7 @@
   // host's own ~/.claude): everything reachable inside the container is
   // reachable by an agent running without prompts. The sign-ins above live in
   // volumes of their own, filled once (`dev auth`), and agent commands reach
-  // the network only through the sandbox's domain allowlist.
+  // the network only through the outbound firewall's allowlist.
   "customizations": {
     "vscode": {
       "extensions": [

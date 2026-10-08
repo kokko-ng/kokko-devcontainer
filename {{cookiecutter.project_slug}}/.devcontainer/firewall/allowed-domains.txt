@@ -1,0 +1,51 @@
+# Hosts the devcontainer may reach (devcontainer-firewall). One per line, exact
+# host names only: the firewall allows the addresses they resolve to, so a
+# wildcard cannot be expressed. GitHub's own address ranges are added on top
+# from api.github.com/meta.
+#
+# Baked into the image: edit this file, then rebuild (dev rebuild) to apply.
+# Add the hosts your project talks to: its Azure resources (storage accounts,
+# Key Vaults, OpenAI deployments, web apps), databases and other APIs.
+
+# Claude Code
+api.anthropic.com
+claude.ai
+downloads.claude.ai
+storage.googleapis.com
+
+# GitHub and Copilot CLI (address ranges come from api.github.com/meta)
+github.com
+api.github.com
+codeload.github.com
+objects.githubusercontent.com
+raw.githubusercontent.com
+release-assets.githubusercontent.com
+api.githubcopilot.com
+api.individual.githubcopilot.com
+api.business.githubcopilot.com
+copilot-proxy.githubusercontent.com
+
+# Package registries
+registry.npmjs.org
+pypi.org
+files.pythonhosted.org
+
+# Azure CLI
+login.microsoftonline.com
+login.windows.net
+management.azure.com
+management.core.windows.net
+graph.microsoft.com
+azurecliprod.blob.core.windows.net
+aka.ms
+
+# Playwright browser downloads
+cdn.playwright.dev
+playwright.download.prss.microsoft.com
+playwright.azureedge.net
+
+# VS Code server and extensions (Reopen in Container)
+update.code.visualstudio.com
+vscode.download.prss.microsoft.com
+marketplace.visualstudio.com
+main.vscode-cdn.net

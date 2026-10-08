@@ -94,8 +94,8 @@ reuses the gh sign-in, and `dev auth` creates the Claude Code token once and kee
 the macOS Keychain. Nothing is bind-mounted from the host: host credential directories
 (`~/.ssh`, `~/.azure`, the host's own `~/.claude`) stay outside, because everything
 reachable inside the container is reachable by an agent running without prompts. The
-sandbox below keeps agent commands from sending these sign-ins anywhere but GitHub and
-Azure, but they are as powerful as your own: Auto mode can do with gh and az what you
+outbound firewall below keeps anything in the container from sending these sign-ins
+anywhere but the allowlisted hosts, but they are as powerful as your own: Auto mode can do with gh and az what you
 can, short of the deny list.
 
 ## Commit authorship
@@ -185,18 +185,22 @@ program that does the same thing, so it is a floor, not a security boundary. The
 is baked into the image, so changing it means editing the file and rebuilding
 (`dev rebuild`).
 
-**A sandbox agent commands cannot leave.** The same policy turns Claude Code's Bash
-sandbox on and locks it: no unsandboxed retry, a domain allowlist only the policy can
-widen (GitHub, Copilot, Anthropic, npm, PyPI, Azure), writes limited to the workspace,
-`/tmp` and the tool caches, no reads of the shared Claude token, and credentials
-scrubbed from the environment of every command an agent runs. `gh` and `az` work inside
-it. A command that needs another domain fails; add the domain to
-`sandbox.network.allowedDomains` in `managed-settings.json` and rebuild.
+**A network agents cannot leave.** An outbound firewall, applied on every start,
+limits everything in this container (Claude Code, Copilot CLI, gh, az, MCP servers and
+the commands they run) to the hosts in `.devcontainer/firewall/allowed-domains.txt` plus
+GitHub's published ranges: GitHub, Copilot, Anthropic, npm, PyPI and Azure's control
+plane. `gh` and `az` work; `localhost` is unaffected. A request to any other host fails
+at once with "connection refused". Add your project's hosts (Azure storage accounts,
+Key Vaults, OpenAI deployments, databases, APIs) to that file, one exact name per line,
+and rebuild. `sudo devcontainer-firewall` refreshes the resolved addresses when a CDN
+rotates them. Claude Code's own Bash sandbox stays off: it cannot run in an unprivileged
+container.
 
 **No sudo for agents.** Once provisioning has done its root steps, `post-create.sh`
 removes the container user's passwordless sudo (`agent_sudo` was `{{ cookiecutter.agent_sudo }}`; flip
 `DEVCONTAINER_AGENT_SUDO` in `devcontainer.json` and rebuild to change it), so nothing
-in the container can rewrite the policy or install system packages. For a root shell,
+in the container can rewrite the policy, install system packages or open the firewall
+(the firewall script is the one thing sudo still runs, and it only re-applies the rules). For a root shell,
 run `dev root` on the host.
 
 Git recoverability rests on git itself — `gc.reflogExpire`,

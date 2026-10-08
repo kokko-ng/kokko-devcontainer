@@ -29,57 +29,5 @@
       "Read(~/.azure/msal_token_cache*)",
       "Read(~/.config/gh/hosts.yml)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1"
-  },
-  "sandbox": {
-    "enabled": true,
-    "failIfUnavailable": true,
-    "allowUnsandboxedCommands": false,
-    "autoAllowBashIfSandboxed": true,
-    "enableWeakerNestedSandbox": true,
-    "network": {
-      "allowManagedDomainsOnly": true,
-      "allowedDomains": [
-        "api.anthropic.com",
-        "github.com",
-        "*.github.com",
-        "*.githubusercontent.com",
-        "ghcr.io",
-        "*.ghcr.io",
-        "*.githubcopilot.com",
-        "registry.npmjs.org",
-        "*.npmjs.org",
-        "registry.yarnpkg.com",
-        "pypi.org",
-        "files.pythonhosted.org",
-        "playwright.azureedge.net",
-        "cdn.playwright.dev",
-        "login.microsoftonline.com",
-        "*.microsoftonline.com",
-        "graph.microsoft.com",
-        "management.azure.com",
-        "*.azure.com",
-        "*.azure.net",
-        "*.windows.net",
-        "*.azurewebsites.net",
-        "*.azurecr.io",
-        "*.azureedge.net",
-        "aka.ms"
-      ]
-    },
-    "filesystem": {
-      "allowWrite": [
-        "~/.azure",
-        "~/.config/gh",
-        "~/.cache",
-        "~/.npm",
-        "~/.local/share/uv"
-      ],
-      "denyRead": [
-        "~/.config/claude-auth"
-      ]
-    }
   }
 }

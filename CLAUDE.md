@@ -73,19 +73,24 @@ What sits around auto mode, and where each piece lives:
   where the merge lets the user win, and do not put user-overridable defaults into
   managed settings, where they cannot.
 - **Defaults** the user may override — auto mode, the Bash tool limits in `env`, the
-  sandbox extras such as `excludedCommands` (the policy below switches the sandbox on and
-  locks it), the plugin roster — are the bundled
+  sandbox block (shipped `enabled: false`), the plugin roster — are the bundled
   `settings.json`, merged additively per key.
 - **The one bundled hook** is `SessionStart` only and purely informational (it prints
   the provisioning ledger). `merge-settings.jq` wires it in when absent and never
   duplicates it. It is not a guard layer and must not grow into one.
 - **Docker-in-Docker** defaults to `no` because the feature runs the container
   privileged; keep that default.
-- **The Bash sandbox is policy**, not a default: `managed-settings.json` turns it on with
-  `failIfUnavailable`, `allowUnsandboxedCommands: false` and a managed-only domain
-  allowlist, denies reading the shared Claude token, and scrubs credentials from agent
-  subprocess environments. Agent commands reach only the allowlisted domains and write only
-  the workspace, `/tmp` and the tool caches. Widen the allowlist there, with a test.
+- **The outbound firewall is the network boundary.** `firewall/init-firewall.sh` (baked
+  into the image as `/usr/local/sbin/devcontainer-firewall`, with
+  `firewall/allowed-domains.txt`) limits every process in the container to the
+  allowlisted hosts; `post-create.sh` applies it on every start (`network_firewall`,
+  `DEVCONTAINER_FIREWALL`). It needs `NET_ADMIN`/`NET_RAW`, which only root can use, and
+  the container user's one remaining sudo grant is that script. Claude Code's own Bash
+  sandbox stays off: bubblewrap cannot create user namespaces in an unprivileged
+  container, and a sandboxed command's `localhost` is private to it. Widen the
+  allowlist in `allowed-domains.txt`, with a test.
+- **Never set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`** in the policy: it forces the permission
+  mode back to default, which turns Auto mode off.
 - **The policy is baked into the image** (`Dockerfile` COPYs `managed-settings.json` to
   `/etc/claude-code/`) and **sudo is removed after provisioning** (`lock_sudo` in
   `post-create.sh`, unless `agent_sudo` is `yes`), so nothing running in the container can
@@ -104,6 +109,7 @@ shellcheck --severity=info \
     "{{cookiecutter.project_slug}}/.devcontainer/post-create.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-certs.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
+    "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
     tests/merge-settings-tests.sh tests/template-tests.sh bin/dev
 ```
@@ -120,12 +126,13 @@ shellcheck --severity=info \
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
 | `{{cookiecutter.project_slug}}/.devcontainer/devcontainer.json` | Templated container definition; also publishes the `DEVCONTAINER_*` toggles |
 | `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer) |
-| `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox extras, SessionStart hook wiring, plugin roster |
-| `.../config/claude/managed-settings.json` | Policy, baked into the image at `/etc/claude-code/`: the deny list, the bypass-mode lock, the locked sandbox (domain allowlist, token read deny) and the credential scrub |
+| `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox (off), SessionStart hook wiring, plugin roster |
+| `.../config/claude/managed-settings.json` | Policy, baked into the image at `/etc/claude-code/`: the deny list (including reading the shared Claude token and printing gh/az tokens) and the bypass-mode lock |
 | `.../config/claude/hooks/session-provision-status.sh` | SessionStart hook: prints failed provisioning steps into the session |
 | `.../config/claude/merge-settings.jq` | Merges bundled settings/roster into a live settings.json (idempotent, preserves user settings, strips retired hook wiring) |
 | `.../config/claude/prune-roster.jq` | Removes roster entries the bundle dropped, unless user-overridden |
 | `.../post-create.sh` | Provisioning; `--config-only` re-applies bundled config (settings, policy, hook, CLAUDE.md, zsh) in place |
 | `ghostty/config` | Host-side terminal config; not part of the template payload |
+| `.../.devcontainer/firewall/` | The outbound firewall script and its allowlist, baked into the image; the only sudo the container user keeps |
 | `bin/dev` | Host CLI: sizes and starts Colima for the Mac, starts and opens containers (shell, Ghostty tab, Claude), fills the shared sign-in volumes from the host, `dev guide`. Not part of the template payload; bash 3.2-compatible (macOS `/bin/bash`) |
 | `.../.devcontainer/init-host-identity.sh` | initializeCommand step: records the host's git identity in `.devcontainer/.host-git-identity` for `post-create.sh` |

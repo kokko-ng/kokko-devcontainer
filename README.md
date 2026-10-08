@@ -22,7 +22,7 @@ dev auth            # gh and Azure come from your Mac's own logins, Copilot reus
 
 # 4. Make a project and work in it
 dev new my-project  # generates ~/code/my-project and opens a shell in its container
-dev claude          # ... or straight into Claude Code (Auto mode, sandboxed)
+dev claude          # ... or straight into Claude Code (Auto mode, firewalled)
 dev -t              # ... or a new Ghostty tab
 dev guide           # the rest, with this Mac's state
 ```
@@ -89,7 +89,7 @@ gave last time.
 | `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
 | `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
 | `claude_attribution` | `host` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `host` copies your own Claude Code setting (`attribution` in `~/.claude/settings.json`) at generation; `no` hides both; `yes` keeps Claude Code's default |
-| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or turn the sandbox off; `dev root` gives you root from the host |
+| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or open the firewall; `dev root` gives you root from the host |
 | `cache_volume_scope` | `shared` | `shared` reuses one set of cache and sign-in volumes (gh, Claude token, Azure) across projects, so you sign in once per Mac; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
 | `container_memory_limit` | `5g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory`. `dev` overrides it with 1 GB under the VM it sized for your Mac |
 | `git_user_name` | blank | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Blank (the default) uses the host's own `git config user.name/user.email`, recorded before every build. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds |
@@ -108,7 +108,8 @@ memory limit without an `m`/`g` unit or below `512m`.
 | GitHub CLI | Repository and PR workflows |
 | Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`, pinned to a version and baked into the image, auto-update off), with the `kokko-ng` plugin roster installed automatically |
 | pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| bubblewrap + socat | Claude Code's Bash sandbox, on and locked by policy: agent commands reach an allowlist of domains and write only the workspace |
+| Outbound firewall | iptables allowlist applied on every start: everything in the container reaches only GitHub, Copilot, Anthropic, npm, PyPI, Azure and the hosts you add |
+| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox, which stays off (it cannot run in an unprivileged container; the firewall does its job) |
 | zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
 | Azure CLI | Azure resource management (optional) |
 | ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc (optional) |
@@ -198,17 +199,18 @@ Two things sit around auto mode:
   gone, and the merge strips it from existing containers). Deny rules match the
   command as Claude writes it, including inside `&&` chains and subshells, but not a
   different program that does the same thing — a floor, not a security boundary.
-- **A sandbox it cannot leave.** The policy turns Claude Code's Bash sandbox on and
-  locks it (`allowUnsandboxedCommands: false`, a managed-only domain allowlist,
-  `failIfUnavailable`): the commands an agent runs reach only GitHub, Copilot,
-  Anthropic, npm, PyPI and Azure, write only the workspace, `/tmp` and the tool caches,
-  cannot read the shared Claude token, and run with credentials scrubbed from their
-  environment. `gh` and `az` work inside it, so Auto mode keeps both CLIs; what an agent
-  cannot do is send them anywhere else. Widen the allowlist in `managed-settings.json`.
+- **A network it cannot leave.** An outbound firewall (iptables, applied on every
+  start) limits everything in the container, Claude Code, Copilot CLI, gh, az, MCP
+  servers and the commands they run, to an allowlist: GitHub, Copilot, Anthropic, npm,
+  PyPI, Azure, plus the hosts you add to `.devcontainer/firewall/allowed-domains.txt`.
+  `gh` and `az` work, so Auto mode keeps both CLIs; what an agent cannot do is send
+  anything elsewhere. `localhost` is unaffected, so dev servers and tests work as
+  usual. Claude Code's own Bash sandbox stays off: it needs user namespaces that an
+  unprivileged container does not have.
 - **No sudo.** The policy is baked into the image, and `post-create.sh` removes the
   container user's passwordless sudo once provisioning is done (`agent_sudo: no`), so
-  nothing in the container can rewrite policy, install packages or turn the sandbox
-  off. `dev root` gives you a root shell from the host; a policy change takes a rebuild,
+  nothing in the container can rewrite policy, install packages or open the firewall
+  (its script is the one thing left that sudo runs, and it only re-applies the rules). `dev root` gives you a root shell from the host; a policy change takes a rebuild,
   which only you run.
 
 Docker-in-Docker is opt-in for the same reason: the feature runs the container
@@ -285,8 +287,8 @@ Claude Code version pin) and `devcontainer.json` `features`/`containerEnv`/`runA
 - Claude Code state persists in a per-project named volume and the sign-ins in shared
   ones; nothing is bind-mounted from the host. Host credential directories (`~/.ssh`,
   `~/.azure`, the host's `~/.claude`) stay outside on purpose: `dev` copies the gh
-  token and the az token cache into the container's own volumes once, and the sandbox
-  keeps agent commands from sending them anywhere but GitHub and Azure. Those sign-ins
+  token and the az token cache into the container's own volumes once, and the firewall
+  keeps anything in the container from sending them anywhere but the allowlisted hosts. Those sign-ins
   are as powerful as your own, so an agent in Auto mode can do with gh and az what you
   can, short of the deny list.
 - Claude Code is pinned to a version in the `Dockerfile` and does not auto-update. `cu`
