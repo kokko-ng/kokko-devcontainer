@@ -24,6 +24,7 @@ dev auth            # gh and Azure come from your Mac's own logins, Copilot reus
 dev new my-project  # generates ~/code/my-project and opens a shell in its container
 dev claude          # ... or straight into Claude Code (Auto mode, firewalled)
 dev -t              # ... or a new Ghostty tab
+dev code            # ... or VS Code, attached to the container
 dev guide           # the rest, with this Mac's state
 ```
 
@@ -37,7 +38,7 @@ generates one by hand.
 Pin to a released version instead of tracking `main`:
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.1.0
+cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.2.0
 ```
 
 ### Adding it to a project you already have
@@ -272,7 +273,7 @@ and report what still needs a rebuild.
 
 Releases are tagged: the `VERSION` file at the repo root drives a `v<version>` tag and
 GitHub release, published automatically once CI passes on `main`. That means
-`--checkout v5.1.0` (cookiecutter) or `/devcontainer-update --ref v5.1.0` can pin a
+`--checkout v5.2.0` (cookiecutter) or `/devcontainer-update --ref v5.2.0` can pin a
 project to a known-good version instead of tracking `main`. Dockerfile (including the
 Claude Code version pin) and `devcontainer.json` `features`/`containerEnv`/`runArgs`/
 `mounts` changes always need a rebuild.
