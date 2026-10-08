@@ -666,6 +666,15 @@ link_shell_config() {
     elif [[ -f "$bundled_zsh_dir/.zshrc" ]]; then
         ln -sfn "$bundled_zsh_dir/.zshrc" "$HOME/.zshrc"
     fi
+    # Starship prompt config (the binary is baked into the image).
+    local bundled_starship="$BUNDLED_CONFIG_DIR/starship/starship.toml"
+    if [[ -f "$dotfiles_dir/starship.toml" ]]; then
+        mkdir -p "$HOME/.config"
+        ln -sfn "$dotfiles_dir/starship.toml" "$HOME/.config/starship.toml"
+    elif [[ -f "$bundled_starship" ]]; then
+        mkdir -p "$HOME/.config"
+        ln -sfn "$bundled_starship" "$HOME/.config/starship.toml"
+    fi
 }
 
 # =====================

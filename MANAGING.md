@@ -463,6 +463,7 @@ manual check (quarterly is a reasonable cadence):
 | `pre-commit==<version>` | `.devcontainer/Dockerfile` | `curl -s https://pypi.org/pypi/pre-commit/json \| jq -r .info.version` |
 | Claude Code `install.sh \| bash -s <version>` | `.devcontainer/Dockerfile` | `npm view @anthropic-ai/claude-code version` (the native binary tracks the npm release numbers). Auto-update is off in the container, so this pin is what every session runs — audit it more often than quarterly |
 | `@github/copilot@<version>` | `.devcontainer/post-create.sh` | `npm view @github/copilot version` |
+| Starship `releases/download/v<version>/` | `.devcontainer/Dockerfile` | `gh release view -R starship/starship --json tagName -q .tagName` |
 | `@playwright/cli@<version>` | `.devcontainer/post-create.sh` | `npm view @playwright/cli version` |
 | `@anthropic-ai/sandbox-runtime@<version>` | `.devcontainer/post-create.sh` | `npm view @anthropic-ai/sandbox-runtime version` |
 | Docker default seccomp profile (`seccomp/v0.2.4`) | `.devcontainer/seccomp-sandbox.json` | `git ls-remote --tags https://github.com/moby/profiles 'seccomp/*'`. Regenerate from the new tag, keeping the one appended rule: `jq --tab '.syscalls += [input.syscalls[-1]]' default.json seccomp-sandbox.json` (with `default.json` from `seccomp/default.json` at that tag), then update the tag in the rule's `comment` |
