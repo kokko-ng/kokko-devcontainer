@@ -48,6 +48,13 @@ done
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# claude_attribution defaults to "host": post_gen_project.py reads the host's
+# Claude Code settings. Point it at a fixture so the renders do not depend on
+# whoever runs the tests: this host hides attribution, as the bundle does.
+export CLAUDE_CONFIG_DIR="$WORK/host-claude"
+mkdir -p "$CLAUDE_CONFIG_DIR"
+printf '{"attribution": {"commit": "", "pr": ""}}\n' > "$CLAUDE_CONFIG_DIR/settings.json"
+
 # ---------------------------------------------------------------------------
 # JSONC -> JSON. devcontainer.json is JSONC (the spec allows comments), so it
 # cannot be fed to jq directly. Strip comments with a string-aware scanner —
@@ -114,8 +121,16 @@ assert_jq "template prompts for a git identity" "$ROOT/cookiecutter.json" \
     'has("git_user_name") and has("git_user_email")'
 assert_jq "template prompts for a container memory limit" "$ROOT/cookiecutter.json" \
     'has("container_memory_limit")'
-assert_jq "template prompts for Claude attribution, off by default" "$ROOT/cookiecutter.json" \
-    '.claude_attribution[0] == "no"'
+assert_jq "template prompts for Claude attribution, following the host by default" "$ROOT/cookiecutter.json" \
+    '.claude_attribution == ["host", "no", "yes"]'
+assert_jq "agent sudo is off by default" "$ROOT/cookiecutter.json" \
+    '.agent_sudo[0] == "no"'
+assert_jq "the outbound firewall is on by default" "$ROOT/cookiecutter.json" \
+    '.network_firewall[0] == "on"'
+assert_jq "the firewall files are copied without rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render | index(".devcontainer/firewall/*") != null'
+assert_jq "the git identity defaults to blank (the host's own)" "$ROOT/cookiecutter.json" \
+    '.git_user_name == "" and .git_user_email == ""'
 # Docker-in-Docker makes the container privileged, so it must be opt-in.
 assert_jq "docker-in-docker defaults to no" "$ROOT/cookiecutter.json" \
     '.include_docker_in_docker[0] == "no"'
@@ -148,9 +163,39 @@ assert_jq "PYTHONPATH points at the backend source dir" "$DC" \
     '.containerEnv.PYTHONPATH == "${containerWorkspaceFolder}/src"'
 assert_jq "frontend dir is published to post-create" "$DC" \
     '.containerEnv.DEVCONTAINER_FRONTEND_DIR == "ui"'
-assert_jq "the git identity is published to post-create" "$DC" \
-    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == "kokko-ng"
-       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == "Kokko.Ng@insight.com"'
+assert_jq "a blank git identity is published blank (post-create uses the host's)" "$DC" \
+    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == ""
+       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == ""'
+assert_jq "the host's git identity is recorded before every build" "$DC" \
+    '.initializeCommand | test("init-host-identity\\.sh")'
+assert "the recorded host identity is gitignored" \
+    grep -qx '.host-git-identity' "$DEFAULT/.devcontainer/.gitignore"
+assert_jq "agent sudo is locked by default" "$DC" \
+    '.containerEnv.DEVCONTAINER_AGENT_SUDO == "0"'
+assert_jq "the firewall is published to post-create" "$DC" \
+    '.containerEnv.DEVCONTAINER_FIREWALL == "1"'
+assert_jq "the firewall gets the capabilities it needs" "$DC" \
+    '(.runArgs | index("--cap-add=NET_ADMIN") != null) and (.runArgs | index("--cap-add=NET_RAW") != null)'
+assert "the image installs the firewall tools" \
+    grep -qE 'install .* iptables ipset dnsutils iproute2' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the image bakes in the firewall script and allowlist" \
+    grep -q 'COPY firewall/allowed-domains.txt /etc/devcontainer/allowed-domains.txt' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the only sudo left is the firewall script" \
+    grep -q "vscode ALL=(root) NOPASSWD: /usr/local/sbin/devcontainer-firewall'" "$DEFAULT/.devcontainer/Dockerfile"
+assert "the allowlist covers Claude, GitHub and Azure" \
+    grep -qxE 'api.anthropic.com|api.github.com|management.azure.com' "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+assert "the firewall files are in the build context" \
+    grep -qx '!firewall/' "$DEFAULT/.devcontainer/.dockerignore"
+assert_jq "the Claude sign-in volume is shared" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/.config/claude-auth,"))]
+       == ["source=devcontainer-claude-auth,target=/home/vscode/.config/claude-auth,type=volume"]'
+assert_jq "the Azure sign-in volume is shared" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/.azure,"))]
+       == ["source=devcontainer-azure-config,target=/home/vscode/.azure,type=volume"]'
+assert "the image bakes in the Claude Code policy" \
+    grep -q 'COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the policy is in the build context" \
+    grep -qx '!config/claude/managed-settings.json' "$DEFAULT/.devcontainer/.dockerignore"
 assert_jq "azure-cli feature is present by default" "$DC" \
     '.features | has("ghcr.io/devcontainers/features/azure-cli:1")'
 assert_jq "docker-in-docker feature is absent by default" "$DC" \
@@ -171,8 +216,10 @@ assert_jq "Claude Code state volume is per project" "$DC" \
 assert_jq "gh login volume follows the shared cache scope" "$DC" \
     '[.mounts[] | select(test("target=/home/vscode/.config/gh,"))]
        == ["source=devcontainer-gh-config,target=/home/vscode/.config/gh,type=volume"]'
-assert_jq "default memory limit reaches runArgs, with swap disabled" "$DC" \
-    '(.runArgs | index("--memory=8g") != null) and (.runArgs | index("--memory-swap=8g") != null)'
+# shellcheck disable=SC2016  # ${localEnv:...} is devcontainer syntax, not shell
+assert_jq "default memory limit reaches runArgs behind dev's override, with swap disabled" "$DC" \
+    '(.runArgs | index("--memory=${localEnv:DEVCONTAINER_MEMORY_LIMIT:5g}") != null)
+       and (.runArgs | index("--memory-swap=${localEnv:DEVCONTAINER_MEMORY_LIMIT:5g}") != null)'
 assert_jq "pids limit leaves room for parallel sessions" "$DC" \
     '.runArgs | index("--pids-limit=4096") != null'
 assert_jq "postStart output is captured like postCreate output" "$DC" \
@@ -194,9 +241,9 @@ assert_jq "default roster ships the kokko-ng plugins" \
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
-# The attribution answer defaults to no: the bundle's empty strings, which
-# hide the Co-Authored-By trailer and the PR footer, come through untouched.
-assert_jq "Claude attribution is hidden by default" \
+# The attribution answer defaults to host, and the fixture host hides it: the
+# empty strings, which hide the Co-Authored-By trailer and the PR footer.
+assert_jq "Claude attribution follows a host that hides it" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.attribution == {commit: "", pr: ""}'
 
@@ -262,8 +309,8 @@ render "$WORK/slim" \
     include_azure_cli=no include_azure_sql_driver=no include_docker_in_docker=no \
     include_copilot_cli=no include_playwright=no \
     claude_plugin_roster=none cache_volume_scope=per-project \
-    container_memory_limit=2048m \
-    git_user_name= git_user_email=
+    container_memory_limit=2048m agent_sudo=yes network_firewall=off \
+    git_user_name="Slim Dev" git_user_email=slim@example.com
 SLIM="$WORK/slim/slim-app"
 assert "slim answers render" test -d "$SLIM/.devcontainer"
 
@@ -282,11 +329,6 @@ assert_jq "github-cli and common-utils are always kept" "$SDC" \
     '.features | has("ghcr.io/devcontainers/features/github-cli:1")
        and has("ghcr.io/devcontainers/features/common-utils:2")'
 assert_jq "chosen ports are forwarded" "$SDC" '.forwardPorts == [8080, 3000]'
-# Blank has to survive as blank. Rendering the default here would set a
-# stranger's name and address as the author of every commit in the project.
-assert_jq "a blank git identity stays blank" "$SDC" \
-    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == ""
-       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == ""'
 # shellcheck disable=SC2016  # ${containerWorkspaceFolder} is devcontainer syntax, not shell
 assert_jq "chosen backend source dir reaches PYTHONPATH" "$SDC" \
     '.containerEnv.PYTHONPATH == "${containerWorkspaceFolder}/backend"'
@@ -304,13 +346,24 @@ assert_jq "per-project caches are namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-uv-cache,"))] | length == 1'
 assert_jq "no docker extension without docker-in-docker" "$SDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") == null'
+# shellcheck disable=SC2016  # ${localEnv:...} is devcontainer syntax, not shell
 assert_jq "chosen memory limit reaches runArgs" "$SDC" \
-    '(.runArgs | index("--memory=2048m") != null) and (.runArgs | index("--memory-swap=2048m") != null)'
+    '(.runArgs | index("--memory=${localEnv:DEVCONTAINER_MEMORY_LIMIT:2048m}") != null)
+       and (.runArgs | index("--memory-swap=${localEnv:DEVCONTAINER_MEMORY_LIMIT:2048m}") != null)'
 assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
 assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-claude-config,"))] | length == 1'
-refute "no azure volume hint without the azure cli" \
+assert_jq "an explicit git identity is published to post-create" "$SDC" \
+    '.containerEnv.DEVCONTAINER_GIT_USER_NAME == "Slim Dev"
+       and .containerEnv.DEVCONTAINER_GIT_USER_EMAIL == "slim@example.com"'
+assert_jq "agent_sudo=yes keeps sudo" "$SDC" \
+    '.containerEnv.DEVCONTAINER_AGENT_SUDO == "1"'
+assert_jq "network_firewall=off publishes 0 and drops the capabilities" "$SDC" \
+    '.containerEnv.DEVCONTAINER_FIREWALL == "0" and (.runArgs | index("--cap-add=NET_ADMIN") == null)'
+assert_jq "per-project Claude sign-in volume is namespaced by slug" "$SDC" \
+    '[.mounts[] | select(test("source=slim-app-claude-auth,"))] | length == 1'
+refute "no azure volume without the azure cli" \
     grep -q 'azure-config' "$SLIM/.devcontainer/devcontainer.json"
 refute "slim CLAUDE.md lists none of the optional tools" \
     grep -qE 'playwright-cli|copilot|, az|nested daemon' "$SLIM/CLAUDE.md"
@@ -422,6 +475,19 @@ else
 fi
 
 # ===========================================================================
+# 6b. claude_attribution=host with a host that keeps Claude Code's default
+# ===========================================================================
+# A host settings.json without `attribution` means Claude Code signs its
+# commits; the bundle's override is removed so the container does too.
+HOSTDEFAULT_CLAUDE="$WORK/host-claude-default"
+mkdir -p "$HOSTDEFAULT_CLAUDE"
+printf '{"model": "opus"}\n' > "$HOSTDEFAULT_CLAUDE/settings.json"
+CLAUDE_CONFIG_DIR="$HOSTDEFAULT_CLAUDE" render "$WORK/hostattr" project_name="Host Attr"
+assert_jq "attribution follows a host that keeps Claude Code's default" \
+    "$WORK/hostattr/host-attr/.devcontainer/config/claude/settings.json" \
+    'has("attribution") | not'
+
+# ===========================================================================
 # 7. Bad answers are rejected before anything is written
 # ===========================================================================
 reject() { # reject <desc> <key=value ...>
@@ -443,7 +509,7 @@ reject "a privileged port is rejected" backend_port=80
 reject "duplicate ports are rejected" backend_port=8000 frontend_port=8000
 reject "a git_user_email that is not an address is rejected" \
     git_user_email=not-an-address
-reject "a git identity given only half is rejected" git_user_email=
+reject "a git identity given only half is rejected" git_user_name=someone
 reject "a git_user_name containing a quote is rejected" \
     'git_user_name=he said "hi"'
 reject "a memory limit without a unit is rejected" container_memory_limit=8

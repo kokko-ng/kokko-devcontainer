@@ -66,14 +66,26 @@
     "DEVCONTAINER_FRONTEND_DIR": "{{ cookiecutter.frontend_dir }}",
     // The git author identity post-create.sh writes on first provision, so a
     // fresh container is ready to commit as you rather than as
-    // "vscode@<container-id>". It only ever writes when the key is unset, so
-    // changing it inside the container survives every rebuild. Blank means
-    // "set nothing" and leaves git entirely alone.
+    // "vscode@<container-id>". Blank (the template default) means "the
+    // host's own": init-host-identity.sh records the host's `git config
+    // user.name/user.email` for this folder before every build. It only ever
+    // writes when the key is unset, so changing it inside the container
+    // survives every rebuild.
     "DEVCONTAINER_GIT_USER_NAME": "{{ cookiecutter.git_user_name }}",
     "DEVCONTAINER_GIT_USER_EMAIL": "{{ cookiecutter.git_user_email }}",
     // Provisioning toggles read by post-create.sh. These are the answers you
     // gave the template; flip one and rebuild to change what gets installed.
     "DEVCONTAINER_INSTALL_COPILOT_CLI": "{% if cookiecutter.include_copilot_cli == "yes" %}1{% else %}0{% endif %}",
+    // Whether the container user keeps passwordless sudo after provisioning.
+    // 0 (the default): post-create.sh removes it once the root steps are done,
+    // so an agent cannot rewrite the Claude Code policy in /etc/claude-code,
+    // install system packages or open the firewall. You still get root from
+    // the host with `dev root`. 1 keeps sudo for everyone in the container.
+    "DEVCONTAINER_AGENT_SUDO": "{% if cookiecutter.agent_sudo == "yes" %}1{% else %}0{% endif %}",
+    // The outbound firewall (firewall/init-firewall.sh): 1 limits every
+    // process in the container to the hosts in firewall/allowed-domains.txt
+    // (applied by post-create.sh on every start); 0 leaves the network open.
+    "DEVCONTAINER_FIREWALL": "{% if cookiecutter.network_firewall == "on" %}1{% else %}0{% endif %}",
     "DEVCONTAINER_INSTALL_PLAYWRIGHT": "{% if cookiecutter.include_playwright == "yes" %}1{% else %}0{% endif %}",
 {%- if cookiecutter.include_playwright == "yes" %}
     // Playwright browsers live in a named volume (see "mounts") so a rebuild
@@ -81,12 +93,17 @@
     // the install when this directory is already populated.
     "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
 {%- endif %}
+    // Which kokko-notifications sounds play (`completion`, `attention`; empty
+    // means both), mirrored from the host: `dev` passes on the value in the
+    // host's ~/.claude/settings.json `env`. Inside the container the sounds
+    // reach you as a terminal bell, which Ghostty can play as audio.
+    "KOKKO_SOUND_EVENTS": "${localEnv:KOKKO_SOUND_EVENTS}",
     // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
     // post-create skips the plugin bootstrap (network calls that need a
     // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
     "KOKKO_SKIP_PLUGINS": "${localEnv:KOKKO_SKIP_PLUGINS}"
   },
-  "initializeCommand": "bash .devcontainer/init-host-certs.sh && bash .devcontainer/init-host-guard.sh",
+  "initializeCommand": "bash .devcontainer/init-host-certs.sh && bash .devcontainer/init-host-guard.sh && bash .devcontainer/init-host-identity.sh",
   // Capture provisioning output — post-create failures are otherwise lost in
   // the container creation log. See /tmp/post-create.log inside the container.
   "postCreateCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh 2>&1 | tee /tmp/post-create.log'",
@@ -99,20 +116,29 @@
   // Two containers cannot forward the same host port — see MANAGING.md -> Port conflicts.
   "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
+{%- if cookiecutter.network_firewall == "on" %}
+    // The outbound firewall needs these to install its iptables rules. They
+    // apply to root in the container only; the container user has no sudo
+    // beyond the firewall script itself, so nothing else can use them.
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+{%- endif %}
     // Chromium spawns many short-lived processes, and parallel agent sessions
     // (subagents, test runners, Vite) add more. 512 was too low for Chromium
     // alone; 4096 leaves room for several sessions before EAGAIN errors.
     "--pids-limit=4096",
-    // A memory ceiling for THIS container, from the container_memory_limit
-    // answer. Without one a runaway process — a test suite that forks without
-    // limit, a build that balloons — takes down the whole Colima VM and every
-    // other project's container with it. With one, the kernel kills the
-    // offending process inside this container and the rest of the machine
-    // carries on. Keep it below the VM's own --memory.
-    "--memory={{ cookiecutter.container_memory_limit }}",
+    // A memory ceiling for THIS container. Without one a runaway process — a
+    // test suite that forks without limit, a build that balloons — takes down
+    // the whole Colima VM and every other project's container with it. With
+    // one, the kernel kills the offending process inside this container and
+    // the rest of the machine carries on. The host `dev` command sets
+    // DEVCONTAINER_MEMORY_LIMIT to 1 GB under the VM it sized for this Mac
+    // (2g on an 8 GB Mac); otherwise the container_memory_limit answer
+    // applies. Keep it below the VM's own --memory.
+    "--memory=${localEnv:DEVCONTAINER_MEMORY_LIMIT:{{ cookiecutter.container_memory_limit }}}",
     // Same value again: no swap for the container, so memory pressure surfaces
     // as a kill of the culprit rather than as the VM thrashing.
-    "--memory-swap={{ cookiecutter.container_memory_limit }}"
+    "--memory-swap=${localEnv:DEVCONTAINER_MEMORY_LIMIT:{{ cookiecutter.container_memory_limit }}}"
 {%- if cookiecutter.include_playwright == "yes" %},
     // Chromium renderers share memory via /dev/shm; Docker's 64MB default
     // makes headless pages crash with cryptic tab errors.
@@ -143,8 +169,22 @@
     "source={{ cookiecutter.project_slug }}-claude-config,target=/home/vscode/.claude,type=volume",
     // GitHub CLI login (`gh auth login`), so a rebuild does not log you out
     // and `gh pr create` keeps working. Nothing merges into it, so it follows
-    // the cache scope like the caches do.
+    // the cache scope like the caches do: with the shared scope, one sign-in
+    // serves every project. Copilot CLI reuses it (see config/zsh/.zshrc).
     "source={{ cookiecutter.__volume_prefix }}-gh-config,target=/home/vscode/.config/gh,type=volume",
+    // Claude Code sign-in shared across projects: a long-lived token from
+    // `claude setup-token`, which the host `dev` command copies in from the
+    // macOS Keychain. .zshrc exports it as CLAUDE_CODE_OAUTH_TOKEN, so the
+    // per-project state volume above no longer needs its own /login.
+    "source={{ cookiecutter.__volume_prefix }}-claude-auth,target=/home/vscode/.config/claude-auth,type=volume",
+{%- if cookiecutter.include_azure_cli == "yes" %}
+    // Azure CLI sign-in (`az login --use-device-code`, or `dev auth`), kept
+    // across rebuilds and, with the shared scope, across projects. Every agent
+    // session carries this identity's Azure access, so sign in as one whose
+    // rights you are happy for an agent to use; the managed policy denies the
+    // destructive az verbs.
+    "source={{ cookiecutter.__volume_prefix }}-azure-config,target=/home/vscode/.azure,type=volume",
+{%- endif %}
     "source={{ cookiecutter.__volume_prefix }}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-npm-cache,target=/home/vscode/.npm,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-zsh-history,target=/commandhistory,type=volume"
@@ -160,16 +200,9 @@
   //
   // Do NOT bind-mount host credential directories (~/.ssh, ~/.azure, the
   // host's own ~/.claude): everything reachable inside the container is
-  // reachable by an agent running without prompts, and the Claude Code docs
-  // say to prefer repository-scoped or short-lived tokens. Sign in from INSIDE
-  // the container instead, with the narrowest identity that does the job.
-{%- if cookiecutter.include_azure_cli == "yes" %}
-  //
-  //   // Keep an in-container `az login` across rebuilds (a named volume, not
-  //   // your host session). Every agent session then carries that identity's
-  //   // Azure access, so make it a least-privilege identity.
-  //   "source={{ cookiecutter.__volume_prefix }}-azure-config,target=/home/vscode/.azure,type=volume"
-{%- endif %}
+  // reachable by an agent running without prompts. The sign-ins above live in
+  // volumes of their own, filled once (`dev auth`), and agent commands reach
+  // the network only through the outbound firewall's allowlist.
   "customizations": {
     "vscode": {
       "extensions": [
