@@ -30,6 +30,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLAUDE_CONFIG="$ROOT/{{cookiecutter.project_slug}}/.devcontainer/config/claude"
 MERGE_JQ="$CLAUDE_CONFIG/merge-settings.jq"
 PRUNE_JQ="$CLAUDE_CONFIG/prune-roster.jq"
+MISSING_JQ="$CLAUDE_CONFIG/missing-plugins.jq"
 BUNDLED_SETTINGS="$CLAUDE_CONFIG/settings.json"
 MANAGED_SETTINGS="$CLAUDE_CONFIG/managed-settings.json"
 STATUS_HOOK="$CLAUDE_CONFIG/hooks/session-provision-status.sh"
@@ -396,6 +397,38 @@ fi
 
 # ===========================================================================
 # Report
+# ===========================================================================
+# missing-plugins.jq - enabled plugins the cache lacks bypass the 24h window
+# ===========================================================================
+mkdir -p "$WORK/mp-cache/a"
+cat > "$WORK/mp-settings.json" <<'JSON'
+{ "enabledPlugins": { "a@m": true, "b@m": true, "gone@m": true, "off@m": false } }
+JSON
+cat > "$WORK/mp-installed.json" <<JSON
+{ "version": 2, "plugins": {
+  "a@m": [ { "version": "1.0.0", "installPath": "$WORK/mp-cache/a" } ],
+  "gone@m": [ { "version": "1.0.0", "installPath": "$WORK/mp-cache/gone" } ] } }
+JSON
+# The same loop post-create.sh runs: a plugin is missing when it has no
+# recorded install path or the path is not a directory.
+mp_missing() { # <installed.json>
+    local name path out=""
+    while IFS=$'\t' read -r name path; do
+        [[ -n "$name" ]] || continue
+        [[ -n "$path" && -d "$path" ]] || out="${out:+$out }$name"
+    done < <(jq -rn --slurpfile settings "$WORK/mp-settings.json" --slurpfile installed "$1" -f "$MISSING_JQ")
+    printf '%s' "$out"
+}
+mp_out=$(mp_missing "$WORK/mp-installed.json")
+assert "missing-plugins flags an enabled plugin that was never installed" grep -qw 'b@m' <<<"$mp_out"
+assert "missing-plugins flags a recorded install whose folder is gone" grep -qw 'gone@m' <<<"$mp_out"
+assert "missing-plugins does not flag an installed plugin" test "$(grep -cw 'a@m' <<<"$mp_out")" = 0
+assert "missing-plugins never flags a disabled plugin" test "$(grep -cw 'off@m' <<<"$mp_out")" = 0
+mp_fresh=$(mp_missing /dev/null)
+assert "missing-plugins flags every enabled plugin when nothing is installed" test "$mp_fresh" = "a@m b@m gone@m"
+assert "post-create consults missing-plugins.jq inside the 24h window" \
+    grep -q 'missing-plugins.jq' "$ROOT/{{cookiecutter.project_slug}}/.devcontainer/post-create.sh"
+
 # ===========================================================================
 echo ""
 echo "settings pipeline test results"

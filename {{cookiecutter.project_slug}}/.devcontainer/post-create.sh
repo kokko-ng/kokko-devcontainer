@@ -584,8 +584,22 @@ bootstrap_claude_plugins() {
         now=$(date +%s)
         mtime=$(stat -c %Y "$stamp" 2>/dev/null || echo 0)
         if (( now - mtime < 86400 )); then
-            echo "  plugin roster refreshed less than 24h ago — skipping (KOKKO_PLUGIN_REFRESH=1 forces)"
-            return 0
+            # Within the window, still install anything the roster enables
+            # but the cache lacks (a plugin the bundle just added).
+            local installed="$CLAUDE_DIR/plugins/installed_plugins.json" missing
+            [[ -f "$installed" ]] || installed=/dev/null
+            local name path
+            missing=""
+            while IFS=$'\t' read -r name path; do
+                [[ -n "$name" ]] || continue
+                [[ -n "$path" && -d "$path" ]] || missing="${missing:+$missing }$name"
+            done < <(jq -rn --slurpfile settings "$settings" --slurpfile installed "$installed" \
+                -f "$BUNDLED_CLAUDE_DIR/missing-plugins.jq" 2>/dev/null)
+            if [[ -z "$missing" ]]; then
+                echo "  plugin roster refreshed less than 24h ago — skipping (KOKKO_PLUGIN_REFRESH=1 forces)"
+                return 0
+            fi
+            echo "  enabled but not installed: $missing — refreshing despite the 24h window"
         fi
     fi
 

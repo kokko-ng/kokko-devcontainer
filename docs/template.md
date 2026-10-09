@@ -30,7 +30,8 @@ before anything is written.
 kokko-notifications, kokko-validation and kokko-env from
 [kokko-skills](https://github.com/kokko-ng/kokko-skills), and theme-sync from
 [kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). They refresh at most
-once a day. Set a plugin to `false` in `enabledPlugins` in
+once a day, except that a plugin enabled but not installed (one the bundle just added) is
+installed on the next start. Set a plugin to `false` in `enabledPlugins` in
 `.devcontainer/config/claude/settings.json` to never install it. `KOKKO_PLUGIN_REFRESH=1`
 forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it.
 
