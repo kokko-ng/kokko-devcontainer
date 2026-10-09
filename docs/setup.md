@@ -1,50 +1,36 @@
 # Setup
 
-The install commands are in the [README](../README.md#install). This page covers what
-they need and how sign-ins work.
+Install commands: [README](../README.md#install).
 
 ## Prerequisites
 
 | Tool | Needed for |
 |---|---|
-| `colima`, `docker` | The VM and the Docker CLI. Do not start Colima yourself: `dev` sizes it |
-| `devcontainer` | The Dev Containers CLI (`brew install devcontainer` or `npm install -g @devcontainers/cli`) |
-| `uv` | `dev new` runs cookiecutter through `uvx` |
-| `gh`, `jq` | Sign-in copying and settings sync |
+| `colima`, `docker`, `devcontainer` | The VM, the Docker CLI, the Dev Containers CLI. Do not start Colima yourself: `dev` sizes it |
+| `uv`, `gh`, `jq` | `dev new` (cookiecutter via `uvx`), sign-in copying, settings sync |
 | Claude Code | `dev auth` runs `claude setup-token` on the Mac; `dev` copies its version and theme |
-| Ghostty (optional) | `dev -t` / `dev -w`. This repo's `ghostty/config` can be linked to `~/.config/ghostty/config` |
-| VS Code (optional) | `dev code`; needs the `code` command on PATH |
-| Azure CLI (optional) | Lets `dev` copy the Mac's `az login` into containers |
+| Ghostty, VS Code, Azure CLI | Optional: `dev -t`/`-w` (this repo has a `ghostty/config`); `dev code` (`code` on PATH); copying the Mac's `az login` |
 
-Keep projects out of iCloud, OneDrive and Dropbox folders (`~/Documents` and
-`~/Desktop` are often synced); the sync service creates conflict copies like
-`name 2.ext`. `~/code` is fine.
+Keep projects out of iCloud, OneDrive and Dropbox folders (`~/Documents` and `~/Desktop`
+are often synced). `~/code` is fine.
 
 ## Sign-ins
 
-Sign-ins live in Docker volumes that every devcontainer shares (with the default
-`cache_volume_scope=shared`), so a new project or a rebuild needs none.
+Sign-ins live in volumes every devcontainer shares, so a new project or a rebuild needs
+none. gh (and Copilot, which reuses it) and Azure are copied from the Mac's own logins.
+Claude Code uses a year-long `claude setup-token` token kept in the macOS Keychain.
 
-| CLI | Source |
-|---|---|
-| gh, git over https | The Mac's `gh auth token` |
-| Copilot CLI | Reuses the gh sign-in |
-| Azure CLI | The Mac's `~/.azure` token cache; `az login --use-device-code` in the container if the Mac has none |
-| Claude Code | A year-long `claude setup-token` token, kept in the macOS Keychain |
+- `dev auth` once per Mac: copies gh and Azure, or runs their login when the Mac has none,
+  and creates the Claude token (one browser sign-in).
+- `dev auth --claude` replaces the Claude token, for example when it expires.
+- Every other `dev` start fills what a container is missing and names what is not signed
+  in. With `cache_volume_scope=per-project`, run `dev auth` in each project.
 
-Run `dev auth` once per Mac. It starts the named project's container, copies the gh and
-Azure sign-ins from the Mac (or runs the interactive login when the Mac has none), and
-creates the Claude Code token: `claude setup-token` opens the browser once, and `dev`
-reads the token from its output or asks you to paste it. `dev auth --claude` replaces
-the token.
-
-After that, every `dev` start fills whatever a container is missing and names what is
-still not signed in. With `cache_volume_scope=per-project`, run `dev auth` in each
-project. How the credentials are protected: [security.md](security.md#credentials).
+These sign-ins are as powerful as yours; sign in to Azure as an identity whose rights
+you are happy for an agent to use.
 
 ## Without `dev`
 
 Open the project in VS Code and accept "Reopen in Container". Sign in by hand once:
 `gh auth login -w`, `az login --use-device-code`, and `claude setup-token` with the
-token saved to `~/.config/claude-auth/oauth-token`. The container then gets the
-`container_memory_limit` cap instead of one sized for the Mac.
+token saved to `~/.config/claude-auth/oauth-token`.

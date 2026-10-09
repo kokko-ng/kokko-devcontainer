@@ -1,61 +1,44 @@
 # Usage
 
-The command list is in the [README](../README.md#commands). This page covers what each
-command does beyond its one line.
+`dev guide` lists every command with this Mac's VM size and sign-in state. This page
+covers what it does not.
 
 ## PROJECT
 
-`PROJECT` is a path, or a folder name under `DEV_HOME` (default `~/code`; set it in
-`~/.zshrc.local` to move it). Left out, it is the nearest folder from the current
-directory upward that has `.devcontainer/devcontainer.json`. So in `~/code/demo/ui`,
-`dev claude` is `dev claude demo`.
+A path, or a folder name under `DEV_HOME` (default `~/code`). Left out, it is the nearest
+folder upward with `.devcontainer/devcontainer.json`: in `~/code/demo/ui`, `dev claude`
+is `dev claude demo`.
 
-## Starting a container
+## Opening a container
 
-Every command that opens a container starts the Colima VM first if it is stopped (see
-[resources.md](resources.md)), then runs `devcontainer up` when the container is not
-running. A first build takes a few minutes. `dev` shows one status line with the elapsed
-time and the current step (image build step, then setup phase); the full log is
-`$TMPDIR/dev-<project>.log`, and on failure `dev` prints its last 25 lines.
+A first build takes a few minutes; `dev` shows the current step, and the full log is
+`$TMPDIR/dev-<project>.log`. Before opening a shell, Claude Code or VS Code, `dev`:
 
-Then, before opening anything, `dev`:
+- fills missing sign-ins from the Mac;
+- updates the container's Claude Code to the Mac's version if it is older (a new image
+  is built with the Mac's version; the Dockerfile pin is the fallback);
+- sets the Mac's Claude Code theme and marks onboarding done, so `dev claude` opens
+  signed in with no theme picker;
+- passes `KOKKO_SOUND_EVENTS` from the Mac's Claude Code settings.
 
-- Fills missing sign-ins from the Mac ([setup.md](setup.md#sign-ins)).
-- Updates the container's Claude Code to the Mac's version if it is older. A new image is
-  built with the Mac's version (`DEVCONTAINER_CLAUDE_VERSION` -> build arg
-  `CLAUDE_CODE_VERSION`); the Dockerfile pin is the fallback.
-- Sets the Mac's Claude Code theme and marks onboarding done with the Mac's account
-  profile, so `dev claude` opens signed in, with no theme picker and no `/login`.
-- Passes `KOKKO_SOUND_EVENTS` from the Mac's Claude Code settings.
+`dev new` lowercases the name and turns spaces and underscores into dashes. It reuses an
+empty folder, and opens a project an interrupted `dev new` already generated. Set
+`DEV_TEMPLATE` to generate from another source, such as your clone.
 
-## Commands
+`dev theme` with no argument applies the Mac's theme; `light` and `dark` mean the `-ansi`
+themes. The `theme-sync` plugin applies it to open sessions.
 
-| Command | Details |
+## Resources
+
+| Setting | Value |
 |---|---|
-| `dev [PROJECT] [-- CMD...]` | Opens `zsh -l` (or `CMD`) with `devcontainer exec` in this terminal |
-| `dev claude` | Runs `claude --permission-mode auto`; takes `-t` / `-w` too |
-| `dev -t` / `dev -w` | Opens the shell in a new Ghostty tab of the front window (a window if none is open) / a new window |
-| `dev code` | Attaches VS Code to the container `dev` started, instead of letting "Reopen in Container" build its own |
-| `dev up` | Starts the container and fills sign-ins; opens nothing |
-| `dev rebuild` | `devcontainer up --remove-existing-container`, then a shell. Volumes, and so sign-ins and Claude Code history, are kept |
-| `dev stop` | Stops the container, then Colima when no container is left; `--keep-vm` leaves Colima running |
-| `dev root` | `bash -l` as root in `/workspaces/<project>`; the container user has no sudo |
-| `dev guide` | Also `dev help`, `-h`, `--help`. Shows the VM size, the Claude token state and your shell aliases for each command |
+| VM memory | 3 GB on an 8 GB Mac, 6 GB up to 16 GB, else half the RAM minus 4 GB |
+| VM CPUs | Half the cores, 2 to 8 |
+| VM disk | 60 GB on an 8 GB Mac, else 100 GB; sparse, and never shrunk |
+| Container memory | VM minus 1 GB, at least 2 GB; `container_memory_limit` without `dev` |
+| At once | Under 16 GB: one devcontainer; starting one stops the others |
 
-## `dev new`
-
-`dev new NAME [key=value...]` lowercases the name and turns spaces and underscores into
-dashes. `key=value` pairs are [template options](template.md#options). It then runs
-`git init -b main` and commits the scaffold.
-
-- An empty folder of that name is reused.
-- A project an interrupted `dev new` already generated is opened instead of refused.
-- The template is `gh:kokko-ng/kokko-devcontainer` (`main`). Set `DEV_TEMPLATE` to use
-  another source, such as your clone.
-
-## `dev theme`
-
-`dev theme` sets Claude Code's theme in every running devcontainer. With no argument it
-applies the Mac's theme; `light` and `dark` mean the `-ansi` themes; any other theme name
-is passed through. mac-setup's `tt` calls it. The `theme-sync@kokko-claude-mods` plugin
-in the container applies the change to open sessions.
+An existing VM keeps its size until `dev vm resize`, which stops running containers;
+`dev vm` compares the two. `dev` asks before starting the VM when macOS has under 25% of
+its memory free. Overrides, per command or in `~/.zshrc.local`: `DEV_VM_CPUS`,
+`DEV_VM_MEMORY`, `DEV_VM_DISK` (GB), `DEV_ALLOW_MULTIPLE=1`, `DEV_FORCE=1`.

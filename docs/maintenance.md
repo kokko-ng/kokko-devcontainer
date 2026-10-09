@@ -2,39 +2,34 @@
 
 ## Updating a project
 
-`/devcontainer-update` (kokko-env plugin) diffs `.devcontainer/` against upstream,
-updates it and reports what needs a rebuild. To update this clone and every project at
-once, use [prompts/update.md](../prompts/update.md).
-
-| Change | Takes effect |
-|---|---|
-| `.devcontainer/config/`, `post-create.sh` | Next container start, or now with `bash .devcontainer/post-create.sh --config-only` |
-| `Dockerfile`, `devcontainer.json`, policy, firewall allowlist, `init-host-*.sh` | `dev rebuild` |
+`/devcontainer-update` (kokko-env plugin) merges the latest `.devcontainer/` into a
+project and says what needs a rebuild; [prompts/update.md](../prompts/update.md) updates
+this clone and every project. Changes under `.devcontainer/config/` apply on the next
+start (or now: `bash .devcontainer/post-create.sh --config-only`); the Dockerfile,
+`devcontainer.json`, the policy and the firewall allowlist need `dev rebuild`.
 
 ## Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
-| `docker` cannot connect, `colima status` looks fine | VM disk full. Check `colima ssh -- df -h /`; see [When the disk is full](#when-the-disk-is-full) |
-| Container very slow, `dce` or exec sessions die | VM on `sshfs`. See [Mount type](#mount-type) |
-| Files like `name 2.ext` keep appearing | Project is in a cloud-synced folder. Move it to `~/code` (or rename the iCloud parent to `*.nosync`). `sweep-phantoms.sh` removes untracked copies on each start; `init-host-guard.sh` warns at build |
-| Mac swapping | VM too large. `dev vm`, then `dev vm resize` ([resources.md](resources.md)) |
-| "connection refused" from a host | The firewall. Allowlist the host: [security.md](security.md#firewall) |
+| `docker` cannot connect, `colima status` looks fine | VM disk full: [When the disk is full](#when-the-disk-is-full) |
+| Container very slow, exec sessions die | VM on `sshfs`: [Mount type](#mount-type) |
+| Files like `name 2.ext` keep appearing | Project in a cloud-synced folder. Move it to `~/code` |
+| "connection refused" from a host | The firewall: [security.md](security.md#firewall) |
 | Orange renders as red | Old container without `COLORTERM=truecolor`. `dev rebuild` |
-| A provisioning step failed | Listed at the start of each Claude Code session; details in `/tmp/post-create.log` |
+| A provisioning step failed | Shown when a Claude Code session starts; details in `/tmp/post-create.log` |
 
 ## Port conflicts
 
 Two containers cannot forward the same host port. Give each project its own
 `backend_port`/`frontend_port`, or edit `forwardPorts` in `devcontainer.json` and
-rebuild. `"onAutoForward": "ignore"` in `portsAttributes` stops VS Code auto-forwarding.
+rebuild.
 
 ## Mount type
 
-Use `virtiofs`; `sshfs` is about 940x slower on small-file writes. Check with
-`colima ssh -- mount | grep /Users`. The mount type is fixed when the VM is created, and
-`colima start --mount-type virtiofs` silently does nothing on an existing VM. To migrate
-in place (images and volumes survive):
+Use `virtiofs`; `sshfs` is far slower on small-file writes. Check with
+`colima ssh -- mount | grep /Users`. `colima start --mount-type` does nothing on an
+existing VM; to migrate in place (images and volumes survive):
 
 ```bash
 cp ~/.colima/default/colima.yaml ~/colima.yaml.bak
@@ -43,87 +38,56 @@ sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/default/
 sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/_lima/colima/colima.yaml
 sed -i '' 's/^mountType: reverse-sshfs$/mountType: virtiofs/' ~/.colima/_lima/colima/lima.yaml
 dev vm start
-colima ssh -- mount | grep /Users    # expect: type virtiofs
 ```
 
 ## Disk management
 
-A full VM disk is the most likely failure, and it is hard to spot: the Docker daemon
-dies while `colima status` stays healthy. `post-create.sh` warns above 80%.
-
-What fills it: each image is 5-6 GB, every rebuild leaves the old image dangling, and
-Docker-in-Docker keeps a `dind-var-lib-docker-*` volume that `docker system df` does not
-count and host prunes do not reach.
+A full VM disk kills the Docker daemon while `colima status` stays healthy;
+`post-create.sh` warns above 80%. Images are 5-6 GB, each rebuild leaves the old one
+dangling, and Docker-in-Docker keeps a `dind-var-lib-docker-*` volume that
+`docker system df` does not count.
 
 ```bash
-colima ssh -- df -h /                          # the number that matters
-docker system df                               # excludes dind volumes
-docker system df -v | grep dind-var-lib-docker
-docker image prune -a                          # safe, biggest win
-docker system prune -a                         # inside a dind container, for its store
+colima ssh -- df -h /       # the number that matters
+docker image prune -a       # safe, biggest win
+docker system prune -a      # inside a dind container, for its store
 ```
 
-### Do not use `--volumes`
-
-Never `docker system prune --volumes` or `docker volume prune`. They delete the Claude
-Code state (`<slug>-claude-config`), the sign-ins (`*-gh-config`, `*-claude-auth`,
-`*-azure-config`), caches, `pw-browsers`, the VS Code server and dind stores. Remove
-volumes by name.
-
-### Retiring a project
-
-```bash
-docker rm <container>
-docker volume rm <slug>-claude-config            # plus dind-var-lib-docker-<hash> if any
-docker volume ls | grep <slug>                   # per-project caches, if that scope was used
-```
-
-A dind volume with `LINKS 1` in `docker system df -v` still belongs to a container,
-even a stopped one.
+Never run `docker system prune --volumes` or `docker volume prune`: they delete Claude
+Code state, sign-ins, caches and dind stores. To retire a project, `docker rm` its
+container and `docker volume rm <slug>-claude-config` (and its dind volume, if any).
 
 ### When the disk is full
 
 ```bash
-colima ssh -- df -h /
 colima ssh -- sudo du -sh /var/lib/docker /var/lib/containerd   # then free space
 colima ssh -- sudo systemctl reset-failed containerd docker
 colima ssh -- sudo systemctl start containerd docker
 colima stop && dev vm start                                     # restores the host socket
 ```
 
-On a VM older than the containerd snapshotter, `/var/lib/docker/overlay2` can hold tens
-of GB nothing tracks. If `/etc/docker/daemon.json` has `"containerd-snapshotter": true`
-and nothing in `overlay2` changed since, `colima ssh -- sudo rm -rf /var/lib/docker/overlay2`
-(only that folder), then restart the services as above.
-
 ### Leftover snapshot refs
 
-Template versions before 2.0.0 stored git snapshots under `refs/snapshots/`. They are
-inert. To drop them in a repo:
+Template versions before 2.0.0 left inert git snapshots under `refs/snapshots/`. To
+drop them in a repo:
 
 ```bash
 git for-each-ref --format='%(refname)' refs/snapshots/ | while read -r ref; do git update-ref -d "$ref"; done
-git -c gc.reflogExpire=90.days -c gc.pruneExpire=2.weeks gc   # optional; also expires reflog recovery
 ```
 
 ## Pin audit
 
 Dependabot covers GitHub Actions and the Dockerfile `FROM` digest only. Check the rest
-by hand, quarterly (paths under `{{cookiecutter.project_slug}}/.devcontainer/`):
+quarterly (files under `{{cookiecutter.project_slug}}/`):
 
 | Pin | File | Latest |
 |---|---|---|
-| `uv==`, `pre-commit==` | `Dockerfile` | `curl -s https://pypi.org/pypi/<name>/json \| jq -r .info.version` |
-| Claude Code fallback (`CLAUDE_CODE_VERSION:-x.y.z`) | `Dockerfile` | `npm view @anthropic-ai/claude-code version`. Used only when built without `dev` |
-| Starship `v<version>` | `Dockerfile` | `gh release view -R starship/starship --json tagName -q .tagName` |
-| `@github/copilot@`, `@playwright/cli@` | `post-create.sh` | `npm view <package> version` |
-| zsh plugin tags | `post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/<plugin>` |
-| Node feature `version`, feature major tags | `devcontainer.json` | Node release schedule; `devcontainer features info tags <feature>` |
-| Hook `rev:`s | `{{cookiecutter.project_slug}}/.pre-commit-config.yaml` | `pre-commit autoupdate` in a rendered project, then copy the revs back |
-| Dev tool floors (`ruff>=`, `mypy>=`, ...) | `{{cookiecutter.project_slug}}/pyproject.toml` | PyPI, as for `uv==` |
-| Action SHAs, `pre-commit@`, `commitizen==` | `{{cookiecutter.project_slug}}/.github/workflows/ci.yml` | `gh api repos/<owner>/<action>/releases/latest`; Dependabot does not see the template's workflow |
-| Trivy image tag and digest | `{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh` | `gh release view -R aquasecurity/trivy`; resolve the digest of the new tag |
+| `uv==`, `pre-commit==`, Starship, Claude Code fallback | `.devcontainer/Dockerfile` | PyPI; `gh release view -R starship/starship`; `npm view @anthropic-ai/claude-code version` |
+| `@github/copilot@`, `@playwright/cli@`, zsh plugin tags | `.devcontainer/post-create.sh` | `npm view <package> version`; `git ls-remote --tags` |
+| Node `version`, feature major tags | `.devcontainer/devcontainer.json` | `devcontainer features info tags <feature>` |
+| Hook `rev:`s | `.pre-commit-config.yaml` | `pre-commit autoupdate` in a rendered project, then copy back |
+| Dev tool floors (`ruff>=`, ...) | `pyproject.toml` | PyPI |
+| Action SHAs, `pre-commit@`, `commitizen==` | `.github/workflows/ci.yml` | `gh api repos/<owner>/<action>/releases/latest` |
+| Trivy tag and digest | `scripts/hooks/trivy.sh` | `gh release view -R aquasecurity/trivy` |
 
-Feature major tags (`node:2`, `azure-cli:1`) float within the major on purpose. Only
-Python `3.14` has a digest; other versions render a tag-only `FROM`, and the project's
-`DEVCONTAINER.md` says how to pin it.
+Only Python `3.14` has a digest; other versions render a tag-only `FROM`.
