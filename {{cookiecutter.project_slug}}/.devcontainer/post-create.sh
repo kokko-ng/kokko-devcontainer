@@ -211,16 +211,23 @@ install_playwright_cli() {
         step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
-    # Browsers persist in the pw-browsers named volume (PLAYWRIGHT_BROWSERS_PATH,
-    # see devcontainer.json), so the expensive --with-deps download only runs
-    # when the volume is still empty — first creation pays, rebuilds are fast.
-    local browsers_dir="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
-    if [[ -d "$browsers_dir" && -n "$(ls -A "$browsers_dir" 2>/dev/null)" ]]; then
-        echo "  Playwright browsers already present in $browsers_dir — skipping download"
-    else
-        step "playwright-browsers" playwright-cli install-browser --with-deps
+    # Playwright's own Chromium, as the CLI's global config
+    # (~/.playwright/cli.config.json). Its default is the Google Chrome
+    # channel, which has no Linux arm64 build. Written only when absent, so an
+    # edit survives until the next rebuild.
+    local pw_config="$HOME/.playwright/cli.config.json"
+    if [[ ! -f "$pw_config" ]]; then
+        mkdir -p "$(dirname "$pw_config")"
+        printf '%s\n' '{"browser": {"browserName": "chromium", "launchOptions": {"channel": "chromium"}}}' >"$pw_config"
     fi
-    step "playwright-skills" playwright-cli install --skills
+    # Run from $HOME: the CLI puts its skill in ./.claude/skills, which here is
+    # ~/.claude/skills (user level, in the ~/.claude volume) instead of the
+    # project, where it would be committed into every repo. The same command
+    # installs the configured Chromium into the browsers volume
+    # (PLAYWRIGHT_BROWSERS_PATH) when that revision is missing; its system
+    # libraries are in the image (Dockerfile).
+    # shellcheck disable=SC2016  # $HOME expands in the inner shell
+    step "playwright-skills" bash -c 'cd "$HOME" && playwright-cli install --skills'
 }
 
 configure_claude() {

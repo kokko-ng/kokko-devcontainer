@@ -209,6 +209,43 @@ for host in '*.services.ai.azure.com' '*.cognitiveservices.azure.com' '*.openai.
 done
 assert "the wildcards sit in an Azure data plane section" \
     grep -qx '# Azure data plane: .*' "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+assert "every render sets OPENSSL_armcap=0 before the first RUN (az crashes on arm64 without it)" \
+    test "$(grep -nx 'ENV OPENSSL_armcap=0' "$DEFAULT/.devcontainer/Dockerfile" | cut -d: -f1)" \
+        -lt "$(grep -n '^RUN ' "$DEFAULT/.devcontainer/Dockerfile" | head -1 | cut -d: -f1)"
+assert "the Azure render installs a pinned, arch-aware Bicep" \
+    grep -qE '^ARG BICEP_VERSION=v[0-9]+\.[0-9]+\.[0-9]+$' "$DEFAULT/.devcontainer/Dockerfile"
+assert "Bicep is picked by architecture" \
+    grep -qF 'arm64) arch=arm64 ;; *) arch=x64 ;;' "$DEFAULT/.devcontainer/Dockerfile"
+assert "az bicep uses the baked binary" \
+    grep -q '^ENV AZURE_BICEP_USE_BINARY_FROM_PATH=true' "$DEFAULT/.devcontainer/Dockerfile"
+assert "az telemetry is off, so its refused upload stays out of the blocked list" \
+    grep -q 'AZURE_CORE_COLLECT_TELEMETRY=false$' "$DEFAULT/.devcontainer/Dockerfile"
+assert "az extensions live in an image path, not the ~/.azure volume" \
+    grep -qx 'ENV AZURE_EXTENSION_DIR=/usr/local/lib/azure-cli-extensions' "$DEFAULT/.devcontainer/Dockerfile"
+assert_jq "the azure-cli feature installs the two extensions" "$DC" \
+    '.features["ghcr.io/devcontainers/features/azure-cli:1"].extensions == "log-analytics,containerapp"'
+# Playwright: Chromium's system libraries in the image (a warm browsers volume
+# skips any download-time install), Playwright's own Chromium as the CLI's
+# global config (Google Chrome has no Linux arm64 build), the skill at user
+# level rather than committed into the project, and no MCP server anywhere.
+assert "the image carries Chromium's system libraries with playwright" \
+    grep -qE 'apt-get install .* libatk-bridge2\.0-0 .* libgbm1 .* libnss3 .* libxkbcommon0 ' "$DEFAULT/.devcontainer/Dockerfile"
+PCS="$DEFAULT/.devcontainer/post-create.sh"
+assert "post-create points the CLI's global config at Playwright's Chromium" \
+    grep -qF '"launchOptions": {"channel": "chromium"}' "$PCS"
+# shellcheck disable=SC2016  # the $HOME is the script's own text
+assert "the CLI's global config lives in ~/.playwright" grep -qF 'pw_config="$HOME/.playwright/cli.config.json"' "$PCS"
+assert "the playwright-cli skill is installed from \$HOME (user level), not the project" \
+    grep -qF "step \"playwright-skills\" bash -c 'cd \"\$HOME\" && playwright-cli install --skills'" "$PCS"
+refute "post-create no longer installs every Playwright browser with apt deps" \
+    grep -q 'playwright-cli install-browser' "$PCS"
+assert_jq "the pinned playwright-cli does not print update notices" "$DC" '.containerEnv.NO_UPDATE_NOTIFIER == "1"'
+assert_jq "no MCP server is configured in the bundled settings" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" 'has("mcpServers") | not'
+refute "no Playwright MCP server anywhere in the project" \
+    grep -rqiE '@playwright/mcp|"mcpServers"' "$DEFAULT/.devcontainer" "$DEFAULT/CLAUDE.md"
+assert "the generated .gitignore keeps per-project Playwright config out of git" \
+    grep -qx '.playwright/' "$DEFAULT/.gitignore"
 assert "the image bakes in the firewall script and allowlist" \
     grep -q 'COPY firewall/allowed-domains.txt /etc/devcontainer/allowed-domains.txt' "$DEFAULT/.devcontainer/Dockerfile"
 assert "the only sudo left is the firewall script" \
@@ -287,6 +324,7 @@ assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
     '.permissions.disableBypassPermissionsMode == "disable"'
 # The bundled container CLAUDE.md (copied verbatim, so checked once here).
 CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
+assert "container CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64' "$CCM"
 assert "container CLAUDE.md names the blocked-host list" grep -q 'devcontainer-firewall --blocked' "$CCM"
 
 # The agent-facing files a generated project carries next to .devcontainer/.
@@ -301,7 +339,10 @@ assert "CLAUDE.md names the frontend directory" \
 assert "CLAUDE.md carries the forwarded ports" \
     grep -qE '^\| Backend port \| 8000 \|' "$DEFAULT/CLAUDE.md"
 assert "CLAUDE.md lists the optional tools that were chosen" \
-    grep -qE 'jq, az, playwright-cli with Chromium, copilot\.' "$DEFAULT/CLAUDE.md"
+    grep -qE 'jq, az \(with the Bicep CLI .*\), playwright-cli with Chromium, copilot\.' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64 on Apple Silicon' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md says images are built in CI without docker-in-docker" \
+    grep -q 'There is no Docker or podman here' "$DEFAULT/CLAUDE.md"
 assert "CLAUDE.md names the blocked-host list" grep -q 'devcontainer-firewall --blocked' "$DEFAULT/CLAUDE.md"
 refute "CLAUDE.md does not mention docker without docker-in-docker" \
     grep -q 'nested daemon' "$DEFAULT/CLAUDE.md"
@@ -522,8 +563,19 @@ refute "slim CLAUDE.md does not describe a firewall that is off" \
     grep -qE 'No route to host|There is no sudo' "$SLIM/CLAUDE.md"
 assert "slim Dockerfile still installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$SLIM/.devcontainer/Dockerfile"
+assert "slim Dockerfile still sets OPENSSL_armcap=0" \
+    grep -qx 'ENV OPENSSL_armcap=0' "$SLIM/.devcontainer/Dockerfile"
 assert "slim Dockerfile still installs the firewall's dnsmasq" \
     grep -qE 'install .* iptables ipset dnsutils iproute2 dnsmasq-base' "$SLIM/.devcontainer/Dockerfile"
+refute "no Bicep without the azure cli" grep -q 'bicep' "$SLIM/.devcontainer/Dockerfile"
+refute "no Chromium libraries without playwright" grep -q 'libnss3' "$SLIM/.devcontainer/Dockerfile"
+assert_jq "no update-notifier switch without playwright" "$SDC" '.containerEnv | has("NO_UPDATE_NOTIFIER") | not'
+refute "no az extension directory without the azure cli" \
+    grep -qE 'AZURE_EXTENSION_DIR|AZURE_BICEP' "$SLIM/.devcontainer/Dockerfile"
+assert "slim CLAUDE.md still says the container is linux/arm64" \
+    grep -q 'linux/arm64 on Apple Silicon' "$SLIM/CLAUDE.md"
+assert "slim CLAUDE.md still says there is no Docker" \
+    grep -q 'There is no Docker or podman here' "$SLIM/CLAUDE.md"
 
 assert "the slim gate is rendered against the chosen dirs" \
     grep -q 'entry: uv run --frozen mypy --disallow-any-expr backend scripts$' "$SLIM/.pre-commit-config.yaml"
@@ -581,6 +633,8 @@ assert_jq "docker extension follows docker-in-docker" "$DDC" \
     '.customizations.vscode.extensions | index("ms-azuretools.vscode-docker") != null'
 assert "CLAUDE.md tells the agent the container is privileged" \
     grep -q 'privileged' "$DIND/CLAUDE.md"
+refute "a docker-in-docker CLAUDE.md does not say there is no Docker" \
+    grep -q 'There is no Docker' "$DIND/CLAUDE.md"
 assert "DEVCONTAINER.md says the container is privileged" \
     grep -q 'privileged' "$DIND/DEVCONTAINER.md"
 assert "generation prints the privileged note" \

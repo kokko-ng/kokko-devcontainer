@@ -10,6 +10,13 @@ FROM mcr.microsoft.com/devcontainers/python:3.14-bookworm@sha256:29f5e05ad69bdec
 FROM mcr.microsoft.com/devcontainers/python:{{ cookiecutter.python_version }}-bookworm
 {%- endif %}
 
+# The image is linux/arm64 on Apple Silicon (native, not emulated). OpenSSL's
+# CPU-capability probe there can hit an instruction the VM traps, and az,
+# Python's cryptography and anything else that loads libcrypto die with
+# "Illegal instruction". 0 skips the probe (generic code paths); x86 builds
+# ignore it. Set before the first RUN so the build's own az and pip use it.
+ENV OPENSSL_armcap=0
+
 # Install uv and pre-commit globally, pinned (npm/node not available yet - added
 # by features layer). pre-commit lives in the image rather than being left to
 # each project's dev dependencies because the bundled CLAUDE.md makes running
@@ -58,6 +65,18 @@ RUN apt-get update \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 {%- endif %}
 
+{% if cookiecutter.include_playwright == "yes" -%}
+# The system libraries Playwright's Chromium needs (`playwright install-deps
+# chromium` on Debian 12, same package names on arm64 and x64), in the image
+# rather than at provision time: the browsers live in a shared volume, so a
+# new container on a warm volume would otherwise skip the download step that
+# used to pull these in, and every launch would fail on missing libraries.
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libfontconfig1 libfreetype6 fonts-liberation \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+{% endif -%}
 # Create host-path symlink so macOS absolute paths in Claude plugin configs
 # (e.g. /Users/<username>/.claude/...) resolve inside the container.
 # The actual username is injected at build time by devcontainer.json via
@@ -97,6 +116,31 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
     | tar -xz -C /usr/local/bin starship \
     && starship --version
 
+{% if cookiecutter.include_azure_cli == "yes" -%}
+# Bicep CLI, PINNED and picked by architecture (arm64 on Apple Silicon, x64 on
+# CI), so `az bicep` and `az deployment ... --template-file *.bicep` work
+# without az downloading its own copy on first use. The
+# AZURE_BICEP_* settings make az use this binary from PATH and skip its
+# release check. Telemetry is off so its refused upload does not crowd
+# `devcontainer-firewall --blocked`. Dependabot cannot see this pin (upstream
+# docs/maintenance.md -> Pin audit).
+ARG BICEP_VERSION=v0.48.1
+RUN case "$(dpkg --print-architecture)" in arm64) arch=arm64 ;; *) arch=x64 ;; esac \
+    && curl -fsSL -o /usr/local/bin/bicep "https://github.com/Azure/bicep/releases/download/${BICEP_VERSION}/bicep-linux-${arch}" \
+    && chmod 0755 /usr/local/bin/bicep \
+    && bicep --version
+ENV AZURE_BICEP_USE_BINARY_FROM_PATH=true \
+    AZURE_BICEP_CHECK_VERSION=false \
+    AZURE_CORE_COLLECT_TELEMETRY=false
+# Azure CLI extensions live in the image, not in ~/.azure: that is a shared
+# sign-in volume mounted over the home directory, which would hide anything
+# installed there at build time. The azure-cli feature (devcontainer.json)
+# installs the extensions it lists into this directory as vscode, so
+# `az extension add/update` keeps working at runtime.
+ENV AZURE_EXTENSION_DIR=/usr/local/lib/azure-cli-extensions
+RUN install -d -o vscode -g vscode -m 0755 "$AZURE_EXTENSION_DIR"
+
+{% endif -%}
 # Claude Code native binary, baked into the image. `dev` passes the host's
 # version (DEVCONTAINER_CLAUDE_VERSION -> CLAUDE_CODE_VERSION), so the
 # container runs the same Claude Code as the Mac, and updates an existing

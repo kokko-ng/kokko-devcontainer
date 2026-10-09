@@ -32,6 +32,9 @@ not route around it. `sudo devcontainer-firewall` re-applies it (normally the on
 thing sudo does here). System packages need a Dockerfile change and a rebuild, which
 the user runs.
 
+**The container is linux/arm64** on Apple Silicon. Download arm64 (aarch64) builds of
+any binary: an x64 one either does not start or fails opaquely under emulation.
+
 **This may be a small machine.** The container has a hard memory cap (2 GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
 time: no `pytest -n auto`, no `make -j`, no several installs or builds at once, no more

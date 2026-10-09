@@ -18,7 +18,12 @@
   "remoteUser": "vscode",
   "features": {
 {%- if cookiecutter.include_azure_cli == "yes" %}
-    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/azure-cli:1": {
+      // Installed at build time into AZURE_EXTENSION_DIR (set in the
+      // Dockerfile, an image path), so the ~/.azure sign-in volume does not
+      // hide them. The Bicep CLI comes from the Dockerfile, pinned.
+      "extensions": "log-analytics,containerapp"
+    },
 {%- endif %}
     "ghcr.io/devcontainers/features/node:2": {
       // Feature option pin — invisible to Dependabot; see upstream docs/maintenance.md -> Pin audit.
@@ -95,6 +100,9 @@
     // does not re-download ~400MB of Chromium; post-create skips
     // the install when this directory is already populated.
     "PLAYWRIGHT_BROWSERS_PATH": "/home/vscode/.cache/ms-playwright",
+    // playwright-cli is pinned (post-create.sh); its daily "update available"
+    // notice on every command is noise to an agent. Bump the pin instead.
+    "NO_UPDATE_NOTIFIER": "1",
 {%- endif %}
     // Which kokko-notifications sounds play (`completion`, `attention`; empty
     // means both), mirrored from the host: `dev` passes on the value in the

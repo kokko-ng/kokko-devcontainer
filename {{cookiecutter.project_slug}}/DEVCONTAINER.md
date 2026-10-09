@@ -39,7 +39,7 @@ settings so extensions download on the Mac.
 | pre-commit, shellcheck, jq | Hooks the bundled `CLAUDE.md` requires; shell linting |
 | zsh + oh-my-zsh + Starship | Shell (`als` lists the aliases) |
 {%- if cookiecutter.include_azure_cli == "yes" %}
-| Azure CLI | Azure resource management |
+| Azure CLI | Azure resource management, with Bicep and the `containerapp` and `log-analytics` extensions |
 {%- endif %}
 {%- if cookiecutter.include_azure_sql_driver == "yes" %}
 | ODBC Driver 18 | Azure SQL via pyodbc |
@@ -48,7 +48,7 @@ settings so extensions download on the Mac.
 | GitHub Copilot CLI | `copilot` |
 {%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %}
-| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`) |
+| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium; its skill is in `~/.claude/skills`, not the project) |
 {%- endif %}
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
 | Docker-in-Docker | Container builds inside the devcontainer |

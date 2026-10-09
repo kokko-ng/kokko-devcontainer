@@ -56,12 +56,19 @@ the same hooks on every file, checks every commit message, and runs Trivy.
   `bash .devcontainer/post-create.sh --config-only` re-applies the bundled Claude and
   shell config in seconds.
 - Available: Python {{ cookiecutter.python_version }} + uv, Node {{ cookiecutter.node_version }}, gh, pre-commit, shellcheck, jq
-  {%- if cookiecutter.include_azure_cli == "yes" %}, az{% endif %}
+  {%- if cookiecutter.include_azure_cli == "yes" %}, az (with the Bicep CLI and the `containerapp` and `log-analytics` extensions){% endif %}
   {%- if cookiecutter.include_docker_in_docker == "yes" %}, docker (a nested daemon — the container runs privileged for it, so treat the whole VM as in scope){% endif %}
   {%- if cookiecutter.include_playwright == "yes" %}, playwright-cli with Chromium{% endif %}
   {%- if cookiecutter.include_copilot_cli == "yes" %}, copilot{% endif %}.
   Host CA certificates are trusted, so `curl`, `pip` and `npm` work behind a corporate
   proxy.
+- The container is linux/arm64 on Apple Silicon: download arm64 (aarch64) builds of
+  any binary. An x64 one either does not start or fails opaquely under emulation.
+{%- if cookiecutter.include_docker_in_docker != "yes" %}
+- There is no Docker or podman here, and no way to add one from inside: build images in
+  CI (or `az acr build`), or have the user enable `include_docker_in_docker` (a
+  privileged container) and rebuild.
+{%- endif %}
 - Temporary files, scratch scripts and test artifacts go in `/tmp`, not the repo.
 
 ## Permissions
