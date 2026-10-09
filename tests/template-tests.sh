@@ -346,7 +346,8 @@ assert "the generated project has a CI workflow" test -f "$CI"
 assert "CI runs every hook on every file" grep -q 'pre-commit@[0-9.]* run --all-files' "$CI"
 assert "CI checks every commit message" grep -q 'cz check --rev-range HEAD' "$CI"
 assert "CI runs the trivy scan" grep -q 'run: scripts/hooks/trivy.sh' "$CI"
-assert "CI is read-only" grep -qzE 'permissions:\n  contents: read\n' "$CI"
+assert "CI is read-only" \
+    test "$(grep -A1 -x 'permissions:' "$CI" | tail -1)" = "  contents: read"
 assert "every action in CI is pinned to a commit SHA" \
     test -z "$(grep -E '^ +- uses: ' "$CI" | grep -vE '@[0-9a-f]{40} # v[0-9]')"
 assert "CI uses the chosen Node version" grep -q 'node-version: "22"' "$CI"
