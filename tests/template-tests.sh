@@ -190,8 +190,25 @@ refute "the per-command prompt carries no session context" \
     grep -qE '^format = .*docker_context' "$DEFAULT/.devcontainer/config/starship/starship.toml"
 assert "the shell prints the session context once, to a terminal" \
     grep -q 'starship prompt --profile context' "$DEFAULT/.devcontainer/config/zsh/integrations.zsh"
-assert "the image installs the firewall tools" \
-    grep -qE 'install .* iptables ipset dnsutils iproute2' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the image installs the firewall tools and its dnsmasq resolver" \
+    grep -qE 'install .* iptables ipset dnsutils iproute2 dnsmasq-base' "$DEFAULT/.devcontainer/Dockerfile"
+FW="$DEFAULT/.devcontainer/firewall/init-firewall.sh"
+# shellcheck disable=SC2016  # the $-strings are the script's own text
+assert "the firewall points dnsmasq's ipset at every allowlist entry" \
+    grep -qF 'echo "ipset=/$d/$SET"' "$FW"
+assert "the firewall lists refused hosts with --blocked" grep -qE '^    --blocked\) mode=blocked' "$FW"
+assert "the firewall keeps resolving exact names at start" grep -q 'dig +short' "$FW"
+assert "the firewall keeps GitHub's published ranges" grep -q 'api.github.com/meta' "$FW"
+# shellcheck disable=SC2016  # the $-strings are the script's own text
+assert "only dnsmasq (and root) may send DNS out of the container" \
+    grep -q -- '--dport 53 -d "$ns" -m owner --uid-owner "$DNS_USER" -j ACCEPT' "$FW"
+for host in '*.services.ai.azure.com' '*.cognitiveservices.azure.com' '*.openai.azure.com' \
+            '*.api.cognitive.microsoft.com' '*.azurecontainerapps.io' '*.azurecontainerapps.dev' \
+            aka.ms downloads.bicep.azure.com azcliprod.blob.core.windows.net; do
+    assert "the allowlist has $host" grep -qxF "$host" "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+done
+assert "the wildcards sit in an Azure data plane section" \
+    grep -qx '# Azure data plane: .*' "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
 assert "the image bakes in the firewall script and allowlist" \
     grep -q 'COPY firewall/allowed-domains.txt /etc/devcontainer/allowed-domains.txt' "$DEFAULT/.devcontainer/Dockerfile"
 assert "the only sudo left is the firewall script" \
@@ -268,6 +285,9 @@ assert_jq "Claude attribution is off in every render" \
 assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" \
     '.permissions.disableBypassPermissionsMode == "disable"'
+# The bundled container CLAUDE.md (copied verbatim, so checked once here).
+CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
+assert "container CLAUDE.md names the blocked-host list" grep -q 'devcontainer-firewall --blocked' "$CCM"
 
 # The agent-facing files a generated project carries next to .devcontainer/.
 assert "generated project has a CLAUDE.md for the agent" \
@@ -282,6 +302,7 @@ assert "CLAUDE.md carries the forwarded ports" \
     grep -qE '^\| Backend port \| 8000 \|' "$DEFAULT/CLAUDE.md"
 assert "CLAUDE.md lists the optional tools that were chosen" \
     grep -qE 'jq, az, playwright-cli with Chromium, copilot\.' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md names the blocked-host list" grep -q 'devcontainer-firewall --blocked' "$DEFAULT/CLAUDE.md"
 refute "CLAUDE.md does not mention docker without docker-in-docker" \
     grep -q 'nested daemon' "$DEFAULT/CLAUDE.md"
 assert "CLAUDE.md says the only sudo left is the firewall script" \
@@ -501,6 +522,8 @@ refute "slim CLAUDE.md does not describe a firewall that is off" \
     grep -qE 'No route to host|There is no sudo' "$SLIM/CLAUDE.md"
 assert "slim Dockerfile still installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$SLIM/.devcontainer/Dockerfile"
+assert "slim Dockerfile still installs the firewall's dnsmasq" \
+    grep -qE 'install .* iptables ipset dnsutils iproute2 dnsmasq-base' "$SLIM/.devcontainer/Dockerfile"
 
 assert "the slim gate is rendered against the chosen dirs" \
     grep -q 'entry: uv run --frozen mypy --disallow-any-expr backend scripts$' "$SLIM/.pre-commit-config.yaml"
@@ -599,6 +622,7 @@ if command -v shellcheck >/dev/null 2>&1; then
             shellcheck --severity=info \
                 "$project/.devcontainer/post-create.sh" \
                 "$project/.devcontainer/init-host-certs.sh" \
+                "$project/.devcontainer/firewall/init-firewall.sh" \
                 "$project/.devcontainer/config/claude/hooks/session-provision-status.sh" \
                 "$project/scripts/hooks/trivy.sh" \
                 "$project/scripts/hooks/frontend.sh"

@@ -125,9 +125,10 @@ Sign-in and cache volumes belong to this project only; run `dev auth` here once.
 {%- if cookiecutter.network_firewall == "on" %}
 - **Firewall.** Outbound traffic reaches only the hosts in
   `.devcontainer/firewall/allowed-domains.txt` plus GitHub's ranges; `localhost` is
-  unaffected. Other hosts fail at once with "No route to host". Add your project's hosts (one
-  exact name per line), then `dev rebuild`. `sudo devcontainer-firewall` re-resolves
-  addresses.
+  unaffected. Other hosts fail at once with "No route to host";
+  `devcontainer-firewall --blocked` lists them. Add your project's hosts (one per line,
+  `*.example.com` for a whole domain), then `dev rebuild`. Addresses are added as names are
+  looked up, through the container's own dnsmasq resolver.
 {%- else %}
 - **Firewall.** Off (`network_firewall: off`); outbound traffic is open. Set
   `DEVCONTAINER_FIREWALL` to `1` and add the `NET_ADMIN`/`NET_RAW` capabilities to

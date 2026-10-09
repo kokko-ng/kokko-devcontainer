@@ -22,13 +22,15 @@ spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
 **The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
 you cannot change and must not try to: everything here reaches only an allowlist of hosts
-(GitHub, Copilot, Anthropic, npm, PyPI, Azure, and what the project added). A request
-that fails at once with "No route to host" to a host outside that list is the firewall,
-not a bug: say which host it needed and let the user add it to
-`.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
-allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
-(normally the only thing sudo does here). System packages need a Dockerfile change and
-a rebuild, which the user runs.
+(GitHub, Copilot, Anthropic, npm, PyPI, Azure, and what the project added; an entry
+also covers its subdomains). Addresses are added as names are looked up, so rotating
+CDNs keep working. A request that fails at once with "No route to host" or "Couldn't
+connect" is the firewall, not an outage: `devcontainer-firewall --blocked` lists the
+hosts it refused. Say which host it needed and let the user add it to
+`.devcontainer/firewall/allowed-domains.txt` (`*.example.com` for a whole domain); do
+not route around it. `sudo devcontainer-firewall` re-applies it (normally the only
+thing sudo does here). System packages need a Dockerfile change and a rebuild, which
+the user runs.
 
 **This may be a small machine.** The container has a hard memory cap (2 GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a

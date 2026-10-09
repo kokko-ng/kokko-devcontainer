@@ -349,7 +349,8 @@ install_managed_settings() {
 # =====================
 # Limits every process in the container to the hosts in the baked-in
 # allowlist (firewall/allowed-domains.txt). Runs on every start because a
-# restarted container gets a fresh network namespace without the rules. The
+# restarted container gets a fresh network namespace without the rules, and
+# without the dnsmasq resolver the firewall starts. The
 # script is root-owned in the image and the only thing the container user may
 # run through sudo after lock_sudo; it only ever rebuilds the same rules.
 apply_firewall() {
@@ -886,6 +887,10 @@ apply_bundled_config() {
 if [[ "$MODE" == "config" ]]; then
     echo "=== Refreshing bundled config (no rebuild) ==="
     fix_volume_ownership
+    # Firewall first: a restarted container keeps the resolv.conf that points
+    # at the firewall's dnsmasq, which is not running until this re-applies
+    # it, so nothing below could resolve a name before it.
+    apply_firewall
     apply_bundled_config
     echo ""
     echo "=== Config refreshed ==="
@@ -896,7 +901,6 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."
     echo ""
-    apply_firewall
     lock_sudo
     exit 0
 fi

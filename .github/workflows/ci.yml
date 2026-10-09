@@ -209,9 +209,13 @@ jobs:
             test "$(stat -c %U /etc/claude-code/managed-settings.json)" = root
             if [ -w /etc/claude-code/managed-settings.json ]; then echo "policy is writable"; exit 1; fi
             sudo -n /usr/local/sbin/devcontainer-firewall
-            # The firewall is in force: allowlisted hosts answer, others do not.
+            # The firewall is in force: allowlisted hosts answer, others do
+            # not and show up in the blocked list, and only dnsmasq resolves.
+            grep -qx 'nameserver 127.0.0.1' /etc/resolv.conf
             curl -fsS --max-time 10 -o /dev/null https://api.github.com/zen
             if curl -fsS --max-time 5 -o /dev/null https://example.com; then echo "firewall is not in force"; exit 1; fi
+            /usr/local/sbin/devcontainer-firewall --blocked | grep -q ' example\.com '
+            if dig +short +time=2 +tries=1 @1.1.1.1 example.com; then echo "DNS bypasses dnsmasq"; exit 1; fi
             # The generated project's quality gate works here, firewall up:
             # provisioning wrote uv.lock and installed the hooks for all three
             # stages, every hook passes, a conventional commit lands, and any

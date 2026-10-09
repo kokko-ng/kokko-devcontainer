@@ -77,8 +77,8 @@ spelling of the same operation. Bypass mode is disabled.
 {%- else %} There is no sudo.{% endif %}
 {%- if cookiecutter.network_firewall == "on" %} An outbound
 firewall limits the container to the hosts in `.devcontainer/firewall/allowed-domains.txt`;
-"No route to host" for anything else is the firewall — name the host and let the user
-add it.{% endif %}
+"No route to host" for anything else is the firewall, and `devcontainer-firewall --blocked`
+lists what it refused — name the host and let the user add it.{% endif %}
 
 ## Git
 
