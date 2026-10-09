@@ -74,6 +74,8 @@ check "bundle wires only the SessionStart status hook" \
        and ([.hooks.SessionStart[].hooks[].command] == [\"$HOOK_CMD\"])" "$BUNDLE_JSON"
 check "bundle does not roster kokko-safety" \
     '.enabledPlugins | has("kokko-safety@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
+check "policy denies squash merges" \
+    '[.permissions.deny[] | select(test("squash"))] | length >= 3' "$MANAGED_JSON"
 check "bundle rosters theme-sync with its marketplace" \
     '.enabledPlugins["theme-sync@kokko-claude-mods"] == true
        and (.extraKnownMarketplaces | has("kokko-claude-mods"))' "$BUNDLE_JSON"

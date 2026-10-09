@@ -1,21 +1,22 @@
 # CLAUDE.md
 
-Global instructions for Claude Code across all projects.
+Instructions for Claude Code in every project in this devcontainer.
 
 ---
 
 ## Permissions
 
 This container runs Claude Code in **Auto mode** (`permissions.defaultMode: "auto"`):
-the built-in classifier decides which tool calls run without a prompt. There is no
-bespoke git-guard or snapshot hook layer. Git recoverability relies on git itself —
-the container sets `gc.reflogExpire`, `gc.reflogExpireUnreachable`, and
-`gc.pruneExpire` to `never`, so committed work is always recoverable from the reflog.
-Commit early and often; only committed work has that safety net.
+the built-in classifier decides which tool calls run without a prompt. The container
+sets `gc.reflogExpire`, `gc.reflogExpireUnreachable` and `gc.pruneExpire` to `never`,
+so committed work is always recoverable from the reflog. Commit early and often; only
+committed work has that safety net.
 
 A managed deny list (`/etc/claude-code/managed-settings.json`) sits under auto mode and
-blocks the irreversible operations: force-push in any spelling, `git reflog expire` and
-`git gc --prune`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
+blocks the irreversible operations: force-push in any spelling, squash merges,
+`git reflog expire` and `git gc --prune`, Azure `delete` and `purge`, Docker volume
+removal and pruning, `gh repo delete` and `gh api` DELETE calls, and reading or
+printing the gh, Azure and Claude tokens.
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
@@ -25,9 +26,8 @@ Azure, and what the project added). A request that fails with "connection refuse
 host outside that list is the firewall, not a bug: say which host it needed and let the
 user add it to `.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
 allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
-(the only thing sudo does here). There is no other sudo; system packages need a
-Dockerfile change and a rebuild, which the user runs. Do not read the gh, Azure or Claude
-credential files or print their tokens.
+(normally the only thing sudo does here). System packages need a Dockerfile change and
+a rebuild, which the user runs.
 
 **This may be a small machine.** The container has a hard memory cap (a few GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
@@ -63,11 +63,26 @@ whether the infrastructure is the cause, not just the code in front of you.
 
 ---
 
-## Pre-commit hooks
+## Git
 
-**If `.pre-commit-config.yaml` exists in the repo, pre-commit runs on every commit you
-make. No exceptions.**
+- **Stage explicit file paths.** Never `git add -A`, `git add .` or `git add -u`: they
+  sweep in files you did not mean to commit.
+- **Commit messages follow the repo's convention.** Most repos here use Conventional
+  Commits (`feat:`, `fix:`, `docs:` ...), checked by commitizen in pre-commit.
+- **Never squash-merge.** Merge pull requests with a merge commit
+  (`gh pr merge --merge`), never `--squash` and never `git merge --squash`, so every
+  commit keeps its own message and history. A rebase merge only when the user asks.
+- **Never rewrite published history** (rebase, amend or reset of pushed commits) unless
+  the user asks for that specific change.
 
+## Pre-commit
+
+**In a repo with a `.pre-commit-config.yaml`, pre-commit runs on every commit you make.
+No exceptions.** A repo without one: say so once and offer to add one; do not add it
+unasked.
+
+- **Before pushing or opening a pull request**, run `pre-commit run --all-files` and fix
+  what fails, so CI does not find it first.
 - **Never pass `--no-verify` or `-n` to `git commit`**, and never set `PRE_COMMIT_ALLOW_NO_CONFIG`
   or otherwise disable the hooks. If you are reaching for a bypass, you are about to
   commit something the repo has decided is not acceptable.
