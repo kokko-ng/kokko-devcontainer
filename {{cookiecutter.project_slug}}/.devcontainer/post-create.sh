@@ -211,16 +211,24 @@ install_playwright_cli() {
         step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
-    # Browsers persist in the pw-browsers named volume (PLAYWRIGHT_BROWSERS_PATH,
-    # see devcontainer.json), so the expensive --with-deps download only runs
-    # when the volume is still empty — first creation pays, rebuilds are fast.
-    local browsers_dir="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}"
-    if [[ -d "$browsers_dir" && -n "$(ls -A "$browsers_dir" 2>/dev/null)" ]]; then
-        echo "  Playwright browsers already present in $browsers_dir — skipping download"
-    else
-        step "playwright-browsers" playwright-cli install-browser --with-deps
+    # Playwright's own Chromium, headless, as the CLI's global config
+    # (~/.playwright/cli.config.json). Its default is the Google Chrome
+    # channel, which has no Linux arm64 build; headless is pinned because the
+    # container has no display, real or virtual. Written only when absent, so an
+    # edit survives until the next rebuild.
+    local pw_config="$HOME/.playwright/cli.config.json"
+    if [[ ! -f "$pw_config" ]]; then
+        mkdir -p "$(dirname "$pw_config")"
+        printf '%s\n' '{"browser": {"browserName": "chromium", "launchOptions": {"channel": "chromium", "headless": true}}}' >"$pw_config"
     fi
-    step "playwright-skills" playwright-cli install --skills
+    # Run from $HOME: the CLI puts its skill in ./.claude/skills, which here is
+    # ~/.claude/skills (user level, in the ~/.claude volume) instead of the
+    # project, where it would be committed into every repo. The same command
+    # installs the configured Chromium into the browsers volume
+    # (PLAYWRIGHT_BROWSERS_PATH) when that revision is missing; its system
+    # libraries are in the image (Dockerfile).
+    # shellcheck disable=SC2016  # $HOME expands in the inner shell
+    step "playwright-skills" bash -c 'cd "$HOME" && playwright-cli install --skills'
 }
 
 configure_claude() {
@@ -349,7 +357,8 @@ install_managed_settings() {
 # =====================
 # Limits every process in the container to the hosts in the baked-in
 # allowlist (firewall/allowed-domains.txt). Runs on every start because a
-# restarted container gets a fresh network namespace without the rules. The
+# restarted container gets a fresh network namespace without the rules, and
+# without the dnsmasq resolver the firewall starts. The
 # script is root-owned in the image and the only thing the container user may
 # run through sudo after lock_sudo; it only ever rebuilds the same rules.
 apply_firewall() {
@@ -886,6 +895,10 @@ apply_bundled_config() {
 if [[ "$MODE" == "config" ]]; then
     echo "=== Refreshing bundled config (no rebuild) ==="
     fix_volume_ownership
+    # Firewall first: a restarted container keeps the resolv.conf that points
+    # at the firewall's dnsmasq, which is not running until this re-applies
+    # it, so nothing below could resolve a name before it.
+    apply_firewall
     apply_bundled_config
     echo ""
     echo "=== Config refreshed ==="
@@ -896,7 +909,6 @@ if [[ "$MODE" == "config" ]]; then
     echo "  Dockerfile, devcontainer.json features/containerEnv, and runArgs"
     echo "  changes still need a container rebuild."
     echo ""
-    apply_firewall
     lock_sudo
     exit 0
 fi

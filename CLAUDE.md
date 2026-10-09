@@ -69,14 +69,17 @@ lives in `retire_git_safety_layer` (post-create.sh) and the strip/migration clau
 What sits around auto mode, and where each piece lives:
 
 - **Policy** the user must not be able to override — the deny list (force-push, Azure
-  delete, volume prune, ...) and the bypass-mode lock — is `managed-settings.json`,
-  which `post-create.sh` installs to `/etc/claude-code/managed-settings.json`. It is
+  delete, volume prune, ...), the bypass-mode lock and the Bash sandbox forced off — is
+  `managed-settings.json`, which `post-create.sh` installs to
+  `/etc/claude-code/managed-settings.json`. It is
   never merged; it is replaced whole. Do not put policy into the bundled `settings.json`,
   where the merge lets the user win, and do not put user-overridable defaults into
   managed settings, where they cannot.
 - **Defaults** the user may override — auto mode, the Bash tool limits in `env`, the
-  sandbox block (shipped `enabled: false`), the plugin roster — are the bundled
-  `settings.json`, merged additively per key.
+  sandbox block (shipped `enabled: false`), the plugin roster, the fullscreen `tui`, the
+  `autoMode.allow` rules — are the bundled `settings.json`, merged additively per key
+  (`tui` and `autoMode` only when absent; a custom `autoMode.allow` replaces Claude
+  Code's defaults, so the bundle carries them too).
 - **The one bundled hook** is `SessionStart` only and purely informational (it prints
   the provisioning ledger). `merge-settings.jq` wires it in when absent and never
   duplicates it. It is not a guard layer and must not grow into one.
@@ -87,10 +90,12 @@ What sits around auto mode, and where each piece lives:
   `firewall/allowed-domains.txt`) limits every process in the container to the
   allowlisted hosts; `post-create.sh` applies it on every start (`network_firewall`,
   `DEVCONTAINER_FIREWALL`). It needs `NET_ADMIN`/`NET_RAW`, which only root can use, and
-  the container user's one remaining sudo grant is that script. Claude Code's own Bash
-  sandbox stays off: bubblewrap cannot create user namespaces in an unprivileged
-  container, and a sandboxed command's `localhost` is private to it. Widen the
-  allowlist in `allowed-domains.txt`, with a test.
+  the container user's one remaining sudo grant is that script. It runs dnsmasq as the
+  container's resolver, so allowlisted names (and `*.` wildcards) add their addresses
+  to the ipset as they are looked up, and logs queries for `--blocked`. Claude Code's
+  own Bash sandbox stays off (forced in the policy): bubblewrap cannot create user
+  namespaces in an unprivileged container, and a sandboxed command's `localhost` is
+  private to it. Widen the allowlist in `allowed-domains.txt`, with a test.
 - **Never set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`** in the policy: it forces the permission
   mode back to default, which turns Auto mode off.
 - **The policy is baked into the image** (`Dockerfile` COPYs `managed-settings.json` to
@@ -130,9 +135,9 @@ shellcheck --severity=info \
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
 | `{{cookiecutter.project_slug}}/.pre-commit-config.yaml`, `pyproject.toml`, `scripts/hooks/`, `.github/workflows/ci.yml` | The strict quality gate every generated project ships (modelled on afl-sandbox), the tool settings it measures against, its check scripts, and the CI that re-runs it; a starter package and test give it code to check |
 | `{{cookiecutter.project_slug}}/.devcontainer/devcontainer.json` | Templated container definition; also publishes the `DEVCONTAINER_*` toggles |
-| `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer) |
-| `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox (off), SessionStart hook wiring, plugin roster |
-| `.../config/claude/managed-settings.json` | Policy, baked into the image at `/etc/claude-code/`: the deny list (including reading the shared Claude token and printing gh/az tokens) and the bypass-mode lock |
+| `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer, Bicep and the az extension directory with the Azure CLI) |
+| `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode and its allow rules, Bash tool limits, sandbox (off), fullscreen `tui`, SessionStart hook wiring, plugin roster |
+| `.../config/claude/managed-settings.json` | Policy, baked into the image at `/etc/claude-code/`: the deny list (including reading the shared Claude token and printing gh/az tokens), the bypass-mode lock and the Bash sandbox lock |
 | `.../config/claude/hooks/session-provision-status.sh` | SessionStart hook: prints failed provisioning steps into the session |
 | `.../config/claude/merge-settings.jq` | Merges bundled settings/roster into a live settings.json (idempotent, preserves user settings, strips retired hook wiring) |
 | `.../config/claude/prune-roster.jq` | Removes roster entries the bundle dropped, unless user-overridden |
@@ -140,6 +145,6 @@ shellcheck --severity=info \
 | `ghostty/config` | Host-side terminal config; not part of the template payload |
 | `README.md`, `docs/` | User and maintainer docs: the README links, each `docs/` page explains one topic. A change to a `dev` command, a template option, a pin or the policy updates the page that describes it. Template comments cite sections by heading ("Pin audit", "Disk management", "Port conflicts", "Leftover snapshot refs"); keep those headings |
 | `prompts/` | Copy-paste prompts that set up or update an install with Claude Code |
-| `.../.devcontainer/firewall/` | The outbound firewall script and its allowlist, baked into the image; the only sudo the container user keeps |
+| `.../.devcontainer/firewall/` | The outbound firewall script (iptables, ipset, a dnsmasq resolver) and its allowlist, baked into the image; the only sudo the container user keeps |
 | `bin/dev` | Host CLI: sizes and starts Colima for the Mac, starts and opens containers (shell, Ghostty tab, Claude), fills the shared sign-in volumes from the host, `dev guide`. Not part of the template payload; bash 3.2-compatible (macOS `/bin/bash`) |
 | `.../.devcontainer/init-host-identity.sh` | initializeCommand step: records the host's git identity in `.devcontainer/.host-git-identity` for `post-create.sh` |

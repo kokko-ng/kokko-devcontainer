@@ -12,9 +12,9 @@ before anything is written.
 | `node_version` | `22` | Node feature version (`24`, `20`) |
 | `backend_src_dir` / `frontend_dir` | `src` / `ui` | `PYTHONPATH`; where frontend deps are installed |
 | `backend_port` / `frontend_port` | `8000` / `5173` | Forwarded ports |
-| `include_azure_cli` | `yes` | Azure CLI and its sign-in volume |
+| `include_azure_cli` | `yes` | Azure CLI, Bicep, the `containerapp` and `log-analytics` extensions, and the sign-in volume |
 | `include_azure_sql_driver` | `yes` | ODBC Driver 18 for pyodbc / Azure SQL |
-| `include_docker_in_docker` | `no` | Nested Docker; makes the container privileged |
+| `include_docker_in_docker` | `no` | Nested Docker; makes the container privileged. Without it there is no Docker in the container |
 | `include_copilot_cli` | `yes` | GitHub Copilot CLI |
 | `include_playwright` | `yes` | Playwright CLI and Chromium |
 | `claude_plugin_roster` | `kokko-ng` | The plugins below, or `none` |

@@ -1,7 +1,9 @@
-# Hosts the devcontainer may reach (devcontainer-firewall). One per line, exact
-# host names only: the firewall allows the addresses they resolve to, so a
-# wildcard cannot be expressed. GitHub's own address ranges are added on top
-# from api.github.com/meta.
+# Hosts the devcontainer may reach (devcontainer-firewall). One per line. The
+# firewall allows the addresses a name resolves to, added as they are looked
+# up; an entry also covers the names under it, and `*.example.com` says that
+# is what it is for (example.com and its subdomains; not resolved at start).
+# GitHub's own address ranges are added on top from api.github.com/meta.
+# `devcontainer-firewall --blocked` lists hosts that were refused.
 #
 # Baked into the image: edit this file, then rebuild (dev rebuild) to apply.
 # Add the hosts your project talks to: its Azure resources (storage accounts,
@@ -47,7 +49,20 @@ management.azure.com
 management.core.windows.net
 graph.microsoft.com
 azurecliprod.blob.core.windows.net
+azcliprod.blob.core.windows.net
 aka.ms
+# Bicep: az bicep resolves releases through aka.ms (BicepReleases,
+# BicepLatestRelease), which redirect here; downloads come from here too.
+downloads.bicep.azure.com
+
+# Azure data plane: AI Foundry, Azure OpenAI and Cognitive Services
+# endpoints, and Container Apps (app and environment FQDNs).
+*.services.ai.azure.com
+*.cognitiveservices.azure.com
+*.openai.azure.com
+*.api.cognitive.microsoft.com
+*.azurecontainerapps.io
+*.azurecontainerapps.dev
 
 # Playwright browser downloads
 cdn.playwright.dev

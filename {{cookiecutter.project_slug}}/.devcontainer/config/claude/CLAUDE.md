@@ -19,16 +19,23 @@ removal and pruning, `gh repo delete` and `gh api` DELETE calls, and reading or
 printing the gh, Azure and Claude tokens.
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
+After any permission denial, ask the user and wait for the answer; do not retry or
+switch to other commands meanwhile.
 
 **The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
 you cannot change and must not try to: everything here reaches only an allowlist of hosts
-(GitHub, Copilot, Anthropic, npm, PyPI, Azure, and what the project added). A request
-that fails at once with "No route to host" to a host outside that list is the firewall,
-not a bug: say which host it needed and let the user add it to
-`.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
-allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
-(normally the only thing sudo does here). System packages need a Dockerfile change and
-a rebuild, which the user runs.
+(GitHub, Copilot, Anthropic, npm, PyPI, Azure, and what the project added; an entry
+also covers its subdomains). Addresses are added as names are looked up, so rotating
+CDNs keep working. A request that fails at once with "No route to host" or "Couldn't
+connect" is the firewall, not an outage: `devcontainer-firewall --blocked` lists the
+hosts it refused. Say which host it needed and let the user add it to
+`.devcontainer/firewall/allowed-domains.txt` (`*.example.com` for a whole domain); do
+not route around it. `sudo devcontainer-firewall` re-applies it (normally the only
+thing sudo does here). System packages need a Dockerfile change and a rebuild, which
+the user runs.
+
+**The container is linux/arm64** on Apple Silicon. Download arm64 (aarch64) builds of
+any binary: an x64 one either does not start or fails opaquely under emulation.
 
 **This may be a small machine.** The container has a hard memory cap (2 GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
@@ -246,10 +253,15 @@ dev servers, potentially your own session's processes. Instead:
 
 ## Shell
 
-The shell is zsh. Brace a variable that is followed by a colon (`"${app}:${tag}"`,
-`"${app}:latest"`): after an unbraced name zsh reads `:l`, `:u`, `:h`, `:t` and others as
-modifiers and silently changes the string (`$app:light-only` once reached Azure as
-`frontendight-only`).
+Your Bash tool runs bash (`CLAUDE_CODE_SHELL`); the user's terminals are zsh. Still
+brace a variable that is followed by a colon (`"${app}:${tag}"`, `"${app}:latest"`) in
+anything the user may paste into a terminal: after an unbraced name zsh reads `:l`,
+`:u`, `:h`, `:t` and others as modifiers and silently changes the string
+(`$app:light-only` once reached Azure as `frontendight-only`).
+
+A bare foreground `sleep` is refused by the harness. To wait, poll the condition with
+an `until` loop (`until curl -fs localhost:8000/health; do sleep 2; done`), or run the
+command as a background task.
 
 ## Subagents
 

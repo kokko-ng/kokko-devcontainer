@@ -6,13 +6,14 @@
 #                           hook wiring stripped, the bundled SessionStart hook
 #                           wired in exactly once, acceptEdits -> auto migration,
 #                           the dead skipDangerousModePermissionPrompt dropped,
-#                           env and sandbox merged additively, idempotency.
+#                           env and sandbox merged additively, tui and autoMode
+#                           added only when absent, idempotency.
 #   prune-roster.jq       - plugins and env keys dropped from the bundled roster
 #                           are pruned from the live settings unless the user
 #                           overrode them.
 #   managed-settings.json - the policy file post-create.sh installs to
-#                           /etc/claude-code/: bypass mode locked, deny list
-#                           present and scoped.
+#                           /etc/claude-code/: bypass mode locked, Bash sandbox
+#                           forced off, deny list present and scoped.
 #   hooks/session-provision-status.sh - the SessionStart hook: prints the
 #                           provisioning ledger when it is non-empty, nothing
 #                           otherwise, and never fails.
@@ -92,6 +93,24 @@ check "bundle ships the sandbox configured for a container but switched off" \
     '.sandbox.enabled == false
        and .sandbox.enableWeakerNestedSandbox == true
        and (.sandbox.excludedCommands | index("docker *") != null)' "$BUNDLE_JSON"
+check "bundle defaults Claude Code to the fullscreen renderer" \
+    '.tui == "fullscreen"' "$BUNDLE_JSON"
+# A custom autoMode.allow REPLACES Claude Code's defaults, so the bundle must
+# carry all 17 of them (claude auto-mode defaults, 2.1.295) plus its own two.
+check "bundle autoMode allow keeps Claude Code's 17 defaults and adds two rules" \
+    '(.autoMode | keys) == ["allow"]
+       and (.autoMode.allow | length == 19)
+       and ([.autoMode.allow[] | split(":")[0]]
+            | (.[0] == "Security Discussion")
+              and (index("Read-Only Operations") != null)
+              and (index("Git Push Destination") != null)
+              and (index("Browser Trusted Navigation") == 16)
+              and (.[17] == "Own-Repo PR Merge")
+              and (.[18] == "Approved Sandbox Redeploy"))' "$BUNDLE_JSON"
+check "the PR-merge rule keeps squash merges and red checks out" \
+    '.autoMode.allow[17] | test("Squash merges are never wanted") and test("--admin")' "$BUNDLE_JSON"
+check "the redeploy rule covers sandbox/dev/demo targets and never prod" \
+    '.autoMode.allow[18] | test("sandbox, dev or demo") and test("prod or production")' "$BUNDLE_JSON"
 check "bundle carries no policy keys (those live in managed-settings.json)" \
     '(.permissions | has("deny") or has("disableBypassPermissionsMode")) | not' "$BUNDLE_JSON"
 
@@ -117,9 +136,11 @@ check "every deny rule is a scoped Bash, Read or Edit pattern" \
 # the policy, limits where they can go); the policy at least refuses to read
 # the Claude token file or print the gh and az tokens on an agent's behalf.
 # Claude Code's own Bash sandbox is not used: bubblewrap cannot create user
-# namespaces in an unprivileged container, and the policy must not turn it on.
-check "policy does not switch on the Bash sandbox" \
-    '(.sandbox.enabled // false) == false' "$MANAGED_JSON"
+# namespaces in an unprivileged container. The policy forces it off, so a
+# project's own .claude/settings.local.json (on the bind-mounted workspace)
+# cannot switch it on and send every command to an unsandboxed-retry prompt.
+check "policy forces the Bash sandbox off" \
+    '.sandbox == {enabled: false}' "$MANAGED_JSON"
 check "policy denies reading the shared Claude token" \
     '.permissions.deny | index("Read(~/.config/claude-auth/**)") != null' "$MANAGED_JSON"
 # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB forces the permission mode back to default,
@@ -201,6 +222,8 @@ check "user's env value wins, bundled env keys fill the gaps, own keys survive" 
     '.env.BASH_DEFAULT_TIMEOUT_MS == "120000"
        and .env.BASH_MAX_TIMEOUT_MS == "1800000"
        and .env.MY_VAR == "x"' "$m1"
+check "tui and autoMode are added when absent" \
+    ".tui == \"fullscreen\" and .autoMode == $(printf '%s' "$BUNDLE_JSON" | jq -c .autoMode)" "$m1"
 check "user's sandbox toggle wins, bundled sandbox keys fill the gaps" \
     '.sandbox.enabled == true
        and .sandbox.enableWeakerNestedSandbox == true
@@ -211,6 +234,16 @@ check "user's sandbox toggle wins, bundled sandbox keys fill the gaps" \
 m_plan=$(jq -s -f "$MERGE_JQ" <(echo '{"permissions":{"defaultMode":"plan"}}') "$BUNDLED_SETTINGS")
 check "user-chosen defaultMode is preserved" \
     '.permissions.defaultMode == "plan"' "$m_plan"
+
+# tui and autoMode: a user's own choice wins, whole, and survives a re-merge.
+USER_CHOICES='{"tui":"default","autoMode":{"allow":["Mine: my rule"],"environment":["My env"]}}'
+m_choice=$(jq -s -f "$MERGE_JQ" <(echo "$USER_CHOICES") "$BUNDLED_SETTINGS")
+m_choice2=$(jq -s -f "$MERGE_JQ" <(echo "$m_choice") "$BUNDLED_SETTINGS")
+check "a user's /tui default choice is preserved" '.tui == "default"' "$m_choice"
+check "a user's own autoMode block is preserved whole" \
+    ".autoMode == $(printf '%s' "$USER_CHOICES" | jq -c .autoMode)" "$m_choice"
+check "merging again keeps the user's tui and autoMode" \
+    ". == $(printf '%s' "$m_choice" | jq -c .)" "$(printf '%s' "$m_choice2" | jq -c .)"
 
 # skipDangerousModePermissionPrompt: only the old bundled `true` is dropped.
 m_skip_false=$(jq -s -f "$MERGE_JQ" <(echo '{"skipDangerousModePermissionPrompt":false}') "$BUNDLED_SETTINGS")

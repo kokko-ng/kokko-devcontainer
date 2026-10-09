@@ -39,7 +39,7 @@ settings so extensions download on the Mac.
 | pre-commit, shellcheck, jq | Hooks the bundled `CLAUDE.md` requires; shell linting |
 | zsh + oh-my-zsh + Starship | Shell (`als` lists the aliases) |
 {%- if cookiecutter.include_azure_cli == "yes" %}
-| Azure CLI | Azure resource management |
+| Azure CLI | Azure resource management, with Bicep and the `containerapp` and `log-analytics` extensions |
 {%- endif %}
 {%- if cookiecutter.include_azure_sql_driver == "yes" %}
 | ODBC Driver 18 | Azure SQL via pyodbc |
@@ -48,7 +48,7 @@ settings so extensions download on the Mac.
 | GitHub Copilot CLI | `copilot` |
 {%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %}
-| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`) |
+| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium, headless; its skill is in `~/.claude/skills`, not the project) |
 {%- endif %}
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
 | Docker-in-Docker | Container builds inside the devcontainer |
@@ -121,13 +121,15 @@ Sign-in and cache volumes belong to this project only; run `dev auth` here once.
   `.devcontainer/config/claude/managed-settings.json`, baked into the image) denies
   force-push, `git reflog expire`, `git gc --prune`, Azure `delete`/`purge`, Docker volume
   removal, `gh repo delete`, `gh api ... DELETE` and reading or printing tokens, and
-  disables bypass mode. Rules match command text: a floor, not a boundary.
+  disables bypass mode and Claude Code's Bash sandbox. Rules match command text: a floor,
+  not a boundary.
 {%- if cookiecutter.network_firewall == "on" %}
 - **Firewall.** Outbound traffic reaches only the hosts in
   `.devcontainer/firewall/allowed-domains.txt` plus GitHub's ranges; `localhost` is
-  unaffected. Other hosts fail at once with "No route to host". Add your project's hosts (one
-  exact name per line), then `dev rebuild`. `sudo devcontainer-firewall` re-resolves
-  addresses.
+  unaffected. Other hosts fail at once with "No route to host";
+  `devcontainer-firewall --blocked` lists them. Add your project's hosts (one per line,
+  `*.example.com` for a whole domain), then `dev rebuild`. Addresses are added as names are
+  looked up, through the container's own dnsmasq resolver.
 {%- else %}
 - **Firewall.** Off (`network_firewall: off`); outbound traffic is open. Set
   `DEVCONTAINER_FIREWALL` to `1` and add the `NET_ADMIN`/`NET_RAW` capabilities to
