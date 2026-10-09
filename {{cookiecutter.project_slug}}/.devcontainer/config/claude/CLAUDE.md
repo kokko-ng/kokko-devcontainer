@@ -163,10 +163,20 @@ only artifacts and terminology the customer actually receives.
   identifier, term, or diagram is shared with the customer, **ask the user which artifacts
   the customer sees before writing** — do not guess, and do not silently drop content that
   may in fact be shared. One question up front is cheaper than a rewrite.
-- **Commercial documents** (proposals, SOWs, RFP responses): never show labour rates,
-  rate cards, internal estimating tools or currency conversions; round amounts to the
-  nearest 10 so lines still add up to totals; use role titles rather than names outside
-  the personnel section.
+- **Commercial documents** (proposals, SOWs, RFP responses):
+  - Never show labour rates, rate cards, internal estimating tools or currency
+    conversions; use role titles rather than names outside the personnel section.
+  - Every figure is a whole dollar rounded **up** to the nearest $10, and totals sum the
+    rounded rows. The document never mentions rounding or total hours; those belong in
+    the WBS and the pricing model.
+  - Where a price is driven by something countable (sites, users, event days), show the
+    unit and the price per unit, so the reader can reproduce the figure.
+  - Mark optional scope optional everywhere it appears: the scope narrative, the
+    schedule and the payment milestones.
+  - No em dashes in a SOW or WBS, nor spaced en dashes used as separators; use colons in
+    labels.
+  - Never let template drafting guidance reach the client (instruction blocks, "Delete
+    if not required").
 - **Describe local-only material neutrally** ("local reference material, never
   committed"), never as confidential client or engagement material, and leave no trail
   (file names, titles, source IDs) back to it in anything committed.
@@ -180,6 +190,17 @@ only artifacts and terminology the customer actually receives.
 
 What the user or client has already reviewed is the spec. Do not "correct" reviewed sizes,
 colours or spacing toward a design document on your own initiative; ask first.
+
+## Frontend
+
+- **Verify a visual fix in the browser** by computed style (`getComputedStyle`, or
+  Playwright), not by the class list or a unit test.
+- **One Tailwind utility per property per element.** With two (`h-9` and `h-10`, a
+  gradient and `bg-none`), the rule Tailwind emits later in its stylesheet wins, whatever
+  the class order. Keep each property in one map of variants.
+- **Never build a Tailwind class name at runtime** (`icon-${size}`): the content scan
+  cannot see it and silently drops the rule. Set the value inline or write every variant
+  out as a literal.
 
 ## Finishing a task
 
