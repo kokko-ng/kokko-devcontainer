@@ -30,10 +30,10 @@ settings-handling functions in `post-create.sh` gets a test in
 container start against a settings.json the user may have edited — an untested merge
 rule is how user settings get eaten.
 
-**The prompts and their tests move together.** Any new or changed key in
-`cookiecutter.json`, and any change to the hooks, gets an assertion in
-`template-tests.sh` in the same commit. An option that nothing renders against is an
-option that silently stops working.
+**The template options and their tests move together.** Any new or changed key in
+`cookiecutter.json`, and any change to the cookiecutter hooks (`hooks/*.py`), gets an
+assertion in `template-tests.sh` in the same commit. An option that nothing renders
+against is an option that silently stops working.
 
 ## Where Jinja is allowed
 
@@ -138,7 +138,7 @@ shellcheck --severity=info \
 | `.../config/claude/prune-roster.jq` | Removes roster entries the bundle dropped, unless user-overridden |
 | `.../post-create.sh` | Provisioning; `--config-only` re-applies bundled config (settings, policy, hook, CLAUDE.md, zsh) in place |
 | `ghostty/config` | Host-side terminal config; not part of the template payload |
-| `README.md`, `docs/` | User and maintainer docs: the README links, each `docs/` page explains one topic. A change to a `dev` command, a template option, a pin or the policy updates the page that describes it. Template comments cite sections by heading ("Pin audit", "Disk management", "Port conflicts"); keep those headings |
+| `README.md`, `docs/` | User and maintainer docs: the README links, each `docs/` page explains one topic. A change to a `dev` command, a template option, a pin or the policy updates the page that describes it. Template comments cite sections by heading ("Pin audit", "Disk management", "Port conflicts", "Leftover snapshot refs"); keep those headings |
 | `prompts/` | Copy-paste prompts that set up or update an install with Claude Code |
 | `.../.devcontainer/firewall/` | The outbound firewall script and its allowlist, baked into the image; the only sudo the container user keeps |
 | `bin/dev` | Host CLI: sizes and starts Colima for the Mac, starts and opens containers (shell, Ghostty tab, Claude), fills the shared sign-in volumes from the host, `dev guide`. Not part of the template payload; bash 3.2-compatible (macOS `/bin/bash`) |

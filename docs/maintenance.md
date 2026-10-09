@@ -15,7 +15,7 @@ start (or now: `bash .devcontainer/post-create.sh --config-only`); the Dockerfil
 | `docker` cannot connect, `colima status` looks fine | VM disk full: [When the disk is full](#when-the-disk-is-full) |
 | Container very slow, exec sessions die | VM on `sshfs`: [Mount type](#mount-type) |
 | Files like `name 2.ext` keep appearing | Project in a cloud-synced folder. Move it to `~/code` |
-| "connection refused" from a host | The firewall: [security.md](security.md#firewall) |
+| "No route to host" from a host | The firewall: [security.md](security.md#firewall) |
 | Orange renders as red | Old container without `COLORTERM=truecolor`. `dev rebuild` |
 | A provisioning step failed | Shown when a Claude Code session starts; details in `/tmp/post-create.log` |
 

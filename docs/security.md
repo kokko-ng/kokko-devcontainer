@@ -15,7 +15,7 @@ command text: a floor, not a boundary. A change needs `dev rebuild`.
 
 With `network_firewall=on`, the container reaches only the hosts in
 `.devcontainer/firewall/allowed-domains.txt` plus GitHub's ranges; `localhost` is
-unaffected and other hosts fail with "connection refused".
+unaffected and other hosts fail at once with "No route to host".
 
 - Add a project's hosts to that file, one exact name per line, then `dev rebuild`.
 - `sudo devcontainer-firewall` re-resolves addresses when a CDN rotates them.

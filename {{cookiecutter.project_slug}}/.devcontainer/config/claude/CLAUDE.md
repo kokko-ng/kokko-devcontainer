@@ -20,16 +20,17 @@ printing the gh, Azure and Claude tokens.
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 
-**The container has an outbound firewall** that you cannot change and must not try to:
-everything here reaches only an allowlist of hosts (GitHub, Copilot, Anthropic, npm, PyPI,
-Azure, and what the project added). A request that fails with "connection refused" to a
-host outside that list is the firewall, not a bug: say which host it needed and let the
-user add it to `.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
+**The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
+you cannot change and must not try to: everything here reaches only an allowlist of hosts
+(GitHub, Copilot, Anthropic, npm, PyPI, Azure, and what the project added). A request
+that fails at once with "No route to host" to a host outside that list is the firewall,
+not a bug: say which host it needed and let the user add it to
+`.devcontainer/firewall/allowed-domains.txt`; do not route around it. If an
 allowlisted host stops answering, `sudo devcontainer-firewall` refreshes its addresses
 (normally the only thing sudo does here). System packages need a Dockerfile change and
 a rebuild, which the user runs.
 
-**This may be a small machine.** The container has a hard memory cap (a few GB on an
+**This may be a small machine.** The container has a hard memory cap (2 GB on an
 8 GB Mac) and an out-of-memory kill takes your process with it. Run heavy steps one at a
 time: no `pytest -n auto`, no `make -j`, no several installs or builds at once, no more
 dev servers than the task needs, and stop the ones you started when you are done. If a
@@ -218,7 +219,8 @@ is wrong. A missing fact is not a reason to withhold a recommendation.
 
 ## Context Window
 
-Your context window will be automatically compacted as it approaches its limit. Do not stop tasks early due to token budget concerns. Always be persistent and autonomous, completing tasks fully regardless of context remaining.
+Your context window is compacted automatically as it approaches its limit, so the
+context remaining is never a reason to stop a task early or cut it short.
 
 ## Testing and Development Files
 
@@ -241,10 +243,10 @@ dev servers, potentially your own session's processes. Instead:
 
 ## Shell
 
-The shell is zsh. Brace a variable that is followed by a colon: `"${app}:${tag}"`, never
-`$app:$tag` written as `$app:latest`, because zsh reads `:l`, `:u`, `:h`, `:t` and others
-as modifiers and silently changes the string (an image tag once reached Azure as
-`frontendight-only` instead of `frontend:light-only`).
+The shell is zsh. Brace a variable that is followed by a colon (`"${app}:${tag}"`,
+`"${app}:latest"`): after an unbraced name zsh reads `:l`, `:u`, `:h`, `:t` and others as
+modifiers and silently changes the string (`$app:light-only` once reached Azure as
+`frontendight-only`).
 
 ## Subagents
 

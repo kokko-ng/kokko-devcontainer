@@ -56,14 +56,15 @@ destructive; never stop or rebuild a container I did not ask you to.
      `certs/` and `.host-git-identity` alone (the host fills them).
    - **Apply.** Write the merged files, then show `git diff --stat` and the
      interesting hunks. Do not commit; ask me.
-   - **Make it live.** Config changes (`config/claude/`, `config/zsh/`,
-     `post-create.sh`) apply to a running container with
+   - **Make it live.** Config changes (`config/`, `post-create.sh`) apply to
+     a running container with
      `devcontainer exec --workspace-folder <project> bash .devcontainer/post-create.sh --config-only`.
-     A changed `Dockerfile`, `devcontainer.json`, `firewall/` or
-     `init-host-*.sh` needs `dev rebuild <project>`: ask me first, since it
+     A changed `Dockerfile`, `devcontainer.json`,
+     `config/claude/managed-settings.json` (baked into the image), `firewall/`
+     or `init-host-*.sh` needs `dev rebuild <project>`: ask me first, since it
      replaces the running container (volumes, so sign-ins and Claude Code
-     history, are kept). A stopped container picks everything up at its next
-     `dev rebuild`.
+     history, are kept). A stopped container picks up config changes when it
+     next starts, and the rest at its next `dev rebuild`.
    Opening a project with `dev` already brings its Claude Code version, theme
    and sign-ins in line with the Mac, so those need nothing.
 

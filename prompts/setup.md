@@ -30,10 +30,12 @@ and wait.
    instead. Make sure `~/.local/bin` is on PATH in a new login shell
    (`zsh -lic 'command -v dev'`); if it is not, tell me which file to add it
    to rather than editing my shell config unasked.
-4. **First project.** Ask me for a name, then I run `dev new <name>` myself
-   in a terminal: it generates `~/code/<name>` from the template, builds the
-   container (a few minutes the first time; it shows progress) and opens a
-   shell in it, which I leave with `exit`.
+4. **First project.** Ask me for a short lowercase name (the folder name;
+   `dev new` would lowercase capitals and turn spaces and underscores into
+   hyphens), then I run `dev new <name>` myself in a terminal: it generates
+   `~/code/<name>` from the template, builds the container (a few minutes
+   the first time; it shows progress) and opens a shell in it, which I leave
+   with `exit`.
 5. **Claude Code token.** I run `dev auth <name>` myself (it needs a project;
    it opens the browser once and keeps a year-long token in the Keychain that
    every devcontainer shares). Wait for me.

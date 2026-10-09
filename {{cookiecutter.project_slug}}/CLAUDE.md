@@ -70,10 +70,14 @@ Claude Code runs in Auto mode. A managed deny list in
 `/etc/claude-code/managed-settings.json` blocks the irreversible operations: force-push,
 `git reflog expire`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
 A denied command was denied on purpose — report it and ask, do not look for another
-spelling of the same operation. Bypass mode is disabled. There is no sudo.
+spelling of the same operation. Bypass mode is disabled.
+{%- if cookiecutter.agent_sudo == "yes" %} The container user keeps passwordless sudo.
+{%- elif cookiecutter.network_firewall == "on" %} There is no sudo beyond
+`sudo devcontainer-firewall`.
+{%- else %} There is no sudo.{% endif %}
 {%- if cookiecutter.network_firewall == "on" %} An outbound
 firewall limits the container to the hosts in `.devcontainer/firewall/allowed-domains.txt`;
-"connection refused" to anything else is the firewall — name the host and let the user
+"No route to host" for anything else is the firewall — name the host and let the user
 add it.{% endif %}
 
 ## Git

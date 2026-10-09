@@ -291,6 +291,10 @@ assert "CLAUDE.md lists the optional tools that were chosen" \
     grep -qE 'jq, az, playwright-cli with Chromium, copilot\.' "$DEFAULT/CLAUDE.md"
 refute "CLAUDE.md does not mention docker without docker-in-docker" \
     grep -q 'nested daemon' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md says the only sudo left is the firewall script" \
+    grep -q 'There is no sudo beyond' "$DEFAULT/CLAUDE.md"
+assert "CLAUDE.md describes the firewall when it is on" \
+    grep -q 'No route to host' "$DEFAULT/CLAUDE.md"
 assert "generated project has a root .gitignore" \
     test -f "$DEFAULT/.gitignore"
 for pat in '^\.env$' '^!\.env\.example$' '^\.claude/worktrees/$' '^\.claude/settings\.local\.json$' '^\.playwright-cli/$'; do
@@ -498,6 +502,10 @@ refute "no azure volume without the azure cli" \
     grep -q 'azure-config' "$SLIM/.devcontainer/devcontainer.json"
 refute "slim CLAUDE.md lists none of the optional tools" \
     grep -qE 'playwright-cli|copilot|, az|nested daemon' "$SLIM/CLAUDE.md"
+assert "slim CLAUDE.md says agent_sudo=yes keeps sudo" \
+    grep -q 'keeps passwordless sudo' "$SLIM/CLAUDE.md"
+refute "slim CLAUDE.md does not describe a firewall that is off" \
+    grep -qE 'No route to host|There is no sudo' "$SLIM/CLAUDE.md"
 assert "slim Dockerfile still installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$SLIM/.devcontainer/Dockerfile"
 
