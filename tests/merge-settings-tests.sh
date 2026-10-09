@@ -81,9 +81,9 @@ check "policy denies squash merges" \
 check "bundle no longer rosters kokko-code-quality or kokko-janitor" \
     '(.enabledPlugins | keys | map(select(test("kokko-code-quality|kokko-janitor"))) | length == 0)
        and (.extraKnownMarketplaces | has("kokko-ng-kokko-janitor") | not)' "$BUNDLE_JSON"
-check "bundle rosters theme-sync with its marketplace" \
-    '.enabledPlugins["theme-sync@kokko-claude-mods"] == true
-       and (.extraKnownMarketplaces | has("kokko-claude-mods"))' "$BUNDLE_JSON"
+check "bundle no longer rosters theme-sync or its marketplace" \
+    '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
+       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)' "$BUNDLE_JSON"
 check "bundle no longer ships skipDangerousModePermissionPrompt" \
     'has("skipDangerousModePermissionPrompt") | not' "$BUNDLE_JSON"
 check "bundle raises the Bash tool limits" \
@@ -312,6 +312,25 @@ check "upgrade keeps the still-bundled plugins" \
     '.enabledPlugins["kokko-git@kokko-ng-kokko-cmds"] == true' "$upgraded"
 check "upgraded settings run in auto mode with no retired wiring" \
     '(.permissions.defaultMode == "auto") and ((tostring | test("guard-git|git-snapshot|session-git-safety")) | not)' "$upgraded"
+# The 6.3 bundle shipped theme-sync and its marketplace; 6.4 dropped both.
+cat > "$WORK/prev-roster-63.json" <<'JSON'
+{
+  "enabledPlugins": {
+    "kokko-git@kokko-ng-kokko-cmds": true,
+    "theme-sync@kokko-claude-mods": true
+  },
+  "extraKnownMarketplaces": {
+    "kokko-claude-mods": {"source": {"source": "github", "repo": "kokko-ng/kokko-claude-mods"}}
+  }
+}
+JSON
+jq -s '.[0] * {enabledPlugins: .[1].enabledPlugins, extraKnownMarketplaces: .[1].extraKnownMarketplaces}' \
+    "$WORK/m1.json" "$WORK/prev-roster-63.json" > "$WORK/old-live-63.json"
+upgraded63=$(jq -s -f "$PRUNE_JQ" "$WORK/prev-roster-63.json" "$BUNDLED_SETTINGS" "$WORK/old-live-63.json")
+check "upgrade from 6.3 prunes theme-sync and the kokko-claude-mods marketplace" \
+    '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
+       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)
+       and .enabledPlugins["kokko-git@kokko-ng-kokko-cmds"] == true' "$upgraded63"
 # A pre-4.0 snapshot has no env/sandbox section: the prune must leave those
 # untouched rather than treating "absent" as "shipped and now dropped".
 check "a snapshot without env leaves the live env alone" \

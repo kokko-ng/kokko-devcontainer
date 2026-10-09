@@ -168,8 +168,7 @@ The roster is empty. Add marketplaces and plugins to
 {%- else -%}
 The `kokko-ng` roster: kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
 kokko-notifications, kokko-validation and kokko-env from
-[kokko-skills](https://github.com/kokko-ng/kokko-skills), and theme-sync from
-[kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). Set a plugin to
+[kokko-skills](https://github.com/kokko-ng/kokko-skills). Set a plugin to
 `false` in `enabledPlugins` to never install it.
 {%- endif %}
 

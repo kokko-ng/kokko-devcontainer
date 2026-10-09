@@ -26,7 +26,7 @@ empty folder, and opens a project an interrupted `dev new` already generated. Se
 `DEV_TEMPLATE` to generate from another source, such as your clone.
 
 `dev theme` with no argument applies the Mac's theme; `light` and `dark` mean the `-ansi`
-themes. The `theme-sync` plugin applies it to open sessions.
+themes. Sessions started afterwards use it; one already open keeps the theme it started with.
 
 ## Resources
 

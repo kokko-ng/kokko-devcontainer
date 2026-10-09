@@ -453,20 +453,30 @@ retire_git_safety_layer() {
     fi
 }
 
-# kokko-code-quality and kokko-janitor left the roster: a strict pre-commit
-# config per repo does that job. The roster prune disables them; this removes
-# the installed copies and the janitor marketplace. Idempotent.
-retire_quality_plugins() {
-    local p removed=0
+# Plugins that left the roster. kokko-code-quality and kokko-janitor: a strict
+# pre-commit config per repo does that job. theme-sync: Claude Code stores a
+# theme change itself, and nothing can redraw a session that is already
+# running. The roster prune disables them; this removes the installed copies
+# and their marketplaces (kokko-claude-mods only while no plugin of the user's
+# still names it). Idempotent.
+retire_plugins() {
+    local p removed=""
     if [[ "${KOKKO_SKIP_PLUGINS:-}" == "1" ]] || ! command -v claude >/dev/null 2>&1; then
         return 0
     fi
-    for p in kokko-code-quality@kokko-ng-kokko-cmds kokko-janitor@kokko-ng-kokko-janitor; do
-        claude plugin uninstall "$p" >/dev/null 2>&1 && removed=1
+    for p in kokko-code-quality@kokko-ng-kokko-cmds kokko-janitor@kokko-ng-kokko-janitor \
+        theme-sync@kokko-claude-mods; do
+        claude plugin uninstall "$p" >/dev/null 2>&1 && removed="$removed ${p%@*}"
     done
-    claude plugin marketplace remove kokko-ng-kokko-janitor >/dev/null 2>&1 && removed=1
-    if [[ "$removed" -eq 1 ]]; then
-        echo "=== Removed the retired kokko-code-quality and kokko-janitor plugins ==="
+    claude plugin marketplace remove kokko-ng-kokko-janitor >/dev/null 2>&1 &&
+        removed="$removed marketplace:kokko-ng-kokko-janitor"
+    if ! jq -e '(.enabledPlugins // {}) | keys | any(endswith("@kokko-claude-mods"))' \
+        "$CLAUDE_DIR/settings.json" >/dev/null 2>&1; then
+        claude plugin marketplace remove kokko-claude-mods >/dev/null 2>&1 &&
+            removed="$removed marketplace:kokko-claude-mods"
+    fi
+    if [[ -n "$removed" ]]; then
+        echo "=== Removed retired plugins:$removed ==="
     fi
     return 0
 }
@@ -897,8 +907,8 @@ check_vm_disk() {
 apply_bundled_config() {
     configure_claude
     retire_git_safety_layer
-    retire_quality_plugins
     merge_claude_settings
+    retire_plugins
     install_claude_hooks
     install_managed_settings
     bootstrap_claude_plugins || true
