@@ -54,6 +54,16 @@ aka.ms
 # Bicep: az bicep resolves releases through aka.ms (BicepReleases,
 # BicepLatestRelease), which redirect here; downloads come from here too.
 downloads.bicep.azure.com
+# Bicep's live type data for resource types newer than its bundled copy.
+live-data.bicep.azure.com
+
+# Azure read APIs: retail prices (cost estimates), Log Analytics queries
+# (az monitor log-analytics query) and the Container Registry data plane
+# (az acr repository, az acr manifest, az acr check-health).
+prices.azure.com
+api.loganalytics.io
+api.loganalytics.azure.com
+*.azurecr.io
 
 # Azure data plane: AI Foundry, Azure OpenAI and Cognitive Services
 # endpoints, and Container Apps (app and environment FQDNs).
@@ -68,6 +78,10 @@ downloads.bicep.azure.com
 cdn.playwright.dev
 playwright.download.prss.microsoft.com
 playwright.azureedge.net
+
+# Web fonts that pages opened in playwright-cli load (Google Fonts).
+fonts.googleapis.com
+fonts.gstatic.com
 
 # VS Code server and extensions (Reopen in Container)
 update.code.visualstudio.com

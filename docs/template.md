@@ -27,7 +27,7 @@ before anything is written.
 ## Plugin roster
 
 `kokko-ng` installs kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
-kokko-notifications, kokko-validation and kokko-env from
+kokko-validation and kokko-env from
 [kokko-skills](https://github.com/kokko-ng/kokko-skills). They refresh at most
 once a day, except that a plugin enabled but not installed (one the bundle just added) is
 installed on the next start. Set a plugin to `false` in `enabledPlugins` in

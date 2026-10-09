@@ -17,8 +17,6 @@
       "Bash(git reflog expire*)",
       "Bash(git gc --prune*)",
       "Bash(git gc * --prune*)",
-      "Bash(az * delete*)",
-      "Bash(az * purge*)",
       "Bash(docker system prune*--volumes*)",
       "Bash(docker volume prune)",
       "Bash(docker volume prune*)",
@@ -32,6 +30,10 @@
       "Edit(~/.config/claude-auth/**)",
       "Read(~/.azure/msal_token_cache*)",
       "Read(~/.config/gh/hosts.yml)"
+    ],
+    "ask": [
+      "Bash(az * delete*)",
+      "Bash(az * purge*)"
     ]
   },
   "sandbox": {

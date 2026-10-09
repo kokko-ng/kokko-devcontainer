@@ -126,8 +126,9 @@ fix_volume_ownership() {
     # Parents before children: Docker creates a missing mount-point path
     # root-owned all the way down, so ~/.config must be fixed before
     # ~/.config/gh can be, and ~/.cache before ~/.cache/uv.
-    for d in "$HOME/.cache" "$HOME/.cache/uv" "$HOME/.npm" "$HOME/.cache/ms-playwright" /commandhistory \
-             "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.config/claude-auth" "$HOME/.azure"; do
+    for d in "$HOME/.cache" "$HOME/.cache/uv" "$HOME/.cache/pre-commit" "$HOME/.npm" "$HOME/.cache/ms-playwright" \
+             /commandhistory "$CLAUDE_DIR" "$HOME/.config" "$HOME/.config/gh" "$HOME/.config/claude-auth" \
+             "$HOME/.azure" "$HOME/persist"; do
         [[ -d "$d" && ! -w "$d" ]] || continue
         sudo chown "$(id -u):$(id -g)" "$d" 2>/dev/null || \
             echo "  WARNING: $d is not writable and could not be chowned"
@@ -456,7 +457,8 @@ retire_git_safety_layer() {
 # Plugins that left the roster. kokko-code-quality and kokko-janitor: a strict
 # pre-commit config per repo does that job. theme-sync: Claude Code stores a
 # theme change itself, and nothing can redraw a session that is already
-# running. The roster prune disables them; this removes the installed copies
+# running. kokko-notifications: a container has no speaker, and the terminal
+# bell it fell back to was unreliable. The roster prune disables them; this removes the installed copies
 # and their marketplaces (kokko-claude-mods only while no plugin of the user's
 # still names it). Idempotent.
 retire_plugins() {
@@ -465,7 +467,7 @@ retire_plugins() {
         return 0
     fi
     for p in kokko-code-quality@kokko-ng-kokko-cmds kokko-janitor@kokko-ng-kokko-janitor \
-        theme-sync@kokko-claude-mods; do
+        theme-sync@kokko-claude-mods kokko-notifications@kokko-ng-kokko-cmds; do
         claude plugin uninstall "$p" >/dev/null 2>&1 && removed="$removed ${p%@*}"
     done
     claude plugin marketplace remove kokko-ng-kokko-janitor >/dev/null 2>&1 &&
@@ -695,7 +697,22 @@ configure_git() {
         git config --global --add credential.https://github.com.helper '!gh auth git-credential'
         echo "  github.com credentials: gh auth git-credential"
     fi
+    configure_git_template
     configure_git_identity
+}
+
+# Every repository cloned or initialised in the container, not only the
+# workspace, gets pre-commit's hooks: git copies them from init.templateDir.
+# The hooks skip quietly in a repo without a .pre-commit-config.yaml.
+configure_git_template() {
+    local tdir="$HOME/.git-template"
+    command -v pre-commit >/dev/null 2>&1 || return 0
+    if pre-commit init-templatedir -t pre-commit -t commit-msg "$tdir" >/dev/null 2>&1; then
+        git config --global init.templateDir "$tdir"
+        echo "  new clones get pre-commit hooks (init.templateDir $tdir)"
+    else
+        echo "  WARNING: could not set up the pre-commit git template; install hooks in new clones by hand"
+    fi
 }
 
 # The author identity, from the answers given to the template.

@@ -303,6 +303,24 @@ assert_jq "playwright browser volume keeps its historical shared name" "$DC" \
     '[.mounts[] | select(test("ms-playwright"))] | any(test("source=pw-browsers,"))'
 assert_jq "shared caches keep their historical volume names" "$DC" \
     '[.mounts[] | select(test("source=devcontainer-uv-cache,"))] | length == 1'
+assert_jq "pre-commit hook environments follow the cache scope" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/.cache/pre-commit,"))]
+       == ["source=devcontainer-pre-commit-cache,target=/home/vscode/.cache/pre-commit,type=volume"]'
+assert_jq "the persistent folder is always per project" "$DC" \
+    '[.mounts[] | select(test("target=/home/vscode/persist,"))]
+       == ["source=my-project-persist,target=/home/vscode/persist,type=volume"]'
+assert_jq "no notification-sound passthrough" "$DC" \
+    '.containerEnv | has("KOKKO_SOUND_EVENTS") | not'
+# shellcheck disable=SC2016  # $h and $1 expand in the inner bash
+assert "the allowlist covers Azure prices, Log Analytics, ACR, Bicep live data and web fonts" \
+    bash -c 'for h in prices.azure.com api.loganalytics.io "*.azurecr.io" live-data.bicep.azure.com fonts.googleapis.com fonts.gstatic.com; do grep -qxF "$h" "$1" || exit 1; done' _ "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+refute "datadog telemetry stays blocked" \
+    grep -qi datadog "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+# shellcheck disable=SC2016  # a literal line of the Dockerfile
+assert "the image drops the global pytest that shadows a project's" \
+    grep -q 'rm -f "/usr/local/py-utils/bin/$t"' "$DEFAULT/.devcontainer/Dockerfile"
+assert "new clones get pre-commit hooks through the git template" \
+    grep -q 'pre-commit init-templatedir -t pre-commit -t commit-msg' "$DEFAULT/.devcontainer/post-create.sh"
 
 assert_jq "bundled settings.json stays valid JSON" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" '.'
@@ -558,6 +576,8 @@ assert_jq "chosen memory limit reaches runArgs" "$SDC" \
        and (.runArgs | index("--memory-swap=${localEnv:DEVCONTAINER_MEMORY_LIMIT:2048m}") != null)'
 assert_jq "per-project gh login volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-gh-config,"))] | length == 1'
+assert_jq "per-project pre-commit cache is namespaced by slug" "$SDC" \
+    '[.mounts[] | select(test("source=slim-app-pre-commit-cache,"))] | length == 1'
 assert_jq "Claude Code state volume is namespaced by slug" "$SDC" \
     '[.mounts[] | select(test("source=slim-app-claude-config,"))] | length == 1'
 assert_jq "an explicit git identity is published to post-create" "$SDC" \

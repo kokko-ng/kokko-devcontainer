@@ -7,8 +7,10 @@ prompt. Around it sit a policy it cannot change, an outbound allowlist, and no s
 
 [`managed-settings.json`](../%7B%7Bcookiecutter.project_slug%7D%7D/.devcontainer/config/claude/managed-settings.json)
 is baked into the image at `/etc/claude-code/` and ranks above every user setting. It
-disables bypass mode and denies force-push, squash merges, history pruning, Azure and
-GitHub deletes, Docker volume removal, and printing or reading tokens. Rules match
+disables bypass mode and denies force-push, squash merges, history pruning, GitHub
+deletes, Docker volume removal, and printing or reading tokens. Azure `delete` and
+`purge` are an ask rule instead: they always stop at a permission prompt, so an approved
+clean-up runs in the session rather than being handed to you. Rules match
 command text: a floor, not a boundary. It also forces Claude Code's Bash sandbox off
 (bubblewrap cannot run in an unprivileged container), so a project's own
 `.claude/settings.local.json` cannot switch it on. A change needs `dev rebuild`.
