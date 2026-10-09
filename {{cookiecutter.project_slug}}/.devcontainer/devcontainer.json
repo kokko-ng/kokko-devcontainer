@@ -108,11 +108,6 @@
     // notice on every command is noise to an agent. Bump the pin instead.
     "NO_UPDATE_NOTIFIER": "1",
 {%- endif %}
-    // Which kokko-notifications sounds play (`completion`, `attention`; empty
-    // means both), mirrored from the host: `dev` passes on the value in the
-    // host's ~/.claude/settings.json `env`. Inside the container the sounds
-    // reach you as a terminal bell, which Ghostty can play as audio.
-    "KOKKO_SOUND_EVENTS": "${localEnv:KOKKO_SOUND_EVENTS}",
     // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
     // post-create skips the plugin bootstrap (network calls that need a
     // signed-in CLI). Unset on a normal host, this resolves to "" — a no-op.
@@ -200,7 +195,15 @@
     // destructive az verbs.
     "source={{ cookiecutter.__volume_prefix }}-azure-config,target=/home/vscode/.azure,type=volume",
 {%- endif %}
+    // A folder that survives rebuilds, for what does not belong in the repo:
+    // clones you keep working on, local secrets such as demo passwords, work
+    // in progress. The session scratchpad and /tmp are lost on rebuild. Always
+    // per project, so one project's secrets never reach another.
+    "source={{ cookiecutter.project_slug }}-persist,target=/home/vscode/persist,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    // pre-commit's hook environments (several hundred MB), so the first commit
+    // after a rebuild does not download and build them all again.
+    "source={{ cookiecutter.__volume_prefix }}-pre-commit-cache,target=/home/vscode/.cache/pre-commit,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-npm-cache,target=/home/vscode/.npm,type=volume",
     "source={{ cookiecutter.__volume_prefix }}-zsh-history,target=/commandhistory,type=volume"
 {%- if cookiecutter.include_playwright == "yes" %},

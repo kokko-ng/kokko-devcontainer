@@ -23,12 +23,6 @@ cursor-style-blink = false
 # report progress with OSC 9;4, which Ghostty otherwise draws as a moving bar.
 progress-style = false
 
-# Bell - audible bell on BEL character (used by devcontainer hook notifications)
-# Uses the same Mac system sound as kokko-notifications hooks
-bell-features = audio
-bell-audio-path = /System/Library/Sounds/Pop.aiff
-bell-audio-volume = 1.0
-
 # Shell settings - ensure zsh loads with login shell for oh-my-zsh
 command = /bin/zsh --login
 

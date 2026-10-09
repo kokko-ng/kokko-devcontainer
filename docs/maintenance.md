@@ -58,7 +58,9 @@ docker system prune -a      # inside a dind container, for its store
 
 Never run `docker system prune --volumes` or `docker volume prune`: they delete Claude
 Code state, sign-ins, caches and dind stores. To retire a project, `docker rm` its
-container and `docker volume rm <slug>-claude-config` (and its dind volume, if any).
+container and `docker volume rm <slug>-claude-config <slug>-persist` (and its dind
+volume, if any). `<slug>-persist` holds the project's local secrets and clones: copy out
+what you still need first.
 
 ### When the disk is full
 

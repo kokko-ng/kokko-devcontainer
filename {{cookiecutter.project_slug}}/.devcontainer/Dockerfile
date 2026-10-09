@@ -27,6 +27,17 @@ ENV OPENSSL_armcap=0
 # digests) — check for newer versions manually; see upstream docs/maintenance.md -> Pin audit.
 RUN pip install --no-cache-dir uv==0.12.1 pre-commit==4.6.2
 
+# The base image puts pytest, mypy, black, flake8, pylint and other dev tools on
+# PATH from /usr/local/py-utils. `uv run pytest` in a project without pytest
+# then runs that global copy outside the project's environment and fails with a
+# misleading "No module named ..." for the project's own imports. Without them
+# it fails plainly ("Failed to spawn: pytest"); projects bring their own tools.
+RUN for t in pytest py.test mypy mypyc dmypy stubgen stubtest black blackd flake8 \
+        pylint pylint-config pyreverse symilar autopep8 yapf yapf-diff pycodestyle \
+        pydocstyle bandit bandit-baseline bandit-config-generator; do \
+        rm -f "/usr/local/py-utils/bin/$t"; \
+    done
+
 # Fail piped RUN commands if any pipeline stage fails (hadolint DL4006).
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

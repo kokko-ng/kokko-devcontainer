@@ -81,6 +81,8 @@ check "policy denies squash merges" \
 check "bundle no longer rosters kokko-code-quality or kokko-janitor" \
     '(.enabledPlugins | keys | map(select(test("kokko-code-quality|kokko-janitor"))) | length == 0)
        and (.extraKnownMarketplaces | has("kokko-ng-kokko-janitor") | not)' "$BUNDLE_JSON"
+check "bundle no longer rosters kokko-notifications" \
+    '.enabledPlugins | has("kokko-notifications@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
 check "bundle no longer rosters theme-sync or its marketplace" \
     '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
        and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)' "$BUNDLE_JSON"
@@ -124,15 +126,17 @@ check "managed settings deny every force-push spelling" \
        and (index("Bash(git push -f*)") != null)
        and (index("Bash(git push * --force*)") != null)
        and (index("Bash(git push * -f*)") != null)' "$MANAGED_JSON"
-check "managed settings deny the destructive cloud, docker and gh operations" \
+check "managed settings deny the destructive docker and gh operations" \
     '.permissions.deny
-       | (index("Bash(az * delete*)") != null)
-       and (index("Bash(docker volume prune*)") != null)
+       | (index("Bash(docker volume prune*)") != null)
        and (index("Bash(gh repo delete*)") != null)' "$MANAGED_JSON"
+check "Azure delete and purge always ask instead of being denied" \
+    '(.permissions.ask | index("Bash(az * delete*)") != null and index("Bash(az * purge*)") != null)
+       and (.permissions.deny | map(select(test("^Bash\\(az .*(delete|purge)"))) | length == 0)' "$MANAGED_JSON"
 # A bare "Bash" deny would remove the tool from Claude entirely; every rule
 # must be scoped to a command pattern.
-check "every deny rule is a scoped Bash, Read or Edit pattern" \
-    '.permissions.deny | all(test("^(Bash|Read|Edit)\\(.+\\)$"))' "$MANAGED_JSON"
+check "every deny and ask rule is a scoped Bash, Read or Edit pattern" \
+    '(.permissions.deny + .permissions.ask) | all(test("^(Bash|Read|Edit)\\(.+\\)$"))' "$MANAGED_JSON"
 # The shared sign-ins are reachable inside the container (the firewall, not
 # the policy, limits where they can go); the policy at least refuses to read
 # the Claude token file or print the gh and az tokens on an agent's behalf.
@@ -317,6 +321,7 @@ cat > "$WORK/prev-roster-63.json" <<'JSON'
 {
   "enabledPlugins": {
     "kokko-git@kokko-ng-kokko-cmds": true,
+    "kokko-notifications@kokko-ng-kokko-cmds": true,
     "theme-sync@kokko-claude-mods": true
   },
   "extraKnownMarketplaces": {
@@ -327,6 +332,8 @@ JSON
 jq -s '.[0] * {enabledPlugins: .[1].enabledPlugins, extraKnownMarketplaces: .[1].extraKnownMarketplaces}' \
     "$WORK/m1.json" "$WORK/prev-roster-63.json" > "$WORK/old-live-63.json"
 upgraded63=$(jq -s -f "$PRUNE_JQ" "$WORK/prev-roster-63.json" "$BUNDLED_SETTINGS" "$WORK/old-live-63.json")
+check "upgrade prunes kokko-notifications from the live roster" \
+    '.enabledPlugins | has("kokko-notifications@kokko-ng-kokko-cmds") | not' "$upgraded63"
 check "upgrade from 6.3 prunes theme-sync and the kokko-claude-mods marketplace" \
     '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
        and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)

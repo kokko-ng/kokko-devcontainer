@@ -56,8 +56,7 @@ export SAVEHIST=50000
 setopt SHARE_HISTORY        # share history across concurrent shells, live
 setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_REDUCE_BLANKS
-# No beep on a failed completion: the terminal bell is how Claude Code's
-# notification sounds reach the host from here, so keep it meaningful.
+# No beep on a failed completion.
 unsetopt BEEP
 
 # ===================

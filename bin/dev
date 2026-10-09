@@ -312,12 +312,9 @@ container_up() {
     make_room "$dir"
     say "Starting $(basename "$dir") (capped at $(container_memory); a first build takes a few minutes; log: $log)"
     secrets="$(secrets_file)"
-    # devcontainer.json reads the cap as ${localEnv:DEVCONTAINER_MEMORY_LIMIT};
-    # KOKKO_SOUND_EVENTS (which notification sounds play) from the host's
-    # Claude Code settings, so the container chimes the way the Mac does; and
-    # DEVCONTAINER_CLAUDE_VERSION, so a new image gets this Mac's Claude Code.
+    # devcontainer.json reads the cap as ${localEnv:DEVCONTAINER_MEMORY_LIMIT},
+    # and DEVCONTAINER_CLAUDE_VERSION, so a new image gets this Mac's Claude Code.
     DEVCONTAINER_MEMORY_LIMIT="$(container_memory)" \
-        KOKKO_SOUND_EVENTS="${KOKKO_SOUND_EVENTS:-$(jq -r '.env.KOKKO_SOUND_EVENTS // empty' "$(host_claude_dir)/settings.json" 2>/dev/null || true)}" \
         DEVCONTAINER_CLAUDE_VERSION="$(host_claude_version)" \
         run_logged "$log" devcontainer up --workspace-folder "$dir" --secrets-file "$secrets" "$@" || status=$?
     rm -f "$secrets"

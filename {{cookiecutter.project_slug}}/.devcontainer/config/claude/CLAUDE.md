@@ -14,13 +14,19 @@ committed work has that safety net.
 
 A managed deny list (`/etc/claude-code/managed-settings.json`) sits under auto mode and
 blocks the irreversible operations: force-push in any spelling, squash merges,
-`git reflog expire` and `git gc --prune`, Azure `delete` and `purge`, Docker volume
-removal and pruning, `gh repo delete` and `gh api` DELETE calls, and reading or
-printing the gh, Azure and Claude tokens.
+`git reflog expire` and `git gc --prune`, Docker volume removal and pruning,
+`gh repo delete` and `gh api` DELETE calls, and reading or printing the gh, Azure and
+Claude tokens. Azure `delete` and `purge` are not blocked but always stop at a
+permission prompt for the user, whatever auto mode decides: before one, name the exact
+resource it removes.
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 After any permission denial, ask the user and wait for the answer; do not retry or
 switch to other commands meanwhile.
+
+Writes to secret stores (`gh secret set` or `delete`, Key Vault secrets) are held by
+auto mode until the user approves them in their own words. Ask for that approval up
+front, naming the secret, rather than discovering the block mid-task.
 
 **The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
 you cannot change and must not try to: everything here reaches only an allowlist of hosts
@@ -124,6 +130,8 @@ unasked.
 - **If the hooks are not installed**, install them before committing: `uv run pre-commit install`
   (or `pre-commit install` where uv is not in use). A config file with no installed hook
   is a silent no-op, so verify `.git/hooks/pre-commit` exists rather than assuming.
+  Repos cloned or initialised in this container get the hooks automatically
+  (`init.templateDir`); one cloned before that needs `pre-commit install`.
 - **When hooks fail, fix the cause.** Read the output, correct the code, and commit again.
   Do not work around the check, loosen the rule, or add per-file ignores to make it pass
   unless the user asks for exactly that.
@@ -263,6 +271,20 @@ Put temporary files, development scripts, experiments, test artifacts, logs and 
 data in the session scratchpad directory Claude Code gives each session (named in the
 system prompt), not in the repository. Use `/tmp` only when a session has no
 scratchpad.
+
+## Files that must survive a rebuild
+
+The session scratchpad, `/tmp` and anything else outside the workspace and the mounted
+volumes are lost when the container is rebuilt. Keep clones you will go on working in,
+local secrets such as demo passwords, and unfinished work in `~/persist`, a per-project
+volume that survives rebuilds. Never commit anything from it.
+
+## Python tools
+
+Run a project's tools through its environment (`uv run pytest`). The image has no
+global pytest, mypy or linters, so `uv run pytest` failing to spawn means the project
+does not depend on pytest: add it to the project's dev group, or use
+`uv run --with pytest python -m pytest` for a one-off.
 
 ## Process Management
 

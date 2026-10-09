@@ -18,8 +18,7 @@ A first build takes a few minutes; `dev` shows the current step, and the full lo
 - updates the container's Claude Code to the Mac's version if it is older (a new image
   is built with the Mac's version; the Dockerfile pin is the fallback);
 - sets the Mac's Claude Code theme and marks onboarding done, so `dev claude` opens
-  signed in with no theme picker;
-- passes `KOKKO_SOUND_EVENTS` from the Mac's Claude Code settings.
+  signed in with no theme picker.
 
 `dev new` lowercases the name and turns spaces and underscores into dashes. It reuses an
 empty folder, and opens a project an interrupted `dev new` already generated. Set

@@ -119,9 +119,9 @@ Sign-in and cache volumes belong to this project only; run `dev auth` here once.
 - **Auto mode.** Claude Code's classifier approves safe tool calls.
 - **Policy.** `/etc/claude-code/managed-settings.json` (from
   `.devcontainer/config/claude/managed-settings.json`, baked into the image) denies
-  force-push, `git reflog expire`, `git gc --prune`, Azure `delete`/`purge`, Docker volume
-  removal, `gh repo delete`, `gh api ... DELETE` and reading or printing tokens, and
-  disables bypass mode and Claude Code's Bash sandbox. Rules match command text: a floor,
+  force-push, `git reflog expire`, `git gc --prune`, Docker volume removal,
+  `gh repo delete`, `gh api ... DELETE` and reading or printing tokens, makes Azure
+  `delete`/`purge` always ask you, and disables bypass mode and Claude Code's Bash sandbox. Rules match command text: a floor,
   not a boundary.
 {%- if cookiecutter.network_firewall == "on" %}
 - **Firewall.** Outbound traffic reaches only the hosts in
@@ -167,7 +167,7 @@ The roster is empty. Add marketplaces and plugins to
 `bash .devcontainer/post-create.sh --config-only`.
 {%- else -%}
 The `kokko-ng` roster: kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
-kokko-notifications, kokko-validation and kokko-env from
+kokko-validation and kokko-env from
 [kokko-skills](https://github.com/kokko-ng/kokko-skills). Set a plugin to
 `false` in `enabledPlugins` to never install it.
 {%- endif %}
