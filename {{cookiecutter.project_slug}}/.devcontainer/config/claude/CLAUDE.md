@@ -56,6 +56,14 @@ whether the infrastructure is the cause, not just the code in front of you.
   tier, a full disk, a resource that does not exist yet — report the finding and the
   exact command you would run to fix it (e.g. the `az` CLI command to provision or
   scale), with the cost impact where known, per "Presenting decisions" below.
+- **Deploy only to sandbox, dev or demo targets** (resource groups or subscriptions named
+  that way) unless the user names another. Anything named prod or production needs the
+  user's explicit go-ahead for that action.
+- **Read back what you deployed.** After a deploy or revision roll, query the live
+  resource (the image tag, the active revision and its health, the app's response)
+  rather than trusting the command's output.
+- **Tag new Azure resource groups and resources** `contactEmail=Kokko.Ng@insight.com`
+  where the subscription requires the tag.
 - **Never modify infrastructure without explicit user permission.** No provisioning,
   scaling, restarting, deleting, or reconfiguring cloud resources — however small
   the change seems — until the user approves that specific action. Inspection is
@@ -74,6 +82,15 @@ whether the infrastructure is the cause, not just the code in front of you.
   commit keeps its own message and history. A rebase merge only when the user asks.
 - **Never rewrite published history** (rebase, amend or reset of pushed commits) unless
   the user asks for that specific change.
+- **Commit as the configured identity** (`kokko-ng <Kokko.Ng@insight.com>`) and add no
+  `Co-Authored-By`, `Claude-Session` or other AI trailers to commits or PR bodies.
+- **Never change a repository's visibility** or push private code to a public repo,
+  including forks; check a new fork is private.
+- **Before merging a subagent's branch**, compare `git merge-base main <branch>` with
+  `main`: a stale base silently drops other work in auto-merged files. Have the agent
+  merge `main` and re-run its checks instead of resolving its conflicts yourself.
+- **Work that seems lost probably is not.** On an unexplained clean tree mid-task, check
+  `git stash list` (and the reflog) before redoing or reporting anything as lost.
 
 ## Pre-commit
 
@@ -83,6 +100,9 @@ unasked.
 
 - **Before pushing or opening a pull request**, run `pre-commit run --all-files` and fix
   what fails, so CI does not find it first.
+- **Test cadence.** While iterating, run the tests for what changed. Run the full suites
+  and `pre-commit run --all-files` at the end, and before anything expensive that depends
+  on a working tree (a long agent run, a deploy).
 - **Never pass `--no-verify` or `-n` to `git commit`**, and never set `PRE_COMMIT_ALLOW_NO_CONFIG`
   or otherwise disable the hooks. If you are reaching for a bypass, you are about to
   commit something the repo has decided is not acceptable.
@@ -128,11 +148,23 @@ only artifacts and terminology the customer actually receives.
   identifier, term, or diagram is shared with the customer, **ask the user which artifacts
   the customer sees before writing** — do not guess, and do not silently drop content that
   may in fact be shared. One question up front is cheaper than a rewrite.
+- **Commercial documents** (proposals, SOWs, RFP responses): never show labour rates,
+  rate cards, internal estimating tools or currency conversions; round amounts to the
+  nearest 10 so lines still add up to totals; use role titles rather than names outside
+  the personnel section.
+- **Describe local-only material neutrally** ("local reference material, never
+  committed"), never as confidential client or engagement material, and leave no trail
+  (file names, titles, source IDs) back to it in anything committed.
 - **Use the customer's vocabulary** for systems, environments, teams, and roles wherever it
   differs from the internal name.
 - **Check the finished draft for leakage** before handing it over: search it for internal
   identifier patterns, internal hostnames, and internal tool names, and report anything you
   removed or need a decision on.
+
+## Visual changes
+
+What the user or client has already reviewed is the spec. Do not "correct" reviewed sizes,
+colours or spacing toward a design document on your own initiative; ask first.
 
 ## Finishing a task
 
@@ -206,6 +238,18 @@ dev servers, potentially your own session's processes. Instead:
 - When you start a long-running process you may need to stop or restart, capture its PID
   (`$!`, or a pidfile) and `kill` that specific PID.
 - For a process you did not start, report it and ask the user instead of killing it.
+
+## Shell
+
+The shell is zsh. Brace a variable that is followed by a colon: `"${app}:${tag}"`, never
+`$app:$tag` written as `$app:latest`, because zsh reads `:l`, `:u`, `:h`, `:t` and others
+as modifiers and silently changes the string (an image tag once reached Azure as
+`frontendight-only` instead of `frontend:light-only`).
+
+## Subagents
+
+Launch subagents with `model: "opus"` unless the task needs the strongest model; give each
+a self-contained brief with the expected base commit when it works on a branch.
 
 ## Validation Output
 
