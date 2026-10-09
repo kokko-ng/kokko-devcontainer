@@ -119,6 +119,10 @@ by hand, quarterly (paths under `{{cookiecutter.project_slug}}/.devcontainer/`):
 | `@github/copilot@`, `@playwright/cli@` | `post-create.sh` | `npm view <package> version` |
 | zsh plugin tags | `post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/<plugin>` |
 | Node feature `version`, feature major tags | `devcontainer.json` | Node release schedule; `devcontainer features info tags <feature>` |
+| Hook `rev:`s | `{{cookiecutter.project_slug}}/.pre-commit-config.yaml` | `pre-commit autoupdate` in a rendered project, then copy the revs back |
+| Dev tool floors (`ruff>=`, `mypy>=`, ...) | `{{cookiecutter.project_slug}}/pyproject.toml` | PyPI, as for `uv==` |
+| Action SHAs, `pre-commit@`, `commitizen==` | `{{cookiecutter.project_slug}}/.github/workflows/ci.yml` | `gh api repos/<owner>/<action>/releases/latest`; Dependabot does not see the template's workflow |
+| Trivy image tag and digest | `{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh` | `gh release view -R aquasecurity/trivy`; resolve the digest of the new tag |
 
 Feature major tags (`node:2`, `azure-cli:1`) float within the major on purpose. Only
 Python `3.14` has a digest; other versions render a tag-only `FROM`, and the project's

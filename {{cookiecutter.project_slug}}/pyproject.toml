@@ -1,0 +1,161 @@
+[project]
+name = "{{ cookiecutter.project_slug }}"
+version = "0.1.0"
+description = {{ cookiecutter.project_name | tojson }}
+requires-python = ">={{ cookiecutter.python_version }}"
+dependencies = []
+
+# Runtime dependencies go in `dependencies` (uv add fastapi); tools in the dev group
+# (uv add --dev ...). The pre-commit hooks run every tool below through
+# `uv run --frozen`, so the versions in uv.lock are the ones the gate uses. uv.lock is
+# written by the first `uv sync` (post-create.sh runs one); commit it.
+[dependency-groups]
+dev = [
+    "deptry>=0.25.1",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.10",
+    "vulture>=2.16",
+]
+
+# No [build-system]: the project is not installed as a package. Code under
+# {{ cookiecutter.backend_src_dir }}/ is imported from PYTHONPATH (the container sets it; pytest and mypy are
+# told below), which is what `uv run uvicorn <module>:app` expects.
+
+# --- Ruff: one tool for linting and formatting -------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py{{ cookiecutter.python_version.replace('.', '') }}"
+src = ["{{ cookiecutter.backend_src_dir }}", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "DTZ", "PTH", "RET", "SIM",
+    "ANN", "TC", "PGH", "RUF", "S", "PL", "ERA", "T20", "C90", "PT", "D", "ARG", "TID",
+]
+ignore = [
+    "PLR2004", # magic values are judged in review
+]
+
+# Ruff rule families standing in for separate tools, so there is one linter to pin:
+#   S    insecure code patterns (flake8-bandit)
+#   C90  cyclomatic complexity (mccabe)
+#   D    docstring presence and style on every public module, class, and function
+#   ARG, F401, F841, ERA  unused arguments, imports, variables, commented-out code
+#   PT   pytest style, including assertions that can never fail
+#   TID  banned and relative imports
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.mccabe]
+# Cyclomatic complexity ceiling per function. scripts/hooks/check_strictness.py
+# fails the build if this is raised.
+max-complexity = 8
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR0913", "D"]
+"scripts/**" = ["T201"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic and FastAPI read annotations at runtime, so their imports must stay real.
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+mypy-init-return = true
+
+# --- mypy: strict everywhere. scripts/hooks/check_strictness.py fails the build
+# --- if any of these settings is loosened. disallow_any_expr is stricter still and
+# --- applies to production code only, through its own hook in .pre-commit-config.yaml.
+# --- When pydantic arrives (with FastAPI), add plugins = ["pydantic.mypy"].
+[tool.mypy]
+python_version = "{{ cookiecutter.python_version }}"
+strict = true
+warn_unreachable = true
+disallow_any_explicit = true
+disallow_any_unimported = true
+disallow_any_decorated = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "possibly-undefined",
+    "explicit-override",
+    "unused-awaitable",
+    "mutable-override",
+    "narrowed-type-not-subtype",
+    "deprecated",
+    "exhaustive-match",
+]
+files = ["{{ cookiecutter.backend_src_dir }}", "tests", "scripts"]
+mypy_path = "{{ cookiecutter.backend_src_dir }}"
+explicit_package_bases = true
+
+# --- Dead code --------------------------------------------------------------------
+# Confidence 60 reports unused variables, class attributes, and methods as well as
+# functions and classes. Tests are not scanned, so code that only a test calls is
+# reported: wire it in or delete it. What vulture cannot see being used is handled in
+# two ways only: a narrow pattern below when a whole kind of name is a framework entry
+# point (pydantic's ``model_config``, a FastAPI route decorator), or an allowlist file
+# (tests/vulture_allowlist.py, added to ``paths``) with a reason per name.
+# scripts/hooks/check_strictness.py fails the build if min_confidence rises above 60.
+[tool.vulture]
+paths = ["{{ cookiecutter.backend_src_dir }}", "scripts"]
+min_confidence = 60
+sort_by_size = true
+
+# --- File length ----------------------------------------------------------------------
+# Ruff has no file-length rule, so scripts/hooks/check_file_length.py enforces these over
+# `git ls-files`. Globs use fnmatch rules on the repository-relative path, where `*` also
+# matches `/`. A file matching a test glob is judged as a test, otherwise as source.
+# scripts/hooks/check_strictness.py fails the build if a limit is raised or a glob dropped.
+[tool.quality.file-length]
+source_max_lines = 400
+test_max_lines = 500
+source_globs = [
+    "{{ cookiecutter.backend_src_dir }}/*.py",
+    "scripts/*.py",
+    "scripts/*.sh",
+    "{{ cookiecutter.frontend_dir }}/src/*.ts",
+    "{{ cookiecutter.frontend_dir }}/src/*.vue",
+    "{{ cookiecutter.frontend_dir }}/src/*.js",
+]
+test_globs = [
+    "tests/*.py",
+    "{{ cookiecutter.frontend_dir }}/tests/*.ts",
+    "{{ cookiecutter.frontend_dir }}/src/*.spec.ts",
+    "{{ cookiecutter.frontend_dir }}/src/*.test.ts",
+]
+# Generated files only, each also allowed in scripts/hooks/check_strictness.py.
+exclude = []
+
+# --- Unused, missing, and transitive dependencies ---------------------------------
+[tool.deptry]
+known_first_party = ["{{ cookiecutter.__package_name }}", "scripts", "tests"]
+
+# --- Coverage -----------------------------------------------------------------------
+[tool.coverage.run]
+source = ["{{ cookiecutter.backend_src_dir }}"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "if __name__ == .__main__.:", "\\.\\.\\."]
+
+# --- pytest --------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["{{ cookiecutter.backend_src_dir }}"]
+addopts = "-ra --strict-markers --strict-config"
+
+# --- Conventional Commits --------------------------------------------------------
+# The commit-msg hook and the CI commit-message job check every commit against the
+# Conventional Commits rules: type(optional scope): subject.
+[tool.commitizen]
+name = "cz_conventional_commits"

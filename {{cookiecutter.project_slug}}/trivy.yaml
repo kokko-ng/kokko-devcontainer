@@ -1,0 +1,12 @@
+# Trivy filesystem scan, run by scripts/hooks/trivy.sh before every push and by
+# the trivy job in CI. Fails on a HIGH or CRITICAL finding that has a fix.
+scan:
+  scanners: [vuln, misconfig, secret]
+  # The devcontainer definition is a development tool, not a deployed image,
+  # and dependency trees are scanned through their lock files instead.
+  skip-dirs: [.devcontainer, .venv, node_modules]
+severity: [HIGH, CRITICAL]
+exit-code: 1
+quiet: true
+vulnerability:
+  ignore-unfixed: true

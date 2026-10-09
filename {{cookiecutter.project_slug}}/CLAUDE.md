@@ -16,23 +16,33 @@ layout or the verification commands change — it is the first thing an agent re
 
 ## Verify before claiming done
 
-Run whichever of these the project defines, and fix what fails rather than reporting it:
+Run the gate, and fix what fails rather than reporting it:
 
 ```bash
-# Lint and formatting
-uv run ruff check . && uv run ruff format --check .
-# Backend tests
-uv run pytest
-# Frontend lint, tests, production build
-npm --prefix {{ cookiecutter.frontend_dir }} run lint
-npm --prefix {{ cookiecutter.frontend_dir }} test
-npm --prefix {{ cookiecutter.frontend_dir }} run build
-# The hooks that gate every commit
-pre-commit run --files <changed files>
+pre-commit run --all-files          # every commit-stage hook, as CI runs it
+uv run pytest                       # backend tests alone
+npm --prefix {{ cookiecutter.frontend_dir }} run build   # frontend production build, once it exists
 ```
 
 Long commands are fine here: the Bash tool waits 10 minutes by default and up to 30
 when you ask for it, so run the full suite instead of a subset.
+
+## Quality gate
+
+`.pre-commit-config.yaml` runs at commit (secrets, hygiene, shellcheck, ruff, mypy
+`--strict` with no `Any` in production code, vulture, deptry, file length, test
+assertions, pytest with coverage at least 95%, Markdown links, the frontend's
+`typecheck`/`lint`/`test` scripts, actionlint, zizmor), checks the commit message
+(Conventional Commits, `type(scope): subject`), and runs Trivy before a push. CI runs
+the same hooks on every file, checks every commit message, and runs Trivy.
+
+- Never bypass it: no `--no-verify`, no `SKIP=`. Fix the code, not the gate.
+- Do not loosen a setting in `pyproject.toml` to pass; `check_strictness.py` fails if
+  you do. No `# noqa`, `# type: ignore` or coverage pragma unless the finding is a
+  genuine false positive, with the reason on the same line.
+- Code that only a test calls is dead code to vulture: wire it in or delete it.
+- Python tools run through `uv run --frozen`: after `uv add`, commit `uv.lock` too.
+- A test asserts behaviour that matters; never write one only to raise coverage.
 
 ## This is a devcontainer
 
@@ -84,5 +94,5 @@ add it.{% endif %}
 - `safe.directory` is `*` in this container, so git works in the bind-mounted workspace
   and in worktrees. Worktrees created with `claude --worktree` live in
   `.claude/worktrees/` and are gitignored.
-- pre-commit is installed in the image and its hooks are installed on provision. Never
-  bypass them.
+- pre-commit is installed in the image and its hooks are installed on provision (see
+  "Quality gate").

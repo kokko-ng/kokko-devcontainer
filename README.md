@@ -5,6 +5,10 @@ devcontainer on macOS with Colima, plus `dev`, a host command that creates, star
 signs in to and opens those containers. Claude Code runs inside in Auto mode, behind an
 outbound firewall, with no sudo.
 
+Every generated project ships a strict quality gate from its first commit: pre-commit
+hooks, a starter `pyproject.toml` and package, and a CI workflow that re-runs them
+([details](docs/template.md#quality-gate)).
+
 ## Install
 
 With Claude Code: paste [prompts/setup.md](prompts/setup.md) (new Mac) or

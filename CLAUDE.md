@@ -39,7 +39,7 @@ option that silently stops working.
 
 | Carries Jinja | Deliberately Jinja-free |
 |---|---|
-| `devcontainer.json`, `Dockerfile`, all Markdown (including the generated `CLAUDE.md`), the cookiecutter hooks | `post-create.sh`, `init-host-certs.sh`, `*.jq`, the bundled `settings.json` and `managed-settings.json`, `config/claude/hooks/*.sh`, the zsh config, the generated `.gitignore` |
+| `devcontainer.json`, `Dockerfile`, all Markdown (including the generated `CLAUDE.md`), the cookiecutter hooks, the generated `.pre-commit-config.yaml`, `pyproject.toml`, `ci.yml`, starter package and `scripts/hooks/layout.py` | `post-create.sh`, `init-host-certs.sh`, `*.jq`, the bundled `settings.json` and `managed-settings.json`, `config/claude/hooks/*.sh`, the zsh config, the generated `.gitignore`, every other `scripts/hooks/` file |
 
 This split is load-bearing, not stylistic. The Jinja-free files stay shellcheck-clean,
 `jq`-parseable and directly testable with no rendering step, which is why
@@ -54,6 +54,8 @@ top of the file). Anything the bundled `settings.json` needs is done as JSON sur
 
 Files listed in `cookiecutter.json`'s `_copy_without_render` are copied byte-for-byte;
 `template-tests.sh` asserts that. Add a file there if it might ever contain `{{` or `{%`.
+The generated `ci.yml` is rendered, so it must not use `${{ }}` expressions; the hook
+scripts get layout facts from the one rendered module, `scripts/hooks/layout.py`.
 
 ## Permission model
 
@@ -111,6 +113,8 @@ shellcheck --severity=info \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+    "{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh" \
+    "{{cookiecutter.project_slug}}/scripts/hooks/frontend.sh" \
     tests/merge-settings-tests.sh tests/template-tests.sh bin/dev
 ```
 
@@ -124,6 +128,7 @@ shellcheck --severity=info \
 | `{{cookiecutter.project_slug}}/DEVCONTAINER.md` | Generated per-project documentation |
 | `{{cookiecutter.project_slug}}/CLAUDE.md` | Generated project instructions for Claude Code: layout, verification commands, container facts |
 | `{{cookiecutter.project_slug}}/.gitignore` | Generated; keeps what the container creates (`.env`, Claude worktrees, Playwright artifacts) out of git |
+| `{{cookiecutter.project_slug}}/.pre-commit-config.yaml`, `pyproject.toml`, `scripts/hooks/`, `.github/workflows/ci.yml` | The strict quality gate every generated project ships (modelled on afl-sandbox), the tool settings it measures against, its check scripts, and the CI that re-runs it; a starter package and test give it code to check |
 | `{{cookiecutter.project_slug}}/.devcontainer/devcontainer.json` | Templated container definition; also publishes the `DEVCONTAINER_*` toggles |
 | `{{cookiecutter.project_slug}}/.devcontainer/Dockerfile` | Templated image (base image, optional ODBC layer) |
 | `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode, Bash tool limits, sandbox (off), SessionStart hook wiring, plugin roster |

@@ -101,6 +101,8 @@ jobs:
             "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+            "{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh" \
+            "{{cookiecutter.project_slug}}/scripts/hooks/frontend.sh" \
             tests/merge-settings-tests.sh \
             tests/template-tests.sh \
             bin/dev
@@ -143,10 +145,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      # Committed before the container starts, as `dev new` does, so
+      # provisioning installs the project's hooks and builds their
+      # environments before the firewall goes up.
       - name: Render the template with default answers
         run: |
           pip install cookiecutter
           cookiecutter . --no-input -o .rendered project_name="CI Smoke"
+          git -C .rendered/ci-smoke init -q -b main
+          git -C .rendered/ci-smoke add -A
+          git -C .rendered/ci-smoke -c user.name=CI -c user.email=ci@example.com \
+            commit -q -m "chore: scaffold from kokko-devcontainer"
       # Builds the generated image and runs its postCreateCommand — this is
       # what catches a Dockerfile or post-create.sh regression before a human
       # hits it. Requires .devcontainer/certs/.gitkeep to be committed so the
@@ -203,6 +212,17 @@ jobs:
             # The firewall is in force: allowlisted hosts answer, others do not.
             curl -fsS --max-time 10 -o /dev/null https://api.github.com/zen
             if curl -fsS --max-time 5 -o /dev/null https://example.com; then echo "firewall is not in force"; exit 1; fi
+            # The generated project's quality gate works here, firewall up:
+            # provisioning wrote uv.lock and installed the hooks for all three
+            # stages, every hook passes, a conventional commit lands, and any
+            # other message is refused.
+            test -f uv.lock
+            test -f .git/hooks/pre-commit && test -f .git/hooks/commit-msg && test -f .git/hooks/pre-push
+            git config user.name "CI" && git config user.email "ci@example.com"
+            git add -A
+            pre-commit run --all-files --show-diff-on-failure
+            git commit -q -m "build: lock the development tools"
+            if git commit -q --allow-empty -m "not a conventional message"; then echo "commitizen accepted a bad message"; exit 1; fi
 
   gitleaks:
     name: gitleaks (secret scan)

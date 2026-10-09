@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# The same gate as the local hooks (.pre-commit-config.yaml), so a commit that
+# skipped them still cannot merge. Every action is pinned to a full commit SHA
+# with its version in a trailing comment.
+
+jobs:
+  pre-commit:
+    name: pre-commit (all files)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "{{ cookiecutter.node_version }}"
+      # --locked fails if uv.lock is out of date with pyproject.toml. Before the
+      # first lock is committed, uv sync writes one so the hooks' --frozen works.
+      - name: Python environment
+        run: |
+          if [ -f uv.lock ]; then uv sync --locked; elif [ -f pyproject.toml ]; then uv sync; fi
+      - name: Run every hook on every file
+        run: uvx pre-commit@4.6.2 run --all-files --show-diff-on-failure
+
+  commit-messages:
+    name: commit messages (commitizen)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Every commit follows Conventional Commits
+        run: uvx --from commitizen==4.19.2 cz check --rev-range HEAD
+
+  trivy:
+    name: trivy (vulnerabilities, misconfiguration, secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The pre-push hook's script: the pinned Trivy image through Docker.
+      - name: Scan the repository
+        run: scripts/hooks/trivy.sh
