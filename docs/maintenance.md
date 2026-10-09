@@ -2,8 +2,10 @@
 
 ## Updating a project
 
-`/devcontainer-update` (kokko-env plugin) merges the latest `.devcontainer/` into a
-project and says what needs a rebuild; [prompts/update.md](../prompts/update.md) updates
+`/devcontainer-update` (kokko-env plugin) three-way merges the latest template files
+(`.devcontainer/`, `DEVCONTAINER.md`, `CLAUDE.md`, `.gitignore`, the pre-commit config,
+`pyproject.toml`, `trivy.yaml`, CI and `scripts/hooks/`, never the project's own code)
+into a project and says what needs a rebuild; [prompts/update.md](../prompts/update.md) updates
 this clone and every project. Changes under `.devcontainer/config/` apply on the next
 start (or now: `bash .devcontainer/post-create.sh --config-only`); the Dockerfile,
 `devcontainer.json`, the policy and the firewall allowlist need `dev rebuild`.

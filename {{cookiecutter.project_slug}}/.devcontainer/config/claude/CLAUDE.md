@@ -58,8 +58,10 @@ whether the infrastructure is the cause, not just the code in front of you.
   exact command you would run to fix it (e.g. the `az` CLI command to provision or
   scale), with the cost impact where known, per "Presenting decisions" below.
 - **Deploy only to sandbox, dev or demo targets** (resource groups or subscriptions named
-  that way) unless the user names another. Anything named prod or production needs the
-  user's explicit go-ahead for that action.
+  that way) unless the user names another. Ask once before the first deploy to such a
+  target in a task; once the user agrees, redeploying the same app to the same target
+  in that task needs no further confirmation. Anything named prod or production needs
+  the user's go-ahead for every action.
 - **Read back what you deployed.** After a deploy or revision roll, query the live
   resource (the image tag, the active revision and its health, the app's response)
   rather than trusting the command's output.
@@ -67,7 +69,8 @@ whether the infrastructure is the cause, not just the code in front of you.
   where the subscription requires the tag.
 - **Never modify infrastructure without explicit user permission.** No provisioning,
   scaling, restarting, deleting, or reconfiguring cloud resources — however small
-  the change seems — until the user approves that specific action. Inspection is
+  the change seems — until the user approves that specific action (a deploy approved
+  as above counts). Inspection is
   free; mutation needs sign-off.
 
 ---

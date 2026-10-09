@@ -13,7 +13,6 @@
   "include_copilot_cli": ["yes", "no"],
   "include_playwright": ["yes", "no"],
   "claude_plugin_roster": ["kokko-ng", "none"],
-  "claude_attribution": ["host", "no", "yes"],
   "agent_sudo": ["no", "yes"],
   "network_firewall": ["on", "off"],
   "cache_volume_scope": ["shared", "per-project"],
