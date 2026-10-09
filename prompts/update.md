@@ -33,7 +33,10 @@ destructive; never stop or rebuild a container I did not ask you to.
    files are `.devcontainer/`, `DEVCONTAINER.md`, `CLAUDE.md`, `.gitignore`,
    `.pre-commit-config.yaml`, `pyproject.toml`, `trivy.yaml`,
    `.github/workflows/ci.yml` and `scripts/hooks/`. The starter package and
-   `tests/` are the project's own code: never touch them.
+   `tests/` are the project's own code: never touch them, except in a
+   project with no Python code yet (no backend source folder, no `tests/`),
+   which gets them copied from the new render so the gate has something to
+   check.
    - **Skip** a project whose template files have uncommitted changes; ask me
      to commit them first.
    - **Its answers.** Work out the cookiecutter answers it was generated with
