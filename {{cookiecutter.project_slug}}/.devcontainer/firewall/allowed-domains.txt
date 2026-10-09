@@ -33,7 +33,8 @@ files.pythonhosted.org
 # Go toolchain and modules: pre-commit builds the gitleaks hook from source
 # with a Go it downloads itself (go.dev, dl.google.com), fetching modules
 # through the Go proxy and checksum database. post-create.sh builds it before
-# the firewall is up; these keep a later hook update working without a rebuild.
+# the firewall is up; these let a later hook update build it without a rebuild,
+# best effort: Google rotates these addresses, so if it fails, `dev rebuild`.
 go.dev
 dl.google.com
 proxy.golang.org
