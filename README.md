@@ -5,6 +5,11 @@ devcontainer on macOS with Colima, plus `dev`, a host command that creates, star
 signs in to and opens those containers. Claude Code runs inside in Auto mode, behind an
 outbound firewall, with no sudo.
 
+Every generated project ships a strict quality gate from its first commit: pre-commit
+hooks (gitleaks, ruff, mypy strict, vulture, deptry, 95% coverage, file length, the
+frontend's checks, commitizen; Trivy before a push), a starter `pyproject.toml` and
+package, and a CI workflow that re-runs them. Its `DEVCONTAINER.md` has the details.
+
 ## Install
 
 Set up or update with Claude Code: paste the contents of
@@ -183,6 +188,9 @@ and kokko-janitor are uninstalled from existing containers on their next start.
   cp /tmp/<slug>/CLAUDE.md ~/code/your-project/       # or merge into yours
   cat /tmp/<slug>/.gitignore >> ~/code/your-project/.gitignore
   ```
+
+  The quality gate (`.pre-commit-config.yaml`, `pyproject.toml`, `scripts/hooks/`,
+  `.github/workflows/ci.yml`) can be copied the same way and merged by hand.
 
   Answer the prompts with the project's real layout (source dir, frontend dir, ports).
 

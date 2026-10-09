@@ -808,6 +808,11 @@ install_precommit_hooks() {
         if [[ ! -f .git/hooks/pre-commit ]]; then
             echo "  WARNING: .git/hooks/pre-commit is missing — the pre-commit config is a"
             echo "           silent no-op. Install it before committing: pre-commit install"
+        elif command -v pre-commit >/dev/null 2>&1; then
+            # Build every hook's environment now, before the firewall goes up,
+            # so the first commit does not wait on downloads (gitleaks builds
+            # from source with a Go toolchain pre-commit fetches itself).
+            step "pre-commit-hook-envs" pre-commit install-hooks
         fi
     else
         echo "=== Skipping pre-commit hooks (no config found) ==="

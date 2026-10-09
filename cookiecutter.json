@@ -22,6 +22,7 @@
   "git_user_email": "",
   "__container_name": "{{ cookiecutter.project_slug }}-dev",
   "__volume_prefix": "{% if cookiecutter.cache_volume_scope == 'per-project' %}{{ cookiecutter.project_slug }}{% else %}devcontainer{% endif %}",
+  "__package_name": "{{ ('app_' if cookiecutter.project_slug[0].isdigit() else '') ~ cookiecutter.project_slug.replace('-', '_') }}",
   "_copy_without_render": [
     ".devcontainer/config/zsh/*",
     ".devcontainer/config/starship/*",
@@ -31,6 +32,10 @@
     ".devcontainer/config/claude/managed-settings.json",
     ".devcontainer/config/claude/hooks/*",
     ".devcontainer/certs/*",
-    ".devcontainer/firewall/*"
+    ".devcontainer/firewall/*",
+    "scripts/hooks/__init__.py",
+    "scripts/hooks/check_*.py",
+    "scripts/hooks/tables.py",
+    "scripts/hooks/*.sh"
   ]
 }
