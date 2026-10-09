@@ -104,6 +104,12 @@ json.dump(json.loads("".join(out)), sys.stdout)
 PY
 }
 
+# in_dir <dir> <cmd...> — run the command from <dir>, as pre-commit runs hooks.
+in_dir() {
+    local dir="$1"; shift
+    (cd "$dir" && "$@")
+}
+
 render() { # render <outdir> [key=value ...]
     local out="$1"; shift
     cookiecutter "$ROOT" --no-input -o "$out" "$@" >/dev/null 2>"$out.err"
@@ -140,6 +146,14 @@ assert_jq "managed settings and the Claude hooks are excluded from rendering" "$
        and (index(".devcontainer/config/claude/hooks/*") != null)'
 assert_jq "the Starship config is excluded from rendering" "$ROOT/cookiecutter.json" \
     '._copy_without_render | index(".devcontainer/config/starship/*") != null'
+assert_jq "the quality-gate hook scripts are copied without rendering" "$ROOT/cookiecutter.json" \
+    '._copy_without_render
+       | (index("scripts/hooks/check_*.py") != null)
+       and (index("scripts/hooks/*.sh") != null)
+       and (index("scripts/hooks/tables.py") != null)
+       and (index("scripts/hooks/__init__.py") != null)'
+assert_jq "the starter package name is derived from the slug" "$ROOT/cookiecutter.json" \
+    'has("__package_name")'
 assert "template payload directory exists" test -d "$TEMPLATE_PAYLOAD"
 
 # ===========================================================================
@@ -303,6 +317,108 @@ assert "certs/.gitkeep survives so plain docker build works" \
 assert "extracted host certs are gitignored inside .devcontainer" \
     grep -qx 'certs/\*' "$DEFAULT/.devcontainer/.gitignore"
 
+# The quality gate a generated project ships (.pre-commit-config.yaml, the
+# hook scripts, the starter pyproject.toml and package, CI).
+PC="$DEFAULT/.pre-commit-config.yaml"
+assert "the pre-commit config installs the commit, message and push stages" \
+    grep -qx 'default_install_hook_types: \[pre-commit, commit-msg, pre-push\]' "$PC"
+assert "commitizen checks the commit message" \
+    grep -qE '^ +- id: commitizen$' "$PC"
+assert "commitizen runs at commit-msg" \
+    grep -A2 -E '^ +- id: commitizen$' "$PC" | grep -q 'stages: \[commit-msg\]'
+assert "every hook repository is pinned to a release tag" \
+    test -z "$(grep -E '^ +rev:' "$PC" | grep -vE 'rev: v[0-9]+(\.[0-9]+)+$')"
+for hook in gitleaks check-json shellcheck ruff ruff-format typing-strictness mypy mypy-any-expr \
+            dead-code unused-dependencies file-length test-assertions test-coverage doc-links \
+            frontend trivy actionlint zizmor; do
+    assert "the gate has the $hook hook" grep -qE "^ +- id: $hook\$" "$PC"
+done
+assert "the Python tools run from uv.lock" \
+    grep -q 'entry: uv run --frozen mypy --disallow-any-expr src scripts$' "$PC"
+assert "the frontend hook is rendered against the frontend dir" \
+    grep -q 'entry: scripts/hooks/frontend.sh ui$' "$PC"
+assert "the frontend hook only runs on the frontend dir" \
+    grep -q 'files: \^ui/$' "$PC"
+assert "trivy runs before a push only" \
+    grep -A6 -E '^ +- id: trivy$' "$PC" | grep -q 'stages: \[pre-push\]'
+CI="$DEFAULT/.github/workflows/ci.yml"
+assert "the generated project has a CI workflow" test -f "$CI"
+assert "CI runs every hook on every file" grep -q 'pre-commit@[0-9.]* run --all-files' "$CI"
+assert "CI checks every commit message" grep -q 'cz check --rev-range HEAD' "$CI"
+assert "CI runs the trivy scan" grep -q 'run: scripts/hooks/trivy.sh' "$CI"
+assert "CI is read-only" grep -qzE 'permissions:\n  contents: read\n' "$CI"
+assert "every action in CI is pinned to a commit SHA" \
+    test -z "$(grep -E '^ +- uses: ' "$CI" | grep -vE '@[0-9a-f]{40} # v[0-9]')"
+assert "CI uses the chosen Node version" grep -q 'node-version: "22"' "$CI"
+assert "the generated pyproject.toml is valid TOML with the strict settings" \
+    python3 -c 'import sys, tomllib
+t = tomllib.load(open(sys.argv[1], "rb"))
+tool = t["tool"]
+assert t["project"]["name"] == "my-project"
+assert tool["coverage"]["report"]["fail_under"] == 95
+assert tool["ruff"]["lint"]["mccabe"]["max-complexity"] == 8
+assert tool["quality"]["file-length"]["source_max_lines"] == 400
+assert tool["mypy"]["strict"] is True and tool["mypy"]["python_version"] == "3.14"
+assert tool["deptry"]["known_first_party"][0] == "my_project"' "$DEFAULT/pyproject.toml"
+assert "the template does not ship a uv.lock (post-create's uv sync writes it)" \
+    test ! -e "$DEFAULT/uv.lock"
+assert "the starter package is named after the slug" \
+    test -f "$DEFAULT/src/my_project/__main__.py"
+assert "the starter package has a test" test -f "$DEFAULT/tests/test_main.py"
+assert "the hook layout is rendered" \
+    grep -qx 'BACKEND_SRC_DIR = "src"' "$DEFAULT/scripts/hooks/layout.py"
+for f in __init__.py check_strictness.py check_file_length.py check_test_assertions.py \
+         check_doc_links.py tables.py trivy.sh frontend.sh; do
+    assert "scripts/hooks/$f is copied verbatim" \
+        cmp -s "$TEMPLATE_PAYLOAD/scripts/hooks/$f" "$DEFAULT/scripts/hooks/$f"
+done
+for f in trivy.sh frontend.sh; do
+    assert "scripts/hooks/$f stays executable" test -x "$DEFAULT/scripts/hooks/$f"
+done
+for pat in '^\.coverage$' '^htmlcov/$'; do
+    assert "generated .gitignore has $pat" grep -qE "$pat" "$DEFAULT/.gitignore"
+done
+assert "provisioning builds the hook environments" \
+    grep -q 'step "pre-commit-hook-envs" pre-commit install-hooks' "$DEFAULT/.devcontainer/post-create.sh"
+for host in go.dev dl.google.com proxy.golang.org sum.golang.org; do
+    assert "the allowlist lets pre-commit build the gitleaks hook ($host)" \
+        grep -qx "$host" "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+done
+
+# The stdlib-only hook scripts run against the rendered project as they do
+# under pre-commit: in a git checkout, from its root.
+GATE="$WORK/gate"
+cp -R "$DEFAULT" "$GATE"
+git -C "$GATE" init -q && git -C "$GATE" add -A
+for check in check_strictness check_file_length check_test_assertions check_doc_links; do
+    assert "$check passes on a fresh project" \
+        in_dir "$GATE" python3 -m "scripts.hooks.$check"
+done
+sed -i.bak 's/^fail_under = 95$/fail_under = 80/' "$GATE/pyproject.toml"
+refute "check_strictness rejects a lowered coverage floor" \
+    in_dir "$GATE" python3 -m scripts.hooks.check_strictness
+mv "$GATE/pyproject.toml.bak" "$GATE/pyproject.toml"
+printf 'def test_nothing() -> None:\n    assert True\n' > "$GATE/tests/test_nothing.py"
+refute "check_test_assertions rejects a test that cannot fail" \
+    in_dir "$GATE" python3 -m scripts.hooks.check_test_assertions
+rm "$GATE/tests/test_nothing.py"
+assert "the frontend hook passes before package.json exists" \
+    "$GATE/scripts/hooks/frontend.sh" ui
+if command -v npm >/dev/null 2>&1; then
+    mkdir -p "$GATE/ui" && printf '{"name": "ui", "private": true}\n' > "$GATE/ui/package.json"
+    refute "the frontend hook fails while package.json lacks the gate scripts" \
+        "$GATE/scripts/hooks/frontend.sh" ui
+    rm -rf "$GATE/ui"
+fi
+# Without trivy or Docker (the devcontainer), the push hook skips; in CI it fails.
+NOTOOLS="$WORK/notools"
+mkdir -p "$NOTOOLS"
+for tool in bash dirname cat; do ln -sf "$(command -v "$tool")" "$NOTOOLS/$tool"; done
+assert "the trivy hook skips where neither trivy nor Docker exists" \
+    env -u CI PATH="$NOTOOLS" "$GATE/scripts/hooks/trivy.sh"
+refute "the trivy hook fails in CI without a scanner" \
+    env CI=true PATH="$NOTOOLS" "$GATE/scripts/hooks/trivy.sh"
+
 # Files listed in _copy_without_render must come through byte-identical —
 # a stray Jinja delimiter in jq or zsh config would otherwise be swallowed.
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
@@ -383,6 +499,22 @@ refute "slim CLAUDE.md lists none of the optional tools" \
     grep -qE 'playwright-cli|copilot|, az|nested daemon' "$SLIM/CLAUDE.md"
 assert "slim Dockerfile still installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$SLIM/.devcontainer/Dockerfile"
+
+assert "the slim gate is rendered against the chosen dirs" \
+    grep -q 'entry: uv run --frozen mypy --disallow-any-expr backend scripts$' "$SLIM/.pre-commit-config.yaml"
+assert "the slim frontend hook follows the frontend dir" \
+    grep -q 'entry: scripts/hooks/frontend.sh web$' "$SLIM/.pre-commit-config.yaml"
+assert "the slim starter package lives in the chosen backend dir" \
+    test -f "$SLIM/backend/slim_app/__main__.py"
+assert "the slim pyproject targets the chosen Python" \
+    grep -qx 'target-version = "py313"' "$SLIM/pyproject.toml"
+assert "the slim CI uses the chosen Node version" \
+    grep -q 'node-version: "24"' "$SLIM/.github/workflows/ci.yml"
+SLIMGATE="$WORK/slim-gate"
+cp -R "$SLIM" "$SLIMGATE"
+git -C "$SLIMGATE" init -q && git -C "$SLIMGATE" add -A
+assert "check_strictness passes on the slim layout" \
+    in_dir "$SLIMGATE" python3 -m scripts.hooks.check_strictness
 
 assert_jq "empty roster is still valid JSON" \
     "$SLIM/.devcontainer/config/claude/settings.json" '.'
@@ -466,7 +598,9 @@ if command -v shellcheck >/dev/null 2>&1; then
             shellcheck --severity=info \
                 "$project/.devcontainer/post-create.sh" \
                 "$project/.devcontainer/init-host-certs.sh" \
-                "$project/.devcontainer/config/claude/hooks/session-provision-status.sh"
+                "$project/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+                "$project/scripts/hooks/trivy.sh" \
+                "$project/scripts/hooks/frontend.sh"
     done
 else
     echo "note: shellcheck not installed — skipping the generated-script lint"
@@ -500,6 +634,15 @@ CLAUDE_CONFIG_DIR="$HOSTDEFAULT_CLAUDE" render "$WORK/hostattr" project_name="Ho
 assert_jq "attribution follows a host that keeps Claude Code's default" \
     "$WORK/hostattr/host-attr/.devcontainer/config/claude/settings.json" \
     'has("attribution") | not'
+
+# ===========================================================================
+# 6c. A slug that starts with a digit still yields an importable package
+# ===========================================================================
+render "$WORK/digits" project_name="2048 Game"
+assert "a digit-led slug gets a prefixed package name" \
+    test -f "$WORK/digits/2048-game/src/app_2048_game/__main__.py"
+assert "the prefixed package is first-party to deptry" \
+    grep -q 'known_first_party = \["app_2048_game"' "$WORK/digits/2048-game/pyproject.toml"
 
 # ===========================================================================
 # 7. Bad answers are rejected before anything is written

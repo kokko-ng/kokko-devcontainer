@@ -30,6 +30,15 @@ registry.npmjs.org
 pypi.org
 files.pythonhosted.org
 
+# Go toolchain and modules: pre-commit builds the gitleaks hook from source
+# with a Go it downloads itself (go.dev, dl.google.com), fetching modules
+# through the Go proxy and checksum database. post-create.sh builds it before
+# the firewall is up; these keep a later hook update working without a rebuild.
+go.dev
+dl.google.com
+proxy.golang.org
+sum.golang.org
+
 # Azure CLI
 login.microsoftonline.com
 login.windows.net

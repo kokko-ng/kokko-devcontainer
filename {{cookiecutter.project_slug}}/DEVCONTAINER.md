@@ -72,6 +72,25 @@ dependencies when `{{ cookiecutter.frontend_dir }}/` exists. Its log is
 `/tmp/post-create.log`; failed steps are listed in `~/.devcontainer-provision-status`
 and shown at the start of each Claude Code session.
 
+## Quality gate
+
+`.pre-commit-config.yaml` is a strict gate, installed on provision for three stages:
+
+- **Commit:** gitleaks, file hygiene, shellcheck, ruff (lint, format, bandit rules,
+  complexity at most 8, docstrings), mypy `--strict` (no `Any` in production code),
+  vulture, deptry, file length (400 lines, tests 500), every test asserts something,
+  pytest with coverage at least 95%, Markdown links, the frontend's `typecheck`, `lint`
+  and `test` scripts once `{{ cookiecutter.frontend_dir }}/package.json` exists,
+  actionlint and zizmor; commitizen checks the message (Conventional Commits).
+- **Push:** Trivy, through a local `trivy` or Docker; inside the container it skips.
+- **CI** (`.github/workflows/ci.yml`): every commit-stage hook on every file, every
+  commit message, and the Trivy scan.
+
+`scripts/hooks/check_strictness.py` fails if a threshold in `pyproject.toml` is
+loosened. The Python hooks run through `uv run --frozen`, so commit the `uv.lock` the
+first `uv sync` writes. The starter package in `{{ cookiecutter.backend_src_dir }}/{{ cookiecutter.__package_name }}/` is
+there so the gate has code to check; replace it.
+
 ## Volumes
 
 | Volume | Holds |

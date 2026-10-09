@@ -1,0 +1,180 @@
+# The quality gate. post-create.sh installs it (`pre-commit install`) for the
+# pre-commit, commit-msg and pre-push stages, and CI runs
+# `pre-commit run --all-files` on every push and pull request, so these hooks
+# are enforced, not merely available. Never bypass them: fix what they report.
+# scripts/hooks/check_strictness.py fails if a gate's settings are loosened.
+#
+# The Python hooks run the tools pinned in uv.lock through `uv run --frozen`.
+# The first `uv sync` writes uv.lock (post-create.sh runs one); commit it.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
+minimum_pre_commit_version: "4.0.0"
+
+repos:
+  # --- Secrets -------------------------------------------------------------------
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  # --- Hygiene -------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      # JSONC, which a strict JSON parser rejects: the devcontainer spec and
+      # TypeScript both allow comments and trailing commas.
+      - id: check-json
+        exclude: ^(\.devcontainer/devcontainer\.json|(.*/)?tsconfig[^/]*\.json)$
+      - id: check-toml
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # --- Shell: the same shellcheck the image carries, as a Python wheel ------------
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: [--severity=info]
+        exclude: ^\.devcontainer/config/zsh/
+
+  # --- Python: ruff lints and formats, so linter and formatter cannot disagree.
+  # --- Run from the project environment so the hook and `uv run ruff` are the
+  # --- same pinned version.
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check --fix
+        entry: uv run --frozen ruff check --fix --exit-non-zero-on-fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+  # --- Typing: strict, whole repository, run inside the project environment so
+  # --- third-party types resolve instead of silently becoming Any -----------------
+  - repo: local
+    hooks:
+      - id: typing-strictness
+        name: quality gate settings not loosened
+        entry: python3 -m scripts.hooks.check_strictness
+        language: system
+        always_run: true
+        pass_filenames: false
+      - id: mypy
+        name: mypy --strict (all Python)
+        entry: uv run --frozen mypy
+        language: system
+        types_or: [python, toml]
+        pass_filenames: false
+      # Production code must contain no expression of type Any. Tests are exempt:
+      # pytest fixtures and third-party test APIs return Any.
+      - id: mypy-any-expr
+        name: mypy no Any expressions (production code)
+        entry: uv run --frozen mypy --disallow-any-expr {{ cookiecutter.backend_src_dir }} scripts
+        language: system
+        types_or: [python, toml]
+        pass_filenames: false
+
+  # --- Dead code, unused dependencies, file length, tests that cannot fail,
+  # --- coverage floor. Insecure patterns (S), complexity (C90), docstrings (D),
+  # --- unused arguments (ARG) and pytest style (PT) are Ruff rule families,
+  # --- configured in pyproject.toml.
+  - repo: local
+    hooks:
+      - id: dead-code
+        name: dead code (vulture)
+        entry: uv run --frozen vulture
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: unused-dependencies
+        name: unused, missing, and transitive dependencies (deptry)
+        entry: uv run --frozen deptry .
+        language: system
+        files: (\.py$|^pyproject\.toml$|^uv\.lock$)
+        pass_filenames: false
+      # Ruff has no file-length rule. Limits live in pyproject.toml under
+      # [tool.quality.file-length]; the check reads every tracked file.
+      - id: file-length
+        name: file length (limits in pyproject.toml)
+        entry: python3 -m scripts.hooks.check_file_length
+        language: system
+        always_run: true
+        pass_filenames: false
+      - id: test-assertions
+        name: every test asserts something
+        entry: python3 -m scripts.hooks.check_test_assertions
+        language: system
+        files: ^tests/
+        pass_filenames: false
+      - id: test-coverage
+        name: tests pass with coverage at or above the floor
+        entry: uv run --frozen pytest -q --cov --cov-report=term
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  # --- Documentation: relative links and anchors in tracked Markdown resolve -------
+  - repo: local
+    hooks:
+      - id: doc-links
+        name: relative Markdown links and anchors resolve
+        entry: python3 -m scripts.hooks.check_doc_links
+        language: system
+        files: \.md$
+        pass_filenames: false
+
+  # --- Frontend: strict types, lint, tests. Passes until package.json exists -------
+  - repo: local
+    hooks:
+      - id: frontend
+        name: frontend types, lint, and tests
+        entry: scripts/hooks/frontend.sh {{ cookiecutter.frontend_dir }}
+        language: system
+        files: ^{{ cookiecutter.frontend_dir }}/
+        pass_filenames: false
+
+  # --- Vulnerabilities, misconfiguration, and secrets (Trivy). Before a push,
+  # --- because it needs the network; CI runs the same scan as its own job ---------
+  - repo: local
+    hooks:
+      - id: trivy
+        name: trivy filesystem scan
+        entry: scripts/hooks/trivy.sh
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-push]
+
+  # --- Workflows: lint, and a security audit (injection, persisted credentials,
+  # --- permissions). zizmor runs offline, so it needs no GitHub token. -----------
+  - repo: https://github.com/Mateusz-Grzelinski/actionlint-py
+    rev: v1.7.12.25
+    hooks:
+      - id: actionlint
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.1
+    hooks:
+      - id: zizmor
+        args: [--offline]
+        files: ^\.github/workflows/.*\.ya?ml$
+
+  # --- Commit messages: Conventional Commits --------------------------------------
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.19.2
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
