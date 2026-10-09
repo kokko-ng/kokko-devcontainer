@@ -154,8 +154,8 @@ by `init-host-identity.sh` before each build.
 It is set on first provision only, so a change made inside the container survives
 rebuilds.
 
-Claude Code's `Co-Authored-By` trailer and PR footer {% if cookiecutter.claude_attribution == "host" %}follow your Mac's Claude Code setting at generation time{% else %}are **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}**{% endif %}.
-Change it with `attribution` in `~/.claude/settings.json` inside the container.
+Claude Code's `Co-Authored-By` trailer and PR footer are **off** (`attribution` in
+`~/.claude/settings.json` is empty strings).
 
 ## Claude Code plugins
 

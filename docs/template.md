@@ -18,7 +18,6 @@ before anything is written.
 | `include_copilot_cli` | `yes` | GitHub Copilot CLI |
 | `include_playwright` | `yes` | Playwright CLI and Chromium |
 | `claude_plugin_roster` | `kokko-ng` | The plugins below, or `none` |
-| `claude_attribution` | `host` | Claude's commit/PR trailer: copy the Mac's setting, `no`, or `yes` |
 | `agent_sudo` | `no` | `yes` keeps passwordless sudo in the container |
 | `network_firewall` | `on` | `off` leaves outbound traffic open |
 | `cache_volume_scope` | `shared` | `per-project` gives each project its own caches and sign-ins |

@@ -48,13 +48,6 @@ done
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# claude_attribution defaults to "host": post_gen_project.py reads the host's
-# Claude Code settings. Point it at a fixture so the renders do not depend on
-# whoever runs the tests: this host hides attribution, as the bundle does.
-export CLAUDE_CONFIG_DIR="$WORK/host-claude"
-mkdir -p "$CLAUDE_CONFIG_DIR"
-printf '{"attribution": {"commit": "", "pr": ""}}\n' > "$CLAUDE_CONFIG_DIR/settings.json"
-
 # ---------------------------------------------------------------------------
 # JSONC -> JSON. devcontainer.json is JSONC (the spec allows comments), so it
 # cannot be fed to jq directly. Strip comments with a string-aware scanner —
@@ -127,8 +120,8 @@ assert_jq "template prompts for a git identity" "$ROOT/cookiecutter.json" \
     'has("git_user_name") and has("git_user_email")'
 assert_jq "template prompts for a container memory limit" "$ROOT/cookiecutter.json" \
     'has("container_memory_limit")'
-assert_jq "template prompts for Claude attribution, following the host by default" "$ROOT/cookiecutter.json" \
-    '.claude_attribution == ["host", "no", "yes"]'
+assert_jq "there is no Claude attribution option: attribution is always off" "$ROOT/cookiecutter.json" \
+    'has("claude_attribution") | not'
 assert_jq "agent sudo is off by default" "$ROOT/cookiecutter.json" \
     '.agent_sudo[0] == "no"'
 assert_jq "the outbound firewall is on by default" "$ROOT/cookiecutter.json" \
@@ -266,9 +259,9 @@ assert_jq "default roster ships theme-sync, so tt reaches open sessions" \
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
-# The attribution answer defaults to host, and the fixture host hides it: the
-# empty strings, which hide the Co-Authored-By trailer and the PR footer.
-assert_jq "Claude attribution follows a host that hides it" \
+# Attribution is always the empty strings, which hide the Co-Authored-By
+# trailer and the PR footer.
+assert_jq "Claude attribution is off in every render" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.attribution == {commit: "", pr: ""}'
 
@@ -545,12 +538,11 @@ assert "non-default python version reaches FROM" \
 
 # ===========================================================================
 # 3b. Opt-ins the other renders leave off: Docker-in-Docker (the one answer
-#     that changes the container's privilege level), Claude attribution, and
-#     both post-generation edits to settings.json at once (empty roster plus
-#     attribution) to prove they compose.
+#     that changes the container's privilege level), and the empty-roster edit
+#     to settings.json, which must leave the rest of the bundle alone.
 # ===========================================================================
 render "$WORK/dind" project_name="Dind App" include_docker_in_docker=yes \
-    claude_attribution=yes claude_plugin_roster=none
+    claude_plugin_roster=none
 DIND="$WORK/dind/dind-app"
 assert "dind answers render" test -d "$DIND/.devcontainer"
 
@@ -570,12 +562,12 @@ assert "DEVCONTAINER.md says the container is privileged" \
     grep -q 'privileged' "$DIND/DEVCONTAINER.md"
 assert "generation prints the privileged note" \
     grep -q 'PRIVILEGED' "$WORK/dind.err"
-# claude_attribution=yes removes the empty-string override so Claude Code's own
-# default trailer and PR footer apply; nothing else in the bundle may move.
-assert_jq "attribution answer removes the override" \
+assert_jq "the emptied roster keeps attribution off" \
     "$DIND/.devcontainer/config/claude/settings.json" \
-    'has("attribution") | not'
-assert_jq "attribution edit composes with the emptied roster" \
+    '.attribution == {commit: "", pr: ""}'
+assert "CLAUDE.md forbids AI trailers" \
+    grep -q 'Add no .Co-Authored-By' "$DIND/CLAUDE.md"
+assert_jq "the roster edit empties the roster" \
     "$DIND/.devcontainer/config/claude/settings.json" \
     '(.enabledPlugins | length == 0) and (.extraKnownMarketplaces | length == 0)'
 assert_jq "settings.json edits keep the rest of the bundle" \
@@ -632,20 +624,7 @@ else
 fi
 
 # ===========================================================================
-# 6b. claude_attribution=host with a host that keeps Claude Code's default
-# ===========================================================================
-# A host settings.json without `attribution` means Claude Code signs its
-# commits; the bundle's override is removed so the container does too.
-HOSTDEFAULT_CLAUDE="$WORK/host-claude-default"
-mkdir -p "$HOSTDEFAULT_CLAUDE"
-printf '{"model": "opus"}\n' > "$HOSTDEFAULT_CLAUDE/settings.json"
-CLAUDE_CONFIG_DIR="$HOSTDEFAULT_CLAUDE" render "$WORK/hostattr" project_name="Host Attr"
-assert_jq "attribution follows a host that keeps Claude Code's default" \
-    "$WORK/hostattr/host-attr/.devcontainer/config/claude/settings.json" \
-    'has("attribution") | not'
-
-# ===========================================================================
-# 6c. A slug that starts with a digit still yields an importable package
+# 6b. A slug that starts with a digit still yields an importable package
 # ===========================================================================
 render "$WORK/digits" project_name="2048 Game"
 assert "a digit-led slug gets a prefixed package name" \

@@ -84,15 +84,8 @@ add it.{% endif %}
 
 - The author identity is preconfigured (the template's answers, or the host's own git
   identity); commit as it, never as yourself.
-- {% if cookiecutter.claude_attribution == "yes" -%}
-  Claude Code adds its own `Co-Authored-By` trailer; do not add another by hand.
-  {%- elif cookiecutter.claude_attribution == "host" -%}
-  Whether Claude Code adds its `Co-Authored-By` trailer follows `attribution` in
-  `~/.claude/settings.json`; never add one by hand.
-  {%- else -%}
-  Claude Code's `Co-Authored-By` trailer is switched off for this project; do not add
-  one by hand.
-  {%- endif %}
+- Add no `Co-Authored-By`, `Claude-Session` or other AI trailers to commits or PR
+  bodies; Claude Code's own attribution is switched off in `~/.claude/settings.json`.
 - The reflog never expires, so committed work is always recoverable — commit early and
   often.
 - `safe.directory` is `*` in this container, so git works in the bind-mounted workspace
