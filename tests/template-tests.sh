@@ -309,10 +309,10 @@ assert_jq "bundled settings.json stays valid JSON" \
 assert_jq "default roster ships the kokko-ng plugins" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.enabledPlugins | length > 0 and (keys | any(test("@kokko-ng-")))'
-assert_jq "default roster ships theme-sync, so tt reaches open sessions" \
+assert_jq "default roster no longer ships theme-sync" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
-    '.enabledPlugins["theme-sync@kokko-claude-mods"] == true
-       and .extraKnownMarketplaces["kokko-claude-mods"].source.repo == "kokko-ng/kokko-claude-mods"'
+    '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
+       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)'
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
