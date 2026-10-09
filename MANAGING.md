@@ -1,509 +1,136 @@
-# Managing Multiple Devcontainer Instances
+# Managing kokko-devcontainer
 
-A guide to running and managing multiple instances of this devcontainer across different projects on the same machine.
+Operations, troubleshooting and maintainer notes. Start with the [README](README.md).
 
----
+## How it fits together
 
-## Table of contents
+| Piece | Runs on | Role |
+|---|---|---|
+| `bin/dev` | Mac | Sizes and starts Colima, runs `devcontainer up` with the memory cap and the Mac's Claude Code version, fills the shared sign-in volumes, syncs Claude Code version/theme/onboarding, opens a shell, Claude Code or VS Code |
+| `cookiecutter.json`, `hooks/` | Mac | Prompts; `pre_gen_project.py` rejects bad answers, `post_gen_project.py` edits the bundled `settings.json` (roster, attribution) |
+| `.devcontainer/init-host-*.sh` | Mac (`initializeCommand`) | Copy host CA certs, warn about cloud-synced folders, record the Mac's git identity |
+| `Dockerfile` | Build | Base image, tools, Claude Code, the policy and the firewall script |
+| `post-create.sh` | Container | Full provisioning on create; `--config-only` on every start (settings merge, policy, hook, plugins, git, zsh), then firewall and sudo lock |
 
-1. [How instances work](#how-instances-work)
-2. [Naming containers](#naming-containers)
-3. [Port conflicts](#port-conflicts)
-4. [Cache volume scope](#cache-volume-scope)
-5. [Listing and stopping containers](#listing-and-stopping-containers)
-6. [CLI targeting](#cli-targeting)
-7. [Colima resource allocation](#colima-resource-allocation)
-8. [Cloud-synced folders (phantom "file 2" copies)](#cloud-synced-folders-phantom-file-2-copies)
-9. [Filesystem performance (mount type)](#filesystem-performance-mount-type)
-10. [Disk management](#disk-management)
-11. [Pin audit](#pin-audit)
-12. [Cleanup](#cleanup)
+Options reach `post-create.sh` as `DEVCONTAINER_*` variables in `containerEnv`, not as
+Jinja. Repo layout and rules for changing it: [CLAUDE.md](CLAUDE.md).
 
----
+## Troubleshooting
 
-## How instances work
-
-Each project directory with a `.devcontainer/` folder gets its own isolated container. When you generate this template into multiple projects, each one runs independently with its own filesystem, installed dependencies, and forwarded ports.
-
-The typical workflow — generate once per project, giving each its own slug and ports:
-
-```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp   # answers: alpha, ports 8000/5173
-cp -r /tmp/alpha/.devcontainer ~/projects/alpha/
-
-cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp   # answers: beta, ports 8001/5174
-cp -r /tmp/beta/.devcontainer ~/projects/beta/
-```
-
-Each project's container is identified by its workspace folder path. There is no shared state between instances unless you explicitly mount host directories — with one deliberate exception: the package cache volumes, which are shared by default. See [Cache volume scope](#cache-volume-scope).
-
----
-
-## Naming containers
-
-The template names each container `<project_slug>-dev`, so distinct slugs already give you distinct containers. If you generated two projects with the same slug, or want a different name, edit `"name"` in `devcontainer.json`:
-
-```jsonc
-// ~/projects/alpha/.devcontainer/devcontainer.json
-"name": "alpha-dev"
-```
-
-```jsonc
-// ~/projects/beta/.devcontainer/devcontainer.json
-"name": "beta-dev"
-```
-
-The name appears in `docker ps` output and in the VS Code Remote Containers sidebar.
-
----
+| Symptom | Cause and fix |
+|---|---|
+| `docker` cannot connect, `colima status` looks fine | VM disk full. Check `colima ssh -- df -h /`; see [When the disk is full](#when-the-disk-is-full) |
+| Container very slow, `dce` or exec sessions die | VM on `sshfs`. See [Mount type](#mount-type) |
+| Files like `name 2.ext` keep appearing | Project is in a cloud-synced folder. Move it to `~/code` (or rename the iCloud parent to `*.nosync`). `sweep-phantoms.sh` removes untracked copies on each start; `init-host-guard.sh` warns at build |
+| Mac swapping | VM too large. `dev vm`, then `dev vm resize` |
+| "connection refused" from a host | The firewall. Add the host to `.devcontainer/firewall/allowed-domains.txt`, `dev rebuild`. `sudo devcontainer-firewall` re-resolves addresses when a CDN rotates them |
+| Orange renders as red | Old container without `COLORTERM=truecolor`. `dev rebuild` |
 
 ## Port conflicts
 
-The default answers forward ports `8000` (FastAPI) and `5173` (Vite). Two containers cannot forward the same host port simultaneously, so the cheapest fix is to answer the `backend_port` and `frontend_port` prompts with distinct values when generating the second project.
+Two containers cannot forward the same host port. Give each project its own
+`backend_port`/`frontend_port`, or edit `forwardPorts` in `devcontainer.json` and
+rebuild. `"onAutoForward": "ignore"` in `portsAttributes` stops VS Code auto-forwarding.
 
-Options when running instances that were generated with the same ports:
+## Mount type
 
-**Change the forwarded ports** in one project's `devcontainer.json`:
-
-```jsonc
-"forwardPorts": [8001, 5174]
-```
-
-**Remove auto-forwarding** and forward manually when needed:
-
-```jsonc
-"forwardPorts": []
-```
-
-Then forward on demand from the VS Code Ports panel or with `docker port`.
-
-**Silence auto-forwarding with `portsAttributes`** when you would rather forward by hand.
-Note that `"onAutoForward": "notify"` does **not** assign random host ports — it only
-changes the notification behavior when VS Code forwards the usual port. To avoid
-collisions you either give each project distinct `forwardPorts` (first option above) or
-tell VS Code not to auto-forward at all and forward manually from the Ports panel:
-
-```jsonc
-"portsAttributes": {
-  "8000": { "label": "Backend", "onAutoForward": "ignore" },
-  "5173": { "label": "Frontend", "onAutoForward": "ignore" }
-}
-```
-
----
-
-## Cache volume scope
-
-The `cache_volume_scope` prompt decides whether generated projects share one set of
-package-cache volumes or get their own.
-
-| Scope | Volumes | Trade-off |
-|---|---|---|
-| `shared` (default) | `devcontainer-uv-cache`, `devcontainer-npm-cache`, `devcontainer-zsh-history`, `devcontainer-gh-config`, `pw-browsers` | One copy of every wheel, npm tarball and Chromium build on disk, and a new project's first build is fast because the caches are already warm. Zsh history and the `gh` login are shared across every project, and one corrupt cache affects them all. |
-| `per-project` | `<slug>-uv-cache`, `<slug>-npm-cache`, `<slug>-zsh-history`, `<slug>-gh-config`, `<slug>-pw-browsers` | Full isolation, and retiring a project reclaims its caches by name. Costs a full download per project — roughly 400 MB of Chromium alone — and a `gh auth login` per project. |
-
-Pick `shared` unless a project must not see another's cached artifacts, or you want its
-shell history kept separate.
-
-**Claude Code state is always per project**, in `<slug>-claude-config`, whatever the
-scope. `post-create.sh` merges each project's bundled settings and plugin roster into the
-`settings.json` inside that volume on every start, and two projects sharing one file —
-one generated with the `kokko-ng` roster and one with `none`, say, or two at different
-template versions — would prune and reinstall each other's plugins on every start. The
-cost is one `claude` sign-in per project rather than one per rebuild. The `gh` login has
-no such pipeline behind it, so `gh-config` follows the scope like the caches.
-
-The shared Playwright volume keeps its historical name `pw-browsers` rather than a
-`devcontainer-` prefix, so projects generated by older versions of this template keep
-using the volume they already populated instead of orphaning it.
-
-Switching scope later means editing `mounts` in `devcontainer.json` and rebuilding. The
-old volumes are not removed automatically — check `docker system df -v` and delete them
-by name (never `docker volume prune`; see [Do not use `--volumes`](#do-not-use---volumes)).
-
----
-
-## Listing and stopping containers
+Use `virtiofs`; `sshfs` is about 940x slower on small-file writes. Check with
+`colima ssh -- mount | grep /Users`. The mount type is fixed when the VM is created, and
+`colima start --mount-type virtiofs` silently does nothing on an existing VM. To migrate
+in place (images and volumes survive):
 
 ```bash
-# List all running containers
-docker ps
-
-# List only devcontainers (running and stopped)
-docker ps -a --filter label=devcontainer.local_folder
-
-# Stop a specific container by ID or name
-docker stop <container-id>
-
-# Stop all running devcontainers
-docker ps --filter label=devcontainer.local_folder -q | xargs docker stop
-```
-
----
-
-## CLI targeting
-
-The devcontainer CLI uses `--workspace-folder` to identify which container to operate on. Always provide the full path to the project:
-
-```bash
-# Start a specific project's container
-devcontainer up --workspace-folder ~/projects/alpha
-
-# Open a shell in a specific project's container
-devcontainer exec --workspace-folder ~/projects/alpha zsh
-
-# Rebuild a specific project's container
-devcontainer up --workspace-folder ~/projects/alpha --remove-existing-container
-```
-
-The bundled aliases (`dcu`, `dce`, `dcur`) use `--workspace-folder .`, so they operate on whichever project directory your terminal is in.
-
----
-
-## Colima resource allocation
-
-All containers share the Colima VM's CPU, memory, and disk budget.
-
-```bash
-dev vm              # current size and what suits this Mac
-dev vm resize       # restart the VM at that size (stops running containers)
-```
-
-`dev` sizes the VM from the Mac's RAM: half the cores (2 to 8), 3 GB of memory on an
-8 GB Mac, 6 GB on 16 GB, half the RAM less 4 GB above that, and a 60 GB (8 GB Mac) or
-100 GB disk. Override with `DEV_VM_CPUS`, `DEV_VM_MEMORY`, `DEV_VM_DISK`. Keep `--memory`
-at or below half your host RAM: the VM does not hand memory back while it runs, so
-over-allocating pushes macOS into swap and reads as container slowness.
-
-Each container also carries its own cap (`--memory` and `--memory-swap` in `runArgs`):
-1 GB under the VM when `dev` starts it, the `container_memory_limit` answer (`5g` by
-default) otherwise. It is what lets a runaway process in one project — a test suite that
-forks without limit, a build that balloons — be killed inside that container instead of
-taking the VM and every other project's container down with it. On a Mac under 16 GB,
-`dev` also stops the other running devcontainers before starting one
-(`DEV_ALLOW_MULTIPLE=1` to allow several).
-
-Note that the disk is deliberately generous — see [Disk management](#disk-management) for why. The disk is sparse, so it only consumes host space as it actually fills. CPU and memory are cheap to change later; **the disk is not** — Colima can grow a disk but not shrink it, so starting too small is the expensive mistake.
-
-To check CPU and memory usage:
-
-```bash
-docker stats --no-stream
-```
-
-`colima status` reports whether the VM booted. It does **not** report disk usage, and it will happily print a healthy status while the Docker daemon inside is dead. Do not use it to check disk — see below.
-
----
-
-## Cloud-synced folders (phantom "file 2" copies)
-
-**If phantom files named `something 2.ext`, `Dockerfile 3`, or `core 2` keep
-appearing next to your real files — often unreadable ("Resource deadlock
-avoided") and breaking mypy, eslint, `cp -r`, or image builds — your project
-folder is being watched by a cloud sync service on the host.** iCloud Drive
-writes conflict copies with exactly that ` N` naming, and it covers more than
-`~/Library/Mobile Documents`: with "Desktop & Documents Folders" syncing on,
-everything under `~/Documents` and `~/Desktop` is iCloud-synced. OneDrive,
-Dropbox and Google Drive under `~/Library/CloudStorage` behave the same way.
-The container's heavy file churn (installs, test runs, builds) makes the sync
-service race itself, and the conflict copies respawn for as long as it keeps
-watching.
-
-The template defends on both sides, but only the host fix is real:
-
-- `init-host-guard.sh` (runs on the host at every `devcontainer up`) detects a
-  workspace inside a synced folder and prints the remediation.
-- `sweep-phantoms.sh` (runs in the container on every start; safe to run by
-  hand, `--dry-run` supported) deletes existing conflict copies under three
-  guards: the ` N` / ` N.ext` name shape with N = 2-99, the unsuffixed
-  original exists, and git does not track the file.
-
-**The fix is to take the project out of the synced folder** — move it to a
-non-synced path such as `~/code`, or (iCloud only) rename its parent folder
-with a `.nosync` suffix (iCloud ignores `name.nosync` folders; add a symlink
-under the old name if other tools expect it), or turn off Desktop & Documents
-syncing. Until then the sweeper keeps the tree usable but the copies keep
-coming back.
-
-## Filesystem performance (mount type)
-
-**If the container feels slow, check this before anything else.** Your project directory is on the host and reaches the container through the Colima VM's mount. The driver Colima uses for that mount is the single biggest performance lever in this setup, and a VM created by an older Colima can be stuck on the slow one *indefinitely* — nothing warns you.
-
-Colima supports three drivers. On `vmType: vz` (the default on Apple Silicon) use **`virtiofs`**; it has been Colima's default since v0.7, but **that default only applies to VMs created after you upgraded.**
-
-Measured in this template's devcontainer, 200 small file writes on the workspace mount:
-
-| Mount type | write 200 files | stat 200 files | `ls -la` |
-|---|---|---|---|
-| `sshfs` | 57,432 ms | 13,806 ms | 2,659 ms |
-| `virtiofs` | 61 ms | 110 ms | 22 ms |
-
-That is roughly **940x** on writes and **125x** on metadata. It is not a subtle regression: on `sshfs`, `find . -name "*.py"` over a 24,000-file repo did not finish in 5 minutes; on `virtiofs` it took 5.6 seconds. Anything that touches many small files — `uv sync`, `npm ci`, `pytest`, `ruff`, `mypy`, `git status` — is affected in proportion.
-
-It also shows up as **instability, not just slowness**. When the filesystem stalls for tens of seconds, Docker's exec sessions time out and the daemon logs:
-
-```
-Handler for POST /v1.47/exec/.../resize returned error: timeout waiting for exec session ready
-Error running exec ... exec attach failed: ... write: broken pipe
-```
-
-which surfaces as `dce` hanging, dying mid-command, or dropping you back to the host.
-
-### Check which one you are on
-
-```bash
-colima status 2>&1 | grep mountType
-colima ssh -- mount | grep /Users     # the ground truth
-```
-
-`type virtiofs` is what you want. `type fuse.sshfs` means you are on the slow path.
-
-### Migrating an existing VM to virtiofs
-
-> **`colima start --mount-type virtiofs` on an existing VM silently does nothing.** It is a create-time flag: Colima ignores it for a VM that already exists, prints no warning, and starts on the old driver. Editing only `~/.colima/<profile>/colima.yaml` does not work either — Colima overwrites that file on start from the copy saved inside the instance directory.
-
-The change is to the persisted config, with the VM stopped. This preserves all images, containers, and volumes — it is not a VM recreation.
-
-```bash
-cp ~/.colima/default/colima.yaml ~/colima.yaml.bak      # cheap insurance
+cp ~/.colima/default/colima.yaml ~/colima.yaml.bak
 colima stop
-
-# All three, or the change does not stick:
 sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/default/colima.yaml
 sed -i '' 's/^mountType: sshfs$/mountType: virtiofs/'         ~/.colima/_lima/colima/colima.yaml
 sed -i '' 's/^mountType: reverse-sshfs$/mountType: virtiofs/' ~/.colima/_lima/colima/lima.yaml
-
-colima start
+dev vm start
 colima ssh -- mount | grep /Users    # expect: type virtiofs
 ```
 
-Replace `default`/`colima` with your profile name if you use one. Note the lima config spells sshfs as `reverse-sshfs`.
-
-Your containers are stopped by `colima stop`, not removed — restart them with `docker start <name>` or `dcu`. Because the workspace is a host bind mount, no project file is touched by any of this.
-
-If the `sed` lines match nothing, open the files and check the current value; a VM created on `9p` will say `mountType: 9p`.
-
-### Why a VM gets stuck on sshfs
-
-Colima persists the mount type chosen when the VM was **created** and reuses it on every subsequent start. Upgrading Colima changes the default for *new* VMs only. So a machine set up before v0.7 — or one whose VM has simply never been recreated — keeps running `sshfs` through every `colima stop`/`start`, every Colima upgrade, and every devcontainer rebuild, getting slower relative to the tooling around it and never saying why.
-
----
-
 ## Disk management
 
-**Read this section before you need it.** A full VM disk is the most likely way this setup breaks, and it fails in a way that is genuinely hard to diagnose.
+A full VM disk is the most likely failure, and it is hard to spot: the Docker daemon
+dies while `colima status` stays healthy. `post-create.sh` warns above 80%.
 
-### Why it fills up
-
-This starter is disk-hungry by design:
-
-| Source | Typical size |
-|---|---|
-| Each project's `vsc-*` devcontainer image | 5-6 GB |
-| Each rebuild, leaving the old image as a dangling `<none>` | 5-6 GB again |
-| `docker-in-docker` nested image store (`dind-var-lib-docker-*` volume) | grows unbounded |
-| Python/Node/Playwright layers | ~1-2 GB |
-
-Three projects and a handful of rebuilds is comfortably 50 GB. Rebuilds are the biggest trap: `dcur` (`--remove-existing-container`) removes the *container* but leaves the old *image* behind, untagged and invisible unless you look for it.
-
-The `docker-in-docker` store is the subtle one: it is a **named volume**, so it survives container removal, `docker system df` does not count it, and `docker image prune` on the host does not touch it. Prune it from **inside** each devcontainer:
+What fills it: each image is 5-6 GB, every rebuild leaves the old image dangling, and
+Docker-in-Docker keeps a `dind-var-lib-docker-*` volume that `docker system df` does not
+count and host prunes do not reach.
 
 ```bash
-docker system prune -a     # run INSIDE the devcontainer
-```
-
-### Check disk usage
-
-```bash
-# What the VM's real disk looks like -- the number that actually matters
-colima ssh -- df -h /
-
-# What Docker thinks it is using. This does NOT include the docker-in-docker
-# nested stores -- see below for those.
-docker system df
-
-# How big each devcontainer's nested docker-in-docker store has grown
+colima ssh -- df -h /                          # the number that matters
+docker system df                               # excludes dind volumes
 docker system df -v | grep dind-var-lib-docker
-```
-
-The container build prints a warning automatically once the VM disk passes 80%.
-
-### Reclaim space
-
-```bash
-# Dangling images from rebuilds -- usually the biggest and safest win
-docker image prune
-
-# All images not used by an existing container.
-# Anything still needed is rebuilt or re-pulled on next use.
-docker image prune -a
-
-# Stopped containers
-docker container prune
-```
-
-### Leftover snapshot refs (repos used before v2.0.0)
-
-Older versions of this template shipped a git safety layer that checkpointed
-working-tree changes to `refs/snapshots/` (up to 200 per repository). That layer is
-retired, but refs it created in existing repos remain — inert, invisible to normal git
-commands, and `post-create.sh` still sets `gc.reflogExpire`/`gc.pruneExpire` to
-`never`, so their objects accumulate. That is usually megabytes, not gigabytes. Clean
-a repo's leftovers when its `.git` gets heavy:
-
-```bash
-# Drop all retired snapshot refs (they are named <UTC timestamp>-<oid>)
-git for-each-ref --format='%(refname)' refs/snapshots/ \
-  | while read -r ref; do git update-ref -d "$ref"; done
-
-# Then, if you really need the space back (this expires reflog recovery too!):
-git -c gc.reflogExpire=90.days -c gc.pruneExpire=2.weeks gc
+docker image prune -a                          # safe, biggest win
+docker system prune -a                         # inside a dind container, for its store
 ```
 
 ### Do not use `--volumes`
 
-```bash
-docker system prune -a --volumes   # DESTRUCTIVE -- avoid
-```
+Never `docker system prune --volumes` or `docker volume prune`. They delete the Claude
+Code state (`<slug>-claude-config`), the sign-ins (`*-gh-config`, `*-claude-auth`,
+`*-azure-config`), caches, `pw-browsers`, the VS Code server and dind stores. Remove
+volumes by name.
 
-`--volumes` deletes named volumes holding local state you probably did not mean to delete:
-
-- `dind-var-lib-docker-*` — a devcontainer's nested Docker image store
-- `<slug>-claude-config` — Claude Code login, plugins, session history and auto-memory
-- `devcontainer-gh-config` / `<slug>-gh-config` — the `gh` login
-- `devcontainer-*-cache`, `<slug>-*-cache`, `*-zsh-history`, `pw-browsers` — package caches, shell history, Playwright browsers
-- `vscode` — VS Code server and extensions
-
-Losing these does not destroy source code, but it is a silent loss. Prune images, not volumes.
-
-### Retiring a project's dind volume
-
-A `dind-var-lib-docker-*` volume stays tied to its container for as long as that container exists — **even when stopped**. A stopped devcontainer you have not opened in months still owns its volume, so a multi-GB `dind-*` volume is not evidence of anything left over.
-
-Before assuming a volume is garbage, check the `LINKS` column — `0` means nothing references it, `1` means a container still does:
+### Retiring a project
 
 ```bash
-docker system df -v | grep -E "VOLUME NAME|dind-var-lib-docker"
+docker rm <container>
+docker volume rm <slug>-claude-config            # plus dind-var-lib-docker-<hash> if any
+docker volume ls | grep <slug>                   # per-project caches, if that scope was used
 ```
 
-```
-VOLUME NAME                          LINKS     SIZE
-dind-var-lib-docker-051bsgre...      1         3.897GB    <- in use, leave alone
-dind-var-lib-docker-1iqoip1a...      1         470MB      <- in use, leave alone
-```
+A dind volume with `LINKS 1` in `docker system df -v` still belongs to a container,
+even a stopped one.
 
-A dind volume is only genuinely reclaimable once its container is gone. To retire a project:
+### When the disk is full
 
 ```bash
-docker rm <container>                          # remove the container first
-docker volume rm dind-var-lib-docker-<hash>    # then its now-unreferenced volume
-```
-
-Remove them **by name**. `docker volume prune` takes every unreferenced volume, including the Claude Code and vscode ones above.
-
-Docker will refuse to remove a volume an existing container still references, so a mistake here fails loudly rather than destroying anything — but do not rely on that as the check.
-
-### When the disk is already full
-
-The failure is misleading, so recognise it by these symptoms together:
-
-- `docker` commands fail with `Cannot connect to the Docker daemon` or `failed to connect ... /var/run/docker.sock`
-- `docker context ls` shows no `colima` context
-- `colima start` says `already running, ignoring`
-- `colima status` claims the VM is healthy
-
-What has actually happened: containerd's garbage collector tried to write to a full disk, hit `ENOSPC`, and **panicked on a nil-pointer dereference**; dockerd then failed with `no space left on device`. Because the VM itself booted fine, Colima reports success and skips the provisioning that creates the host socket and Docker context — which is why `docker` on the host silently falls back to Docker Desktop's socket path.
-
-Confirm and recover:
-
-```bash
-# Confirm: is it really the disk?
 colima ssh -- df -h /
-colima ssh -- sudo journalctl -u docker -n 20 --no-pager
-
-# Free space from inside the VM (the daemon is down, so docker CLI cannot help)
-colima ssh -- sudo du -sh /var/lib/docker /var/lib/containerd
-
-# Then restart the runtimes. reset-failed is required: systemd gives up after
-# repeated crashes, so a plain 'start' will refuse.
+colima ssh -- sudo du -sh /var/lib/docker /var/lib/containerd   # then free space
 colima ssh -- sudo systemctl reset-failed containerd docker
 colima ssh -- sudo systemctl start containerd docker
-
-# Full restart, which also recreates the host socket and docker context
-colima stop && dev vm start
+colima stop && dev vm start                                     # restores the host socket
 ```
 
-### The orphaned `overlay2` store
+On a VM older than the containerd snapshotter, `/var/lib/docker/overlay2` can hold tens
+of GB nothing tracks. If `/etc/docker/daemon.json` has `"containerd-snapshotter": true`
+and nothing in `overlay2` changed since, `colima ssh -- sudo rm -rf /var/lib/docker/overlay2`
+(only that folder), then restart the services as above.
 
-If Colima has been installed since before Docker's containerd snapshotter became the default, `/var/lib/docker/overlay2` may hold tens of gigabytes of unreachable data from the old storage driver. Docker no longer tracks it, so **`docker system prune` can never reclaim it** and it will waste that space indefinitely.
+### Leftover snapshot refs
 
-Check whether the snapshotter is on and whether the old store is stale:
+Template versions before 2.0.0 stored git snapshots under `refs/snapshots/`. They are
+inert. To drop them in a repo:
 
 ```bash
-colima ssh -- sudo cat /etc/docker/daemon.json          # look for "containerd-snapshotter": true
-colima ssh -- sudo du -sh /var/lib/docker/overlay2      # how much is in there
-colima ssh -- sudo ls -lt /var/lib/docker/overlay2 | head   # newest mtime
+git for-each-ref --format='%(refname)' refs/snapshots/ | while read -r ref; do git update-ref -d "$ref"; done
+git -c gc.reflogExpire=90.days -c gc.pruneExpire=2.weeks gc   # optional; also expires reflog recovery
 ```
-
-If the snapshotter is enabled and nothing in `overlay2` has been modified since around when you enabled it, it is dead weight and can be removed. Delete only `overlay2` — the sibling `volumes/` directory holds live state:
-
-```bash
-colima ssh -- sudo rm -rf /var/lib/docker/overlay2
-colima ssh -- sudo systemctl reset-failed containerd docker
-colima ssh -- sudo systemctl start containerd docker
-```
-
----
 
 ## Pin audit
 
-Dependabot watches this repo's GitHub Actions and the Dockerfile's `FROM` digest — and
-nothing else. Paths below are relative to the template payload,
-`{{cookiecutter.project_slug}}/`. The following pins are **invisible to it** and need a
-manual check (quarterly is a reasonable cadence):
+Dependabot covers GitHub Actions and the Dockerfile `FROM` digest only. Check the rest
+by hand, quarterly (paths under `{{cookiecutter.project_slug}}/.devcontainer/`):
 
-| Pin | Where | How to check |
+| Pin | File | Latest |
 |---|---|---|
-| `uv==<version>` | `.devcontainer/Dockerfile` | `curl -s https://pypi.org/pypi/uv/json \| jq -r .info.version` |
-| `pre-commit==<version>` | `.devcontainer/Dockerfile` | `curl -s https://pypi.org/pypi/pre-commit/json \| jq -r .info.version` |
-| Claude Code `install.sh \| bash -s <version>` | `.devcontainer/Dockerfile` | `npm view @anthropic-ai/claude-code version` (the native binary tracks the npm release numbers). Auto-update is off in the container, so this pin is what every session runs — audit it more often than quarterly |
-| `@github/copilot@<version>` | `.devcontainer/post-create.sh` | `npm view @github/copilot version` |
-| Starship `releases/download/v<version>/` | `.devcontainer/Dockerfile` | `gh release view -R starship/starship --json tagName -q .tagName` |
-| `@playwright/cli@<version>` | `.devcontainer/post-create.sh` | `npm view @playwright/cli version` |
-| zsh plugin release tags | `.devcontainer/post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/zsh-autosuggestions` (and `zsh-syntax-highlighting`) |
-| Feature option versions (e.g. node `"version": "22"`) | `.devcontainer/devcontainer.json` | Node release schedule; bump when the pinned major approaches EOL. The template's `node_version` choices should track this too |
-| Devcontainer feature tags (`azure-cli:1`, `node:2`, ...) | `.devcontainer/devcontainer.json` | `devcontainer features info tags ghcr.io/devcontainers/features/node` |
-| Base image digest for non-default Python | generated `Dockerfile` | Only `python_version` `3.14` carries a digest; every other choice generates a tag-only `FROM` by design |
+| `uv==`, `pre-commit==` | `Dockerfile` | `curl -s https://pypi.org/pypi/<name>/json \| jq -r .info.version` |
+| Claude Code fallback (`CLAUDE_CODE_VERSION:-x.y.z`) | `Dockerfile` | `npm view @anthropic-ai/claude-code version`. Used only when built without `dev` |
+| Starship `v<version>` | `Dockerfile` | `gh release view -R starship/starship --json tagName -q .tagName` |
+| `@github/copilot@`, `@playwright/cli@` | `post-create.sh` | `npm view <package> version` |
+| zsh plugin tags | `post-create.sh` | `git ls-remote --tags https://github.com/zsh-users/<plugin>` |
+| Node feature `version`, feature major tags | `devcontainer.json` | Node release schedule; `devcontainer features info tags <feature>` |
 
-The last row used to be Dependabot's job. `devcontainer.json` is a Jinja template now and
-no longer parses as JSON, so the `devcontainers` ecosystem entry was removed from
-`.github/dependabot.yml` rather than left silently failing. The `docker` ecosystem entry
-still points at the template payload's Dockerfile — if base-image digest PRs stop
-arriving, check that entry's Dependabot job log first.
+Feature major tags (`node:2`, `azure-cli:1`) float within the major on purpose. Only
+Python `3.14` has a digest; other versions render a tag-only `FROM`.
 
-Devcontainer **feature MAJOR tags** (`azure-cli:1`, `node:2`, `docker-in-docker:4`, ...)
-float deliberately: they resolve to the latest release within the major on every build,
-which keeps features patched without churn here. The trade-off is accepted — a feature
-release can change behavior between rebuilds — because features are maintained by the
-devcontainers org and the CI build smoke test catches breakage.
+## Releases
 
----
+1. Bump `VERSION` in the PR that warrants it.
+2. Merge to `main`. When CI passes, `release.yml` creates the `v<VERSION>` tag and GitHub
+   release (skipped if the tag exists). Never run `gh release create` by hand.
 
-## Cleanup
-
-To remove a single project's container without affecting others:
-
-```bash
-docker ps -a --filter label=devcontainer.local_folder=/path/to/project -q | xargs docker rm
-```
-
-When the project is gone for good, remove its volumes by name too — `<slug>-claude-config`
-always, plus the `<slug>-*` caches and `<slug>-gh-config` if it used `per-project` scope
-(`docker volume ls | grep <slug>` lists them). Never `docker volume prune`; see
-[Do not use `--volumes`](#do-not-use---volumes).
-
-```bash
-docker volume rm <slug>-claude-config
-```
-
-For reclaiming disk space, see [Disk management](#disk-management) above.
+Projects pin with `cookiecutter ... --checkout v<VERSION>` or
+`/devcontainer-update --ref v<VERSION>`.

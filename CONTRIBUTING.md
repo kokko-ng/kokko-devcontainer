@@ -1,22 +1,16 @@
 # Contributing
 
-## Layout
-
-This repo is a cookiecutter template. Everything a generated project receives lives under
-`{{cookiecutter.project_slug}}/`; `cookiecutter.json` holds the prompts and `hooks/` holds
-the validation and post-generation steps. There is no `.devcontainer/` at the repo root —
-to work inside one, render the template and open the result:
+This repo is a cookiecutter template: what a generated project receives is under
+`{{cookiecutter.project_slug}}/`. There is no `.devcontainer/` at the root. To work in
+one, render first:
 
 ```bash
 cookiecutter . --no-input -o .rendered
-code .rendered/my-project
 ```
 
-Only `devcontainer.json`, the `Dockerfile`, and the Markdown carry Jinja. `post-create.sh`,
-`init-host-certs.sh`, the `.jq` files, the bundled `settings.json`, and the zsh config are
-deliberately Jinja-free so they stay lintable and testable without a render. Options those
-files need arrive at run time as `DEVCONTAINER_*` variables in `containerEnv`. Keep it that
-way — see [CLAUDE.md](CLAUDE.md).
+Rules for changing the template (where Jinja is allowed, the permission model, layout)
+are in [CLAUDE.md](CLAUDE.md). How the pieces fit, pins and releases are in
+[MANAGING.md](MANAGING.md).
 
 ## Setup
 
@@ -25,53 +19,34 @@ pip install pre-commit cookiecutter
 pre-commit install
 ```
 
-Pre-commit runs trailing-whitespace/EOF fixers, `check-json` (`devcontainer.json` is JSONC
-and templated, so it is excluded), and shellcheck at `--severity=info` — the same severity
-CI uses, so a passing local commit does not fail in CI.
+Pre-commit runs whitespace/EOF fixers, `check-json` (not on `devcontainer.json`, which is
+JSONC and templated) and shellcheck at `--severity=info`, the same as CI.
 
 ## Tests
 
 ```bash
-bash tests/merge-settings-tests.sh   # needs bash + jq
-bash tests/template-tests.sh         # needs bash + jq + python3 + cookiecutter
+bash tests/merge-settings-tests.sh   # bash + jq
+bash tests/template-tests.sh         # bash + jq + python3 + cookiecutter
 ```
 
-`merge-settings-tests.sh` covers `merge-settings.jq`, `prune-roster.jq`, the bundled
-`settings.json` and `managed-settings.json`, the SessionStart hook script, and the
-settings handling in `post-create.sh`. Every change to those comes with tests in the
-same commit.
+- `merge-settings-tests.sh` covers the settings pipeline: `merge-settings.jq`,
+  `prune-roster.jq`, the bundled `settings.json` and `managed-settings.json`, the
+  SessionStart hook and the settings code in `post-create.sh`. Change those with a test
+  in the same commit.
+- `template-tests.sh` renders several answer sets and asserts the output, including
+  rejected answers. Every new or changed prompt gets an assertion in the same commit.
+  It also runs shellcheck and hadolint on the output when they are on PATH. CI's
+  hadolint version is the one pinned in `hadolint/hadolint-action`:
 
-`template-tests.sh` renders several answer sets and asserts the generated tree: features
-added and dropped, ports and paths threaded through, the plugin roster emptied on request,
-no unrendered Jinja left behind, and invalid answers rejected by `pre_gen_project.py`.
-**Every new or changed prompt in `cookiecutter.json` gets an assertion here in the same
-commit** — an option nothing renders against is an option that silently stops working.
+  ```bash
+  curl -sSL -o ~/.local/bin/hadolint \
+    https://github.com/hadolint/hadolint/releases/download/v2.15.0/hadolint-Linux-x86_64
+  chmod +x ~/.local/bin/hadolint
+  ```
 
-It also lints the generated output when the linters are on PATH: shellcheck over the
-generated shell scripts, and hadolint over both Dockerfile variants at
-`--failure-threshold info`, which is the default `hadolint-action` uses in CI. Install
-hadolint locally to catch a linter-version bump before it turns main red — the binary
-version CI runs is the one pinned in `hadolint/hadolint-action`'s own Dockerfile:
-
-```bash
-curl -sSL -o ~/.local/bin/hadolint \
-  https://github.com/hadolint/hadolint/releases/download/v2.15.0/hadolint-Linux-x86_64
-chmod +x ~/.local/bin/hadolint
-```
-
-CI additionally runs shellcheck, actionlint, hadolint against both rendered Dockerfile
-variants, a full devcontainer build smoke test on the rendered default project, and
-gitleaks.
+CI also runs actionlint, a devcontainer build of the default render, and gitleaks.
 
 ## Releases
 
-The version lives in the `VERSION` file at the repo root. The flow:
-
-1. Bump `VERSION` (e.g. `3.0.0` → `3.1.0`) in the PR that warrants it.
-2. Merge to `main`. When CI succeeds there, `.github/workflows/release.yml` creates the
-   `v<VERSION>` tag and GitHub release automatically (it skips silently if the tag
-   already exists).
-
-No one runs `gh release create` by hand. Downstream projects can then pin with
-`cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v<VERSION>` or
-`/devcontainer-update --ref v<VERSION>`.
+Bump `VERSION` in your PR; the release is cut automatically after merge. See
+[MANAGING.md](MANAGING.md#releases).

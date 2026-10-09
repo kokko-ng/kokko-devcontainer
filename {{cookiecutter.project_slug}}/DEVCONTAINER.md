@@ -3,233 +3,174 @@
 Generated from [kokko-devcontainer](https://github.com/kokko-ng/kokko-devcontainer).
 Container name: `{{ cookiecutter.__container_name }}`.
 
+## Starting it
+
+Host setup (Colima, the devcontainer CLI, `dev` on PATH) is in the upstream
+[README](https://github.com/kokko-ng/kokko-devcontainer#readme).
+
+```bash
+dev                 # start Colima and the container if needed, then a shell in it
+dev claude          # ... Claude Code, signed in, Auto mode
+dev code            # ... VS Code attached to the container
+dev -t              # ... in a new Ghostty tab (-w for a window)
+dev rebuild         # recreate the container after Dockerfile or devcontainer.json edits
+dev guide           # everything else
+```
+
+Run these inside this folder, or name the project from anywhere:
+`dev claude {{ cookiecutter.project_slug }}`. `dev` also brings the container's Claude
+Code up to the Mac's version and theme. Without `dev`, run `code .` and accept "Reopen in
+Container".
+{%- if cookiecutter.network_firewall == "on" %}
+
+With the firewall on, set `"remote.downloadExtensionsLocally": true` in your VS Code user
+settings so extensions download on the Mac.
+{%- endif %}
+
 ## What is installed
 
 | Tool | Purpose |
 |------|---------|
-| Python {{ cookiecutter.python_version }} + uv | Backend runtime and dependency management |
-| Node {{ cookiecutter.node_version }} | Frontend build tooling |
+| Python {{ cookiecutter.python_version }} + uv | Backend runtime and dependencies |
+| Node {{ cookiecutter.node_version }} | Frontend tooling |
 | GitHub CLI | Repository and PR workflows |
-| Claude Code | AI coding assistant (native binary, pinned and baked into the image; auto-update off) |
-| pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox (shipped switched off — see [Permission model](#permission-model)) |
-| zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
+| Claude Code | Native binary in the image, auto-update off; `dev` matches the Mac's version |
+| pre-commit, shellcheck, jq | Hooks the bundled `CLAUDE.md` requires; shell linting |
+| zsh + oh-my-zsh + Starship | Shell (`als` lists the aliases) |
 {%- if cookiecutter.include_azure_cli == "yes" %}
 | Azure CLI | Azure resource management |
 {%- endif %}
 {%- if cookiecutter.include_azure_sql_driver == "yes" %}
-| ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc |
+| ODBC Driver 18 | Azure SQL via pyodbc |
 {%- endif %}
 {%- if cookiecutter.include_copilot_cli == "yes" %}
-| GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot@<pinned>` |
+| GitHub Copilot CLI | `copilot` |
 {%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %}
-| Playwright CLI + Chromium | Browser automation for coding agents (`playwright-cli`) |
+| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`) |
 {%- endif %}
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
-| Docker-in-Docker | Container builds inside the devcontainer. **Runs the container privileged** — see below |
+| Docker-in-Docker | Container builds inside the devcontainer |
 
-Docker-in-Docker requires a privileged container. An agent running in it without
-prompts then has, in effect, root on the Colima VM — every other project's containers
-and volumes are within reach — so decide deliberately what runs here unattended. Its
-image store also lives in a volume that grows unnoticed: `docker system df` does not
-count it. Prune it periodically from inside the container with `docker system prune -a`.
+Docker-in-Docker runs the container **privileged**: an agent here has, in effect, root on
+the Colima VM, including other projects' containers and volumes. Its image store is a
+volume `docker system df` does not count; prune it from inside with
+`docker system prune -a`.
 {%- endif %}
 
-## Layout this assumes
+## Layout
 
 | Setting | Value | Where |
 |---|---|---|
-| Python source (`PYTHONPATH`) | `{{ cookiecutter.backend_src_dir }}/` | `devcontainer.json` -> `containerEnv` |
-| Frontend package root | `{{ cookiecutter.frontend_dir }}/` | `devcontainer.json` -> `DEVCONTAINER_FRONTEND_DIR` |
-| Backend port | `{{ cookiecutter.backend_port }}` | `devcontainer.json` -> `forwardPorts` |
-| Frontend port | `{{ cookiecutter.frontend_port }}` | `devcontainer.json` -> `forwardPorts` |
-| Container memory cap | 1 GB under the Colima VM when started with `dev`, else `{{ cookiecutter.container_memory_limit }}` | `devcontainer.json` -> `runArgs` (`--memory`, `--memory-swap`) |
+| Python source (`PYTHONPATH`) | `{{ cookiecutter.backend_src_dir }}/` | `containerEnv` |
+| Frontend root | `{{ cookiecutter.frontend_dir }}/` | `DEVCONTAINER_FRONTEND_DIR` |
+| Ports | `{{ cookiecutter.backend_port }}`, `{{ cookiecutter.frontend_port }}` | `forwardPorts` |
+| Memory cap | 1 GB under the Colima VM with `dev`, else `{{ cookiecutter.container_memory_limit }}` | `runArgs` |
 
-`post-create.sh` runs `uv sync` when a `pyproject.toml` exists and installs
-frontend dependencies when `{{ cookiecutter.frontend_dir }}/` exists. Neither is required — the
-container comes up either way.
+Provisioning runs `uv sync` when `pyproject.toml` exists and installs frontend
+dependencies when `{{ cookiecutter.frontend_dir }}/` exists. Its log is
+`/tmp/post-create.log`; failed steps are listed in `~/.devcontainer-provision-status`
+and shown at the start of each Claude Code session.
 
-The memory cap is per container: a runaway process gets killed inside this container
-instead of taking the whole Colima VM (and every other project) down. `dev` sets it to
-1 GB under the VM it sized for your Mac; started any other way, the answer above applies,
-so keep that below the VM's own `--memory`.
+## Volumes
 
-## Starting it
-
-```bash
-dev                 # start Colima and the container if needed, then a shell in it
-dev -t              # ... in a new Ghostty tab
-dev claude          # ... straight into Claude Code
-dev code            # ... VS Code, attached to the container dev started
-dev guide           # everything else (stop, rebuild, root shell, VM size)
-
-code .              # or VS Code on its own: accept "Reopen in Container"
-```
-
-With the outbound firewall on, set `"remote.downloadExtensionsLocally": true` in your
-VS Code user settings: extensions then download on the Mac and are copied in, since
-the extension gallery's download hosts cannot all be allowlisted.
-
-`dev` is `bin/dev` in the upstream repo, linked onto your PATH. It sizes the Colima VM
-for your Mac, runs one devcontainer at a time on a Mac under 16 GB, and fills the shared
-sign-in volumes below from your Mac on first start.
-
-Host prerequisites (Colima, the devcontainer CLI, Ghostty) are covered in the
-upstream [INSTRUCTIONS.md](https://github.com/kokko-ng/kokko-devcontainer/blob/main/INSTRUCTIONS.md).
-
-## What persists across rebuilds
-
-| Volume | Holds | Scope |
-|---|---|---|
-| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code installed plugins, settings, session transcripts, auto-memory | Always this project only. `post-create.sh` merges this project's bundled settings and plugin roster into the `settings.json` inside it on every start, and two projects sharing one file would undo each other's roster |
-| `{{ cookiecutter.__volume_prefix }}-gh-config` | The gh sign-in (also used by git over https and by Copilot CLI) | Follows `cache_volume_scope` |
-| `{{ cookiecutter.__volume_prefix }}-claude-auth` | A long-lived Claude Code token (`claude setup-token`) | Follows `cache_volume_scope` |
+| Volume | Holds |
+|---|---|
+| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code plugins, settings, history (this project only) |
+| `{{ cookiecutter.__volume_prefix }}-gh-config` | gh sign-in, also used by git and Copilot |
+| `{{ cookiecutter.__volume_prefix }}-claude-auth` | Claude Code token |
 {%- if cookiecutter.include_azure_cli == "yes" %}
-| `{{ cookiecutter.__volume_prefix }}-azure-config` | The Azure CLI sign-in | Follows `cache_volume_scope` |
+| `{{ cookiecutter.__volume_prefix }}-azure-config` | Azure CLI sign-in |
 {%- endif %}
-| `{{ cookiecutter.__volume_prefix }}-uv-cache`, `-npm-cache`, `-zsh-history` | Package caches and shell history | Follows `cache_volume_scope` |
+| `{{ cookiecutter.__volume_prefix }}-uv-cache`, `-npm-cache`, `-zsh-history` | Caches and shell history |
 {%- if cookiecutter.include_playwright == "yes" %}
-| `{% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %}` | Playwright browsers | Follows `cache_volume_scope` |
+| `{% if cookiecutter.cache_volume_scope == "per-project" %}{{ cookiecutter.project_slug }}-pw-browsers{% else %}pw-browsers{% endif %}` | Playwright browsers |
 {%- endif %}
 
-With the shared scope, you sign in once per Mac, not per project or rebuild: `dev`
-copies your Mac's gh token{% if cookiecutter.include_azure_cli == "yes" %} and az token cache{% endif %} into these volumes on first start, Copilot CLI
-reuses the gh sign-in, and `dev auth` creates the Claude Code token once and keeps it in
-the macOS Keychain. Nothing is bind-mounted from the host: host credential directories
-(`~/.ssh`, `~/.azure`, the host's own `~/.claude`) stay outside, because everything
-reachable inside the container is reachable by an agent running without prompts. The
-outbound firewall below keeps anything in the container from sending these sign-ins
-anywhere but the allowlisted hosts, but they are as powerful as your own: Auto mode can do with gh and az what you
-can, short of the deny list.
+{% if cookiecutter.cache_volume_scope == "shared" -%}
+Sign-in and cache volumes are shared with every project on this Mac, so you sign in once
+(`dev auth`), not per project or rebuild.
+{%- else -%}
+Sign-in and cache volumes belong to this project only; run `dev auth` here once.
+{%- endif %} Nothing is bind-mounted from the host.
+
+## Security
+
+- **Auto mode.** Claude Code's classifier approves safe tool calls.
+- **Policy.** `/etc/claude-code/managed-settings.json` (from
+  `.devcontainer/config/claude/managed-settings.json`, baked into the image) denies
+  force-push, `git reflog expire`, `git gc --prune`, Azure `delete`/`purge`, Docker volume
+  removal, `gh repo delete`, `gh api ... DELETE` and reading or printing tokens, and
+  disables bypass mode. Rules match command text: a floor, not a boundary.
+{%- if cookiecutter.network_firewall == "on" %}
+- **Firewall.** Outbound traffic reaches only the hosts in
+  `.devcontainer/firewall/allowed-domains.txt` plus GitHub's ranges; `localhost` is
+  unaffected. Other hosts fail with "connection refused". Add your project's hosts (one
+  exact name per line), then `dev rebuild`. `sudo devcontainer-firewall` re-resolves
+  addresses.
+{%- else %}
+- **Firewall.** Off (`network_firewall: off`); outbound traffic is open. Set
+  `DEVCONTAINER_FIREWALL` to `1` and add the `NET_ADMIN`/`NET_RAW` capabilities to
+  `runArgs` to turn it on.
+{%- endif %}
+{%- if cookiecutter.agent_sudo == "yes" %}
+- **Sudo.** Kept (`agent_sudo: yes`), so anything in the container can change the policy
+  and the firewall. Set `DEVCONTAINER_AGENT_SUDO` to `0` and rebuild to remove it.
+{%- else %}
+- **No sudo.** Provisioning removes it, so nothing in the container can change the policy
+  or the firewall. Use `dev root` on the host for a root shell.
+{%- endif %}
+- **Git.** Reflog and prune never expire, so committed work is recoverable.
 
 ## Commit authorship
 
 {% if cookiecutter.git_user_name -%}
-Every commit made in this container, by you or by Claude Code, is authored as
-`{{ cookiecutter.git_user_name }} <{{ cookiecutter.git_user_email }}>`. `post-create.sh` sets `user.name` and
-`user.email` on first provision and never overwrites a value that is already set, so a
-change you make inside the container survives rebuilds.
+Commits here, yours and Claude Code's, are authored as
+`{{ cookiecutter.git_user_name }} <{{ cookiecutter.git_user_email }}>`.
 {%- else -%}
-Every commit made in this container, by you or by Claude Code, is authored as you: no
-identity was given to the template, so `post-create.sh` uses the one your Mac commits
-with here (`git config user.name` and `user.email`, recorded by `init-host-identity.sh`
-before every build). It sets them on first provision and never overwrites a value that
-is already set, so a change you make inside the container survives rebuilds.
+Commits here, yours and Claude Code's, are authored as your Mac's git identity, recorded
+by `init-host-identity.sh` before each build.
 {%- endif %}
+It is set on first provision only, so a change made inside the container survives
+rebuilds.
 
-Claude Code's own signature, the `Co-Authored-By` trailer on commits and the footer on
-pull requests, {% if cookiecutter.claude_attribution == "host" %}follows your own Claude Code setting as it was when this project was generated (`claude_attribution: host`){% else %}is **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}** for this project (`claude_attribution`){% endif %}.
-To change it later, edit or remove `attribution` in `~/.claude/settings.json` inside the
-container: the bundled default only applies where that key is absent, so a rebuild
-does not undo the change.
-
-## Changing what gets installed
-
-Some answers are baked into the image and need a rebuild; some are plain
-environment variables you can flip in `devcontainer.json` and rebuild; the
-bundled config can be re-applied with no rebuild at all.
-
-| Change | How |
-|---|---|
-| Copilot CLI on/off | `DEVCONTAINER_INSTALL_COPILOT_CLI` in `containerEnv`, then rebuild |
-| Playwright CLI on/off | `DEVCONTAINER_INSTALL_PLAYWRIGHT` in `containerEnv`, then rebuild |
-| Frontend directory | `DEVCONTAINER_FRONTEND_DIR` in `containerEnv`, then rebuild |
-| Python source path | `PYTHONPATH` in `containerEnv`, then rebuild |
-| Forwarded ports | `forwardPorts` in `devcontainer.json`, then rebuild |
-| Memory cap, PID limit | `runArgs` in `devcontainer.json`, then rebuild |
-| Azure CLI, Docker-in-Docker | `features` in `devcontainer.json`, then rebuild |
-| ODBC driver | the apt layer in `Dockerfile`, then rebuild |
-| Claude Code version | the `install.sh \| bash -s <version>` line in `Dockerfile`, then rebuild (`cu` installs the latest release until then) |
-| Claude settings, plugin roster, `CLAUDE.md`, the SessionStart hook, zsh config | edit under `.devcontainer/config/`, then `bash .devcontainer/post-create.sh --config-only` |
-| Permission policy (deny list, bypass lock) | `.devcontainer/config/claude/managed-settings.json`, then `bash .devcontainer/post-create.sh --config-only` |
-
-Rebuild: `devcontainer up --workspace-folder . --remove-existing-container`.
+Claude Code's `Co-Authored-By` trailer and PR footer {% if cookiecutter.claude_attribution == "host" %}follow your Mac's Claude Code setting at generation time{% else %}are **{% if cookiecutter.claude_attribution == "yes" %}on{% else %}off{% endif %}**{% endif %}.
+Change it with `attribution` in `~/.claude/settings.json` inside the container.
 
 ## Claude Code plugins
 
-`post-create.sh` registers every marketplace in `extraKnownMarketplaces` and
-installs every plugin set to `true` in `enabledPlugins`, both read from
-`.devcontainer/config/claude/settings.json`. `enabledPlugins` on its own only
-*enables* a plugin that is already installed, so without this step a fresh
-container comes up with an empty plugin directory.
-
 {% if cookiecutter.claude_plugin_roster == "none" -%}
-This project was generated with an empty roster — add your own marketplaces and
-plugins to `settings.json`, then run `bash .devcontainer/post-create.sh --config-only`.
+The roster is empty. Add marketplaces and plugins to
+`.devcontainer/config/claude/settings.json`, then run
+`bash .devcontainer/post-create.sh --config-only`.
 {%- else -%}
-This project ships the `kokko-ng` roster
-([kokko-skills](https://github.com/kokko-ng/kokko-skills),
-[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill)). A plugin set to
-`false` is never installed.
+The `kokko-ng` roster: kokko-git, kokko-code-quality, kokko-viz, kokko-infra,
+kokko-ai-config, kokko-notifications, kokko-validation and kokko-env from
+[kokko-skills](https://github.com/kokko-ng/kokko-skills), kokko-janitor from
+[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill), and theme-sync
+from [kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). Set a plugin to
+`false` in `enabledPlugins` to never install it.
 {%- endif %}
 
-The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you
-disable locally stays disabled. Its network calls run at most once per 24 hours
-(stamp: `~/.claude/.plugin-bootstrap-stamp`):
+Plugins refresh at most once a day; `KOKKO_PLUGIN_REFRESH=1` forces it.
 
-| Variable | Effect |
-|---|---|
-| `KOKKO_PLUGIN_REFRESH=1` | Force a marketplace/plugin refresh now, ignoring the 24h stamp |
-| `KOKKO_SKIP_PLUGINS=1` | Skip the plugin bootstrap entirely (used by CI) |
+## Changing things
 
-## Permission model
+| Change | Where | Then |
+|---|---|---|
+| Copilot, Playwright, frontend dir, sudo, firewall | `DEVCONTAINER_*` in `devcontainer.json` `containerEnv` | `dev rebuild` |
+| Ports, memory cap, features, mounts | `devcontainer.json` | `dev rebuild` |
+| Image, ODBC driver, Claude Code fallback version | `Dockerfile` | `dev rebuild` |
+| Policy, firewall allowlist | `.devcontainer/config/claude/managed-settings.json`, `.devcontainer/firewall/allowed-domains.txt` | `dev rebuild` |
+| Claude settings, roster, `CLAUDE.md`, zsh | `.devcontainer/config/` | Next start, or `bash .devcontainer/post-create.sh --config-only` |
 
-Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"`): the
-built-in classifier decides which tool calls run without a prompt. Two things sit
-around it.
-
-**A deny floor that auto mode cannot cross.** `.devcontainer/config/claude/managed-settings.json`
-is installed to `/etc/claude-code/managed-settings.json`, where Claude Code applies it
-above every user and project setting. It denies force-push in every spelling,
-`git reflog expire` and `git gc --prune`, Azure `delete` and `purge`, Docker volume
-pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
-(`--dangerously-skip-permissions`). A Bash deny rule matches the command as Claude
-writes it — including inside `&&` chains, pipes and subshells — but not a different
-program that does the same thing, so it is a floor, not a security boundary. The policy
-is baked into the image, so changing it means editing the file and rebuilding
-(`dev rebuild`).
-
-**A network agents cannot leave.** An outbound firewall, applied on every start,
-limits everything in this container (Claude Code, Copilot CLI, gh, az, MCP servers and
-the commands they run) to the hosts in `.devcontainer/firewall/allowed-domains.txt` plus
-GitHub's published ranges: GitHub, Copilot, Anthropic, npm, PyPI and Azure's control
-plane. `gh` and `az` work; `localhost` is unaffected. A request to any other host fails
-at once with "connection refused". Add your project's hosts (Azure storage accounts,
-Key Vaults, OpenAI deployments, databases, APIs) to that file, one exact name per line,
-and rebuild. `sudo devcontainer-firewall` refreshes the resolved addresses when a CDN
-rotates them. Claude Code's own Bash sandbox stays off: it cannot run in an unprivileged
-container.
-
-**No sudo for agents.** Once provisioning has done its root steps, `post-create.sh`
-removes the container user's passwordless sudo (`agent_sudo` was `{{ cookiecutter.agent_sudo }}`; flip
-`DEVCONTAINER_AGENT_SUDO` in `devcontainer.json` and rebuild to change it), so nothing
-in the container can rewrite the policy, install system packages or open the firewall
-(the firewall script is the one thing sudo still runs, and it only re-applies the rules). For a root shell,
-run `dev root` on the host.
-
-Git recoverability rests on git itself — `gc.reflogExpire`,
-`gc.reflogExpireUnreachable` and `gc.pruneExpire` are `never`, so committed work is
-always recoverable — and `safe.directory` is `*`, so git works in the bind-mounted
-workspace and in the worktrees `claude --worktree` creates under `.claude/worktrees/`.
-
-## Agent instructions
-
-Two files reach Claude Code: `~/.claude/CLAUDE.md` (installed from
-`.devcontainer/config/claude/CLAUDE.md`, the container-wide rules) and this project's
-`CLAUDE.md` at the repo root (layout, verification commands, container facts). Keep the
-project one accurate — it is the first thing an agent reads. A `SessionStart` hook
-prints any provisioning step that failed into the session, so a broken `uv sync` is
-the first thing an agent learns rather than something it discovers mid-task. The Bash
-tool's timeout is raised to 10 minutes by default and 30 on request, so full test
-suites and installs finish instead of being backgrounded.
-
-{% if cookiecutter.python_version != "3.14" -%}
+`/devcontainer-update` (kokko-env plugin) pulls the latest template into this project
+and says what needs a rebuild.
+{% if cookiecutter.python_version != "3.14" %}
 ## Pinning the base image
 
-The upstream template only carries a digest for its default Python (3.14), so
-this `Dockerfile` names `python:{{ cookiecutter.python_version }}-bookworm` by tag with no digest — the
-build is not reproducible until you pin it:
+Only Python 3.14 has a digest in the template, so this `Dockerfile` uses
+`python:{{ cookiecutter.python_version }}-bookworm` by tag. To pin it:
 
 ```bash
 docker pull mcr.microsoft.com/devcontainers/python:{{ cookiecutter.python_version }}-bookworm
@@ -237,16 +178,4 @@ docker images --digests mcr.microsoft.com/devcontainers/python
 ```
 
 Then append `@sha256:<digest>` to the `FROM` line.
-
 {% endif -%}
-## Updating
-
-Bundled config changes — `CLAUDE.md`, `settings.json`, `managed-settings.json`, the
-SessionStart hook, zsh config, the plugin roster — re-apply in place with no rebuild:
-
-```bash
-bash .devcontainer/post-create.sh --config-only
-```
-
-`Dockerfile` (including the Claude Code version pin) and `devcontainer.json`
-`features`/`containerEnv`/`runArgs`/`mounts` changes always need a rebuild.

@@ -1,298 +1,205 @@
 # kokko-devcontainer
 
-A [cookiecutter](https://cookiecutter.readthedocs.io/) template for a portable
-FastAPI + Vue development container, designed to run on macOS with Colima as the Docker
-runtime. Answer a dozen prompts and you get a `.devcontainer/` tailored to your project
-instead of a starter you have to hand-edit.
+A [cookiecutter](https://cookiecutter.readthedocs.io/) template for a FastAPI + Vue
+devcontainer on macOS with Colima, plus `dev`, a host command that creates, starts,
+signs in to and opens those containers. Claude Code runs inside in Auto mode, behind an
+outbound firewall, with no sudo.
 
-## Quick start
+## Install
+
+Set up or update with Claude Code: paste the contents of
+[prompts/setup.md](prompts/setup.md) (new Mac) or [prompts/update.md](prompts/update.md)
+(existing install) into Claude Code, or once the repo is cloned run
+`claude "Follow ~/code/kokko-devcontainer/prompts/update.md"`. The manual steps:
 
 ```bash
-# 1. Install prerequisites (see INSTRUCTIONS.md for detail)
-brew install colima devcontainer uv
-brew install --cask ghostty
-
-# 2. Put `dev` on your PATH (from a clone of this repo)
+brew install colima docker devcontainer uv gh jq
+brew install --cask ghostty                      # optional: dev -t / -w open Ghostty tabs
 git clone https://github.com/kokko-ng/kokko-devcontainer.git ~/code/kokko-devcontainer
-ln -s ~/code/kokko-devcontainer/bin/dev ~/.local/bin/dev
-
-# 3. Sign in once, for every devcontainer on this Mac
-dev auth            # gh and Azure come from your Mac's own logins, Copilot reuses gh,
-                    # Claude Code gets a year-long token kept in the Keychain
-
-# 4. Make a project and work in it
-dev new my-project  # generates ~/code/my-project and opens a shell in its container
-dev claude          # ... or straight into Claude Code (Auto mode, firewalled)
-dev -t              # ... or a new Ghostty tab
-dev code            # ... or VS Code, attached to the container
-dev guide           # the rest, with this Mac's state
+mkdir -p ~/.local/bin
+ln -sfn ~/code/kokko-devcontainer/bin/dev ~/.local/bin/dev   # ~/.local/bin must be on PATH
 ```
 
-`dev` sizes the Colima VM for your Mac (2 CPUs / 3 GB on an 8 GB Mac, 6 GB on 16 GB),
-starts it when Docker is down, caps each container below it, runs one devcontainer at a
-time on a Mac under 16 GB, and asks before starting the VM while macOS is short of
-memory. `dev stop` stops Colima too when nothing else runs. VS Code's "Reopen in
-Container" works on any generated project as well; `cookiecutter gh:kokko-ng/kokko-devcontainer`
-generates one by hand.
+Claude Code must be installed on the Mac (`dev auth` uses it to create the container
+token). Optional: `ln -sfn ~/code/kokko-devcontainer/ghostty/config ~/.config/ghostty/config`.
 
-Pin to a released version instead of tracking `main`:
+## First project
 
 ```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.2.0
+dev new demo        # generate ~/code/demo, start its container, open a shell in it
+exit
+dev auth demo       # once per Mac: sign-ins every devcontainer shares
+dev claude demo     # Claude Code in the container, signed in, Auto mode
 ```
 
-### Adding it to a project you already have
+`PROJECT` is a folder under `~/code` or a path. Inside a project folder, leave it out:
+in `~/code/demo`, `dev claude` does the same as `dev claude demo` from anywhere. This
+holds for every command below that takes `PROJECT`.
 
-Cookiecutter always writes a new directory, so generate next to your project and move
-the result in:
+The first build takes a few minutes. `dev` shows one live status line with the elapsed
+time and the current step (image build step, then setup phase); the full log is in
+`$TMPDIR/dev-<project>.log`.
 
-```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp
-cp -r /tmp/<your-project-slug>/.devcontainer ~/projects/your-project/
-cp /tmp/<your-project-slug>/CLAUDE.md ~/projects/your-project/        # or merge into yours
-cat /tmp/<your-project-slug>/.gitignore >> ~/projects/your-project/.gitignore
-```
+## Commands
 
-Answer the prompts with your existing layout (`backend_src_dir`, `frontend_dir`, the
-ports) so the generated config matches what is already there. The `CLAUDE.md` tells
-Claude Code how to verify its work in that layout, and the `.gitignore` keeps what the
-container creates (`.env`, Claude worktrees, Playwright artifacts) out of commits.
+| Command | Does |
+|---|---|
+| `dev [PROJECT] [-- CMD...]` | Start the VM and container if needed, then a shell (or `CMD`) in it |
+| `dev claude [PROJECT]` | ... then Claude Code (`--permission-mode auto`) |
+| `dev code [PROJECT]` | ... then VS Code attached to the container |
+| `dev -t` / `dev -w` | Open in a new Ghostty tab / window (also `dev claude -t`) |
+| `dev new NAME [key=value...]` | Generate `~/code/NAME`, `git init` it, open it |
+| `dev up [PROJECT]` | Start the container without opening anything |
+| `dev auth [--claude] [PROJECT]` | Sign in for every devcontainer; `--claude` makes a new Claude token |
+| `dev rebuild [PROJECT]` | Recreate the container (after Dockerfile or devcontainer.json edits) |
+| `dev stop [--keep-vm] [PROJECT]` | Stop the container, and Colima when nothing else runs |
+| `dev root [PROJECT]` | Root shell in the container |
+| `dev theme [light\|dark]` | Set Claude Code's theme in every running devcontainer |
+| `dev vm [status\|start\|stop\|resize]` | The Colima VM |
+| `dev ls` | List devcontainers |
+| `dev guide` | Short walkthrough with this Mac's state |
 
-### Repeatable and scripted generation
+`dev new` details: the name is lowercased, spaces and underscores become dashes, and
+`key=value` pairs are template options (below). An empty folder of that name is reused.
+If an interrupted `dev new` already generated the project, it is opened instead of
+refused. The template comes from `gh:kokko-ng/kokko-devcontainer` (`main`); set
+`DEV_TEMPLATE` to use another source, such as your clone.
 
-Every answer can be supplied on the command line, which is also how CI generates the
-project it builds:
+## What `dev` does when it opens a container
 
-```bash
-cookiecutter gh:kokko-ng/kokko-devcontainer --no-input \
-  project_name="Acme API" include_azure_cli=no include_playwright=no
-```
+- Fills missing sign-ins from the Mac (see below).
+- Updates the container's Claude Code to the Mac's version if it is older. New images are
+  built with the Mac's version (`DEVCONTAINER_CLAUDE_VERSION` -> build arg
+  `CLAUDE_CODE_VERSION`); the Dockerfile pin is the fallback.
+- Sets the Mac's Claude Code theme and marks onboarding done with the Mac's account
+  profile, so `dev claude` opens signed in, with no theme picker and no `/login`.
+- Passes `KOKKO_SOUND_EVENTS` from the Mac's Claude Code settings.
 
-`cookiecutter --replay gh:kokko-ng/kokko-devcontainer` regenerates with the answers you
-gave last time.
+`dev theme` with no argument applies the Mac's theme; `light` and `dark` mean the
+`-ansi` themes. mac-setup's `tt` calls it. The `theme-sync@kokko-claude-mods` plugin in
+the container roster applies the change to open sessions.
+
+## Sign-ins
+
+Sign-ins live in volumes shared by every devcontainer (with `cache_volume_scope=shared`),
+so a new project or a rebuild needs none.
+
+| CLI | Source |
+|---|---|
+| gh, git over https | The Mac's `gh auth token` |
+| Copilot CLI | Reuses the gh sign-in |
+| Azure CLI | The Mac's `~/.azure` token cache; `az login --use-device-code` if the Mac has none |
+| Claude Code | A year-long `claude setup-token` token, kept in the macOS Keychain |
+
+`dev auth` does the interactive part once. Every other `dev` start fills whatever is
+missing and says what is still not signed in. Host credential folders are never mounted.
+These sign-ins are as powerful as yours; the policy below limits what an agent does with
+them.
+
+## Resources
+
+`dev` sizes Colima from the Mac's RAM and caps each container below it.
+
+| Setting | Value |
+|---|---|
+| VM memory | 3 GB on an 8 GB Mac, 6 GB up to 16 GB, else half the RAM minus 4 GB |
+| VM CPUs | Half the cores, 2 to 8 |
+| VM disk | 60 GB on an 8 GB Mac, else 100 GB (sparse) |
+| Container memory | VM minus 1 GB, at least 2 GB |
+| At once | Under 16 GB: one devcontainer (starting one stops the others). Otherwise as many as fit |
+
+- The VM disk never shrinks: an existing larger Colima disk is kept.
+- An existing VM keeps its size until `dev vm resize` (which stops running containers).
+- Before starting the VM, `dev` asks if macOS has under 25% memory free.
+- Overrides, per command or in `~/.zshrc.local`: `DEV_VM_CPUS`, `DEV_VM_MEMORY`,
+  `DEV_VM_DISK` (GB), `DEV_ALLOW_MULTIPLE=1`, `DEV_FORCE=1`, `DEV_HOME` (default `~/code`).
+
+## Security model
+
+- **Auto mode.** Claude Code's classifier decides which tool calls run without a prompt.
+- **Policy.** `/etc/claude-code/managed-settings.json`, baked into the image, denies
+  force-push, `git reflog expire`, `git gc --prune`, Azure `delete`/`purge`, Docker
+  volume removal, `gh repo delete`, `gh api ... DELETE`, printing gh/az tokens and
+  reading the Claude token, and disables bypass mode. Deny rules match command text, so
+  they are a floor, not a boundary.
+- **Firewall.** With `network_firewall=on`, iptables limits everything in the container to
+  the hosts in `.devcontainer/firewall/allowed-domains.txt` (GitHub, Copilot, Anthropic,
+  npm, PyPI, Azure, Playwright, VS Code) plus GitHub's published ranges. `localhost` is
+  unaffected. Add your project's hosts to that file and `dev rebuild`. Claude Code's own
+  Bash sandbox stays off; it cannot run in an unprivileged container.
+- **No sudo.** With `agent_sudo=no`, provisioning removes the user's sudo when done, so
+  nothing in the container can change the policy or the firewall. Use `dev root`.
+- **Docker-in-Docker** is off by default because it runs the container privileged.
 
 ## Template options
 
-| Prompt | Default | What it changes |
+Pass these as `dev new NAME key=value` or to `cookiecutter`. Invalid answers are rejected
+before anything is written.
+
+| Option | Default | Effect |
 |---|---|---|
-| `project_name` | `My Project` | Documentation headings |
-| `project_slug` | derived from the name | Generated directory, container name, per-project volume names |
-| `python_version` | `3.14` | Base image tag. Only `3.14` carries the digest pin — see [Base image pinning](#base-image-pinning) |
-| `node_version` | `22` | `node` feature version |
-| `backend_src_dir` | `src` | `PYTHONPATH` |
-| `frontend_dir` | `ui` | Where `post-create.sh` installs frontend dependencies |
-| `backend_port` | `8000` | Forwarded port |
-| `frontend_port` | `5173` | Forwarded port |
-| `include_azure_cli` | `yes` | The `azure-cli` feature and the optional in-container Azure login volume hint |
-| `include_azure_sql_driver` | `yes` | The `msodbcsql18` + `unixodbc-dev` apt layer (pyodbc / Azure SQL) |
-| `include_docker_in_docker` | `no` | The `docker-in-docker` feature and the Docker VS Code extension. Off by default: the feature runs the container **privileged**, which hands an unattended agent the whole Colima VM |
-| `include_copilot_cli` | `yes` | Whether `post-create.sh` installs `@github/copilot` |
-| `include_playwright` | `yes` | The Playwright CLI, its browser volume, and the Chromium-related `runArgs` |
-| `claude_plugin_roster` | `kokko-ng` | `kokko-ng` ships all 9 plugins; `none` ships an empty roster |
-| `claude_attribution` | `host` | Whether Claude Code signs the commits and pull requests it makes with its `Co-Authored-By` trailer and PR footer. `host` copies your own Claude Code setting (`attribution` in `~/.claude/settings.json`) at generation; `no` hides both; `yes` keeps Claude Code's default |
-| `agent_sudo` | `no` | Whether the container user keeps passwordless sudo after provisioning. `no` removes it, so an agent cannot rewrite the Claude Code policy or open the firewall; `dev root` gives you root from the host |
-| `cache_volume_scope` | `shared` | `shared` reuses one set of cache and sign-in volumes (gh, Claude token, Azure) across projects, so you sign in once per Mac; `per-project` namespaces them by slug. The Claude Code state volume is always per project |
-| `container_memory_limit` | `5g` | Docker's `--memory` (and `--memory-swap`) for the container, so a runaway process is killed inside it instead of taking the Colima VM down. Keep it below the VM's `--memory`. `dev` overrides it with 1 GB under the VM it sized for your Mac |
-| `git_user_name` | blank | With `git_user_email`, the author of every commit made in the container, Claude Code's included. Blank (the default) uses the host's own `git config user.name/user.email`, recorded before every build. Set on first provision and never overwritten, so a value changed inside the container survives rebuilds |
-| `git_user_email` | blank | See `git_user_name`; both or neither |
-
-Invalid answers are rejected before anything is written — a non-lowercase slug, a port
-below 1024, two services on the same port, an absolute or escaping source directory, a
-memory limit without an `m`/`g` unit or below `512m`.
-
-## What you get
-
-| Tool | Purpose |
-|------|---------|
-| Python 3.14 + uv | Backend runtime and dependency management |
-| Node 22 | Frontend build tooling |
-| GitHub CLI | Repository and PR workflows |
-| Claude Code | AI coding assistant (native binary via `claude.ai/install.sh`, pinned to a version and baked into the image, auto-update off), with the `kokko-ng` plugin roster installed automatically |
-| pre-commit + shellcheck | The hooks the bundled `CLAUDE.md` makes mandatory, and a linter for the shell agents write |
-| Outbound firewall | iptables allowlist applied on every start: everything in the container reaches only GitHub, Copilot, Anthropic, npm, PyPI, Azure and the hosts you add |
-| bubblewrap + socat | Linux dependencies of Claude Code's Bash sandbox, which stays off (it cannot run in an unprivileged container; the firewall does its job) |
-| zsh + oh-my-zsh | Shell with autosuggestions and syntax highlighting |
-| Azure CLI | Azure resource management (optional) |
-| ODBC Driver 18 (msodbcsql18) | Azure SQL connectivity via pyodbc (optional) |
-| GitHub Copilot CLI | `copilot` binary, installed via `npm i -g @github/copilot@<pinned>` (optional) |
-| Playwright CLI + Chromium | Browser automation for coding agents (optional) |
-| Docker-in-Docker | Container builds inside the devcontainer (optional, off by default: it runs the container privileged) |
-
-Versions and optional rows follow your answers. Docker-in-Docker keeps its own image
-store in a volume that grows unnoticed — `docker system df` does not count it. Prune it
-periodically from inside the container; see [Disk management](MANAGING.md#disk-management).
-
-Alongside `.devcontainer/`, a generated project gets a `CLAUDE.md` (layout, verification
-commands and container facts for the agent) and a `.gitignore` for what the container
-creates. Claude Code's plugins and history live in a per-project named volume; the
-sign-ins (gh, which Copilot reuses, Azure, and a Claude Code token) live in volumes every
-project shares, which `dev` fills from your Mac. Neither a new project nor a rebuild costs
-a sign-in.
-
-The generated container is portable — `HOST_USER` is auto-injected from your macOS
-username, and bundled config paths are resolved relative to the script, so the workspace
-can be named anything.
-
-## Repo structure
-
-```
-cookiecutter.json         # The prompts, their defaults, and what is copied unrendered
-hooks/
-├── pre_gen_project.py    # Rejects invalid answers before anything is written
-└── post_gen_project.py   # Trims the Claude plugin roster; prints next steps
-{{cookiecutter.project_slug}}/     # Everything a generated project receives
-├── DEVCONTAINER.md       # Generated per-project docs
-├── CLAUDE.md             # Generated project instructions for Claude Code
-├── .gitignore            # What the container creates and git must not see
-└── .devcontainer/
-    ├── devcontainer.json # Jinja-templated (JSONC)
-    ├── Dockerfile        # Jinja-templated
-    ├── init-host-certs.sh
-    ├── post-create.sh    # Jinja-free; options arrive as containerEnv variables
-    └── config/
-        ├── zsh/          # Shell config (bundled into container)
-        └── claude/       # Claude Code settings, policy, hook and CLAUDE.md
-            ├── settings.json          # Defaults the user may override (merged)
-            ├── managed-settings.json  # Policy the user may not: deny list, no bypass mode
-            ├── hooks/                 # SessionStart hook: surfaces failed provisioning
-            ├── merge-settings.jq      # Merges bundled settings into a live settings.json
-            └── prune-roster.jq        # Removes roster entries the bundle dropped
-ghostty/
-└── config                # Host-side Ghostty terminal config (not templated)
-tests/
-├── merge-settings-tests.sh  # Regression tests for the settings pipeline
-└── template-tests.sh        # Renders the template and asserts the output
-.github/                  # CI (pre-commit, both test suites, shellcheck, actionlint,
-                          # hadolint, render + build, gitleaks) + release workflow
-VERSION                   # Drives the v<version> tag published by release.yml
-CLAUDE.md                 # For agents working ON this repo (tests, layout, rules)
-CONTRIBUTING.md           # Test commands, pre-commit setup, release flow
-INSTRUCTIONS.md           # Full setup walkthrough
-MANAGING.md               # Multi-instance management guide
-```
-
-### Which files carry Jinja
-
-Only `devcontainer.json`, the `Dockerfile`, and the Markdown (including the generated
-`CLAUDE.md`) are templated. `post-create.sh`, `init-host-certs.sh`, the `.jq` files, the
-bundled `settings.json` and `managed-settings.json`, the hook script, and the zsh config
-are deliberately Jinja-free, so they stay shellcheck-clean, `jq`-parseable, and directly
-testable with no rendering step. The options those files need arrive at run time as
-`DEVCONTAINER_*` variables in `containerEnv`.
-
-## Permission model
-
-Claude Code runs in **Auto mode** (`permissions.defaultMode: "auto"` in the bundled
-settings.json, and the `cca` alias): Claude Code's built-in classifier decides which
-tool calls are safe to run without a prompt. There is no bespoke hook layer in front of
-git — the guard/snapshot hooks and the `snaps` CLI that earlier versions shipped are
-retired, and `post-create.sh` removes their leftovers from containers that still carry
-them.
-
-Two things sit around auto mode:
-
-- **A deny floor it cannot cross.** `managed-settings.json` is installed to
-  `/etc/claude-code/managed-settings.json`, the highest-precedence settings file, so
-  nothing in `~/.claude` or a project can loosen it. It denies force-push in every
-  spelling, `git reflog expire` and `git gc --prune`, Azure `delete`/`purge`, Docker
-  volume pruning, `gh repo delete` and `gh api ... DELETE`, and it disables bypass mode
-  (`--dangerously-skip-permissions`; the old `skipDangerousModePermissionPrompt` is
-  gone, and the merge strips it from existing containers). Deny rules match the
-  command as Claude writes it, including inside `&&` chains and subshells, but not a
-  different program that does the same thing — a floor, not a security boundary.
-- **A network it cannot leave.** An outbound firewall (iptables, applied on every
-  start) limits everything in the container, Claude Code, Copilot CLI, gh, az, MCP
-  servers and the commands they run, to an allowlist: GitHub, Copilot, Anthropic, npm,
-  PyPI, Azure, plus the hosts you add to `.devcontainer/firewall/allowed-domains.txt`.
-  `gh` and `az` work, so Auto mode keeps both CLIs; what an agent cannot do is send
-  anything elsewhere. `localhost` is unaffected, so dev servers and tests work as
-  usual. Claude Code's own Bash sandbox stays off: it needs user namespaces that an
-  unprivileged container does not have.
-- **No sudo.** The policy is baked into the image, and `post-create.sh` removes the
-  container user's passwordless sudo once provisioning is done (`agent_sudo: no`), so
-  nothing in the container can rewrite policy, install packages or open the firewall
-  (its script is the one thing left that sudo runs, and it only re-applies the rules). `dev root` gives you a root shell from the host; a policy change takes a rebuild,
-  which only you run.
-
-Docker-in-Docker is opt-in for the same reason: the feature runs the container
-privileged, which hands an unattended agent the whole Colima VM.
-
-Git recoverability rests on git itself: `gc.reflogExpire`, `gc.reflogExpireUnreachable`
-and `gc.pruneExpire` are set to `never`, so committed work is always recoverable from
-the reflog, and `safe.directory` is `*` so git works in the bind-mounted workspace and
-in the worktrees `claude --worktree` creates.
-
-A `SessionStart` hook prints any provisioning step that failed into the session, so the
-agent learns about a broken `uv sync` before it starts work. The Bash tool's timeout is
-raised (10 minutes by default, 30 on request) so full test suites finish in one call.
+| `project_name` | `My Project` | Headings; the slug derives from it |
+| `python_version` | `3.14` | Base image. Only `3.14` is digest-pinned |
+| `node_version` | `22` | Node feature version (`24`, `20`) |
+| `backend_src_dir` / `frontend_dir` | `src` / `ui` | `PYTHONPATH`; where frontend deps are installed |
+| `backend_port` / `frontend_port` | `8000` / `5173` | Forwarded ports |
+| `include_azure_cli` | `yes` | Azure CLI and its sign-in volume |
+| `include_azure_sql_driver` | `yes` | ODBC Driver 18 for pyodbc / Azure SQL |
+| `include_docker_in_docker` | `no` | Nested Docker; makes the container privileged |
+| `include_copilot_cli` | `yes` | GitHub Copilot CLI |
+| `include_playwright` | `yes` | Playwright CLI and Chromium |
+| `claude_plugin_roster` | `kokko-ng` | The plugins below, or `none` |
+| `claude_attribution` | `host` | Claude's commit/PR trailer: copy the Mac's setting, `no`, or `yes` |
+| `agent_sudo` | `no` | `yes` keeps passwordless sudo in the container |
+| `network_firewall` | `on` | `off` leaves outbound traffic open |
+| `cache_volume_scope` | `shared` | `per-project` gives each project its own caches and sign-ins |
+| `container_memory_limit` | `5g` | Memory cap when started without `dev` |
+| `git_user_name` / `git_user_email` | blank | Commit author; blank uses the Mac's git identity |
 
 ## Claude Code plugins
 
-`post-create.sh` registers the marketplaces in `extraKnownMarketplaces` and installs every
-plugin set to `true` in `enabledPlugins`, both read from
-`.devcontainer/config/claude/settings.json`. `enabledPlugins` on its own only *enables* a
-plugin that is already installed, so without this step a fresh container comes up with an
-empty plugin directory.
+The `kokko-ng` roster installs, on first start and at most once a day after:
 
-With `claude_plugin_roster=kokko-ng` (the default) that is all 9 `kokko-ng` plugins across
-[kokko-skills](https://github.com/kokko-ng/kokko-skills) and
-[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill). With `none` the roster is empty
-and you add your own. Either way, edit `enabledPlugins` afterwards to change it; a plugin
-set to `false` is never installed.
-
-The bootstrap reads the **merged** `~/.claude/settings.json`, so a plugin you disable
-locally stays disabled. Its network calls run at most once per 24 hours (stamp:
-`~/.claude/.plugin-bootstrap-stamp`); two environment variables control it:
-
-| Variable | Effect |
+| Marketplace | Plugins |
 |---|---|
-| `KOKKO_PLUGIN_REFRESH=1` | Force a marketplace/plugin refresh now, ignoring the 24h stamp |
-| `KOKKO_SKIP_PLUGINS=1` | Skip the plugin bootstrap entirely (used by CI) |
+| [kokko-skills](https://github.com/kokko-ng/kokko-skills) | kokko-git, kokko-code-quality, kokko-viz, kokko-infra, kokko-ai-config, kokko-notifications, kokko-validation, kokko-env |
+| [kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill) | kokko-janitor |
+| [kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods) | theme-sync |
 
-## Base image pinning
+Edit `enabledPlugins` in `.devcontainer/config/claude/settings.json`; `false` means never
+installed. `KOKKO_PLUGIN_REFRESH=1` forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it.
 
-The `Dockerfile` pins its base image by digest, but the template only carries a digest
-for its default Python (`3.14`). Choosing another Python version emits a tag-only `FROM`
-plus a warning telling you how to pin it — inventing a digest would be worse than
-shipping none.
+## Other ways in
 
-## Updating a generated project
+- **VS Code alone:** open the project and accept "Reopen in Container". Sign in by hand
+  once: `gh auth login -w`, `az login --use-device-code`, and `claude setup-token` with
+  the token saved to `~/.config/claude-auth/oauth-token`.
+- **Existing project:** generate elsewhere and copy in.
 
-Bundled config changes — `CLAUDE.md`, `settings.json`, `managed-settings.json`, the
-SessionStart hook, zsh config, the plugin roster — can be re-applied in place, with no
-rebuild:
+  ```bash
+  uvx cookiecutter gh:kokko-ng/kokko-devcontainer -o /tmp
+  cp -r /tmp/<slug>/.devcontainer ~/code/your-project/
+  cp /tmp/<slug>/CLAUDE.md ~/code/your-project/       # or merge into yours
+  cat /tmp/<slug>/.gitignore >> ~/code/your-project/.gitignore
+  ```
 
-```bash
-bash .devcontainer/post-create.sh --config-only
-```
+  Answer the prompts with the project's real layout (source dir, frontend dir, ports).
 
-`/devcontainer-update` (from `kokko-env` in
-[kokko-skills](https://github.com/kokko-ng/kokko-skills)) does the whole job: diff this
-project's `.devcontainer/` against the latest upstream, update the files, run the refresh,
-and report what still needs a rebuild.
+- **Pinned version:** `uvx cookiecutter gh:kokko-ng/kokko-devcontainer --checkout v5.2.0`.
 
-Releases are tagged: the `VERSION` file at the repo root drives a `v<version>` tag and
-GitHub release, published automatically once CI passes on `main`. That means
-`--checkout v5.2.0` (cookiecutter) or `/devcontainer-update --ref v5.2.0` can pin a
-project to a known-good version instead of tracking `main`. Dockerfile (including the
-Claude Code version pin) and `devcontainer.json` `features`/`containerEnv`/`runArgs`/
-`mounts` changes always need a rebuild.
+Keep projects out of iCloud, OneDrive and Dropbox folders (`~/Documents` and `~/Desktop`
+are often synced); `~/code` is fine.
 
-## Caveats
+## Updating a project
 
-- The generated devcontainer assumes a **FastAPI + Vue** project layout. The
-  `backend_src_dir` and `frontend_dir` prompts cover the common case; anything more
-  unusual is a post-generation edit.
-- Shell config (zsh) and Claude Code settings are bundled in `.devcontainer/config/` — no
-  host dotfiles are read.
-- Claude Code state persists in a per-project named volume and the sign-ins in shared
-  ones; nothing is bind-mounted from the host. Host credential directories (`~/.ssh`,
-  `~/.azure`, the host's `~/.claude`) stay outside on purpose: `dev` copies the gh
-  token and the az token cache into the container's own volumes once, and the firewall
-  keeps anything in the container from sending them anywhere but the allowlisted hosts. Those sign-ins
-  are as powerful as your own, so an agent in Auto mode can do with gh and az what you
-  can, short of the deny list.
-- Claude Code is pinned to a version in the `Dockerfile` and does not auto-update. `cu`
-  installs the latest release until the next rebuild; bump the pin to move for good.
+`/devcontainer-update` (kokko-env plugin) diffs `.devcontainer/` against upstream,
+updates it and reports what needs a rebuild. Config under `.devcontainer/config/` is
+re-applied on every container start, or now with
+`bash .devcontainer/post-create.sh --config-only`. Changes to the Dockerfile, the
+policy, the firewall allowlist or devcontainer.json need `dev rebuild`.
 
-See [INSTRUCTIONS.md](INSTRUCTIONS.md) for a full setup walkthrough and [MANAGING.md](MANAGING.md) for running multiple instances.
+## More
+
+- Generated projects: `DEVCONTAINER.md` in the project.
+- Troubleshooting, disk, pins, releases: [MANAGING.md](MANAGING.md).
+- Changing this repo: [CONTRIBUTING.md](CONTRIBUTING.md).
