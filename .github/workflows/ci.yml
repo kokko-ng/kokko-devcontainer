@@ -33,6 +33,16 @@ jobs:
           pip install pre-commit
           pre-commit run --all-files --show-diff-on-failure
 
+  commit-messages:
+    name: commit messages (commitizen)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Every commit follows Conventional Commits
+        run: pipx run --spec commitizen==4.19.2 cz check --rev-range HEAD
+
   settings-merge-tests:
     name: settings pipeline regression tests
     runs-on: ubuntu-latest

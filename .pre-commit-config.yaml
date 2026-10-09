@@ -1,3 +1,5 @@
+# Install once per clone: pre-commit install (pre-commit and commit-msg hooks).
+default_install_hook_types: [pre-commit, commit-msg]
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -28,3 +30,10 @@ repos:
         # shellcheck cannot parse zsh; CI lints the same explicit bash file
         # list and has never included the bundled zsh config either.
         exclude: /config/zsh/
+
+  # Commit messages follow Conventional Commits; CI checks every commit too.
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.19.2
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]

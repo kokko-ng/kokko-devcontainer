@@ -585,7 +585,7 @@ cmd_new() {
     dir="$DEV_HOME/$slug"
     # An empty folder (mkdir first) is fine; a project an interrupted
     # `dev new` already generated is opened rather than refused.
-    [[ -d "$dir" ]] && rmdir "$dir" 2>/dev/null || true
+    if [[ -d "$dir" ]]; then rmdir "$dir" 2>/dev/null || true; fi
     if [[ -f "$dir/.devcontainer/devcontainer.json" ]]; then
         say "$dir was generated before; opening it"
         cmd_open "$dir"

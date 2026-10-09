@@ -287,6 +287,7 @@ assert "default Dockerfile installs the ODBC driver" \
     grep -q msodbcsql18 "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile installs the host's Claude Code version, else a pinned one" \
     grep -qE 'install\.sh \| bash -s "\$\{CLAUDE_CODE_VERSION:-[0-9]+\.[0-9]+\.[0-9]+\}"$' "$DEFAULT/.devcontainer/Dockerfile"
+# shellcheck disable=SC2016 # ${localEnv:...} is devcontainer syntax, not shell
 assert_jq "devcontainer.json passes dev's Claude Code version to the build" "$DC" \
     '.build.args.CLAUDE_CODE_VERSION == "${localEnv:DEVCONTAINER_CLAUDE_VERSION}"'
 assert "default Dockerfile installs shellcheck and the sandbox dependencies" \
