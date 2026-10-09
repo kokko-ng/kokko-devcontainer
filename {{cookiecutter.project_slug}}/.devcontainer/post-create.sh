@@ -211,14 +211,15 @@ install_playwright_cli() {
         step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
-    # Playwright's own Chromium, as the CLI's global config
+    # Playwright's own Chromium, headless, as the CLI's global config
     # (~/.playwright/cli.config.json). Its default is the Google Chrome
-    # channel, which has no Linux arm64 build. Written only when absent, so an
+    # channel, which has no Linux arm64 build; headless is pinned because the
+    # container has no display, real or virtual. Written only when absent, so an
     # edit survives until the next rebuild.
     local pw_config="$HOME/.playwright/cli.config.json"
     if [[ ! -f "$pw_config" ]]; then
         mkdir -p "$(dirname "$pw_config")"
-        printf '%s\n' '{"browser": {"browserName": "chromium", "launchOptions": {"channel": "chromium"}}}' >"$pw_config"
+        printf '%s\n' '{"browser": {"browserName": "chromium", "launchOptions": {"channel": "chromium", "headless": true}}}' >"$pw_config"
     fi
     # Run from $HOME: the CLI puts its skill in ./.claude/skills, which here is
     # ~/.claude/skills (user level, in the ~/.claude volume) instead of the

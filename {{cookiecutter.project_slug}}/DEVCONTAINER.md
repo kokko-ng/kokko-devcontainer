@@ -48,7 +48,7 @@ settings so extensions download on the Mac.
 | GitHub Copilot CLI | `copilot` |
 {%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %}
-| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium; its skill is in `~/.claude/skills`, not the project) |
+| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium, headless; its skill is in `~/.claude/skills`, not the project) |
 {%- endif %}
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
 | Docker-in-Docker | Container builds inside the devcontainer |

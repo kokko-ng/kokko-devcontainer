@@ -232,8 +232,10 @@ assert_jq "Claude Code's Bash tool runs bash" "$DC" '.containerEnv.CLAUDE_CODE_S
 assert "the image carries Chromium's system libraries with playwright" \
     grep -qE 'apt-get install .* libatk-bridge2\.0-0 .* libgbm1 .* libnss3 .* libxkbcommon0 ' "$DEFAULT/.devcontainer/Dockerfile"
 PCS="$DEFAULT/.devcontainer/post-create.sh"
-assert "post-create points the CLI's global config at Playwright's Chromium" \
-    grep -qF '"launchOptions": {"channel": "chromium"}' "$PCS"
+assert "post-create points the CLI's global config at Playwright's Chromium, headless" \
+    grep -qF '"launchOptions": {"channel": "chromium", "headless": true}' "$PCS"
+refute "nothing sets a DISPLAY or installs a virtual display" \
+    grep -qiE 'xvfb|"DISPLAY"|DISPLAY=' "$DEFAULT/.devcontainer/Dockerfile" "$DEFAULT/.devcontainer/devcontainer.json" "$PCS"
 # shellcheck disable=SC2016  # the $HOME is the script's own text
 assert "the CLI's global config lives in ~/.playwright" grep -qF 'pw_config="$HOME/.playwright/cli.config.json"' "$PCS"
 assert "the playwright-cli skill is installed from \$HOME (user level), not the project" \
