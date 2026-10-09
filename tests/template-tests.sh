@@ -224,6 +224,7 @@ assert "az extensions live in an image path, not the ~/.azure volume" \
     grep -qx 'ENV AZURE_EXTENSION_DIR=/usr/local/lib/azure-cli-extensions' "$DEFAULT/.devcontainer/Dockerfile"
 assert_jq "the azure-cli feature installs the two extensions" "$DC" \
     '.features["ghcr.io/devcontainers/features/azure-cli:1"].extensions == "log-analytics,containerapp"'
+assert_jq "Claude Code's Bash tool runs bash" "$DC" '.containerEnv.CLAUDE_CODE_SHELL == "/bin/bash"'
 # Playwright: Chromium's system libraries in the image (a warm browsers volume
 # skips any download-time install), Playwright's own Chromium as the CLI's
 # global config (Google Chrome has no Linux arm64 build), the skill at user
@@ -322,10 +323,20 @@ assert_jq "Claude attribution is off in every render" \
 assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" \
     '.permissions.disableBypassPermissionsMode == "disable"'
+assert_jq "the policy forces Claude Code's Bash sandbox off" \
+    "$DEFAULT/.devcontainer/config/claude/managed-settings.json" '.sandbox.enabled == false'
 # The bundled container CLAUDE.md (copied verbatim, so checked once here).
 CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
 assert "container CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64' "$CCM"
 assert "container CLAUDE.md names the blocked-host list" grep -q 'devcontainer-firewall --blocked' "$CCM"
+# shellcheck disable=SC2016  # the backticks are Markdown, not command substitution
+assert "container CLAUDE.md says the Bash tool is bash and terminals are zsh" \
+    grep -q 'Bash tool runs bash (`CLAUDE_CODE_SHELL`); the user.s terminals are zsh' "$CCM"
+assert "container CLAUDE.md says to wait after a permission denial" \
+    grep -q 'After any permission denial, ask the user and wait' "$CCM"
+# shellcheck disable=SC2016  # the backticks are Markdown, not command substitution
+assert "container CLAUDE.md says how to wait without a foreground sleep" \
+    grep -q 'foreground `sleep` is refused' "$CCM"
 
 # The agent-facing files a generated project carries next to .devcontainer/.
 assert "generated project has a CLAUDE.md for the agent" \
@@ -572,6 +583,7 @@ refute "no Chromium libraries without playwright" grep -q 'libnss3' "$SLIM/.devc
 assert_jq "no update-notifier switch without playwright" "$SDC" '.containerEnv | has("NO_UPDATE_NOTIFIER") | not'
 refute "no az extension directory without the azure cli" \
     grep -qE 'AZURE_EXTENSION_DIR|AZURE_BICEP' "$SLIM/.devcontainer/Dockerfile"
+assert_jq "slim Claude Code's Bash tool still runs bash" "$SDC" '.containerEnv.CLAUDE_CODE_SHELL == "/bin/bash"'
 assert "slim CLAUDE.md still says the container is linux/arm64" \
     grep -q 'linux/arm64 on Apple Silicon' "$SLIM/CLAUDE.md"
 assert "slim CLAUDE.md still says there is no Docker" \

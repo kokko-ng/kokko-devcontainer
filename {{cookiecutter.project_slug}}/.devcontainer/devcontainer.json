@@ -60,6 +60,10 @@
     // renders as maroon. Both documented hosts (Ghostty, VS Code) are
     // truecolor terminals, so advertise that container-wide.
     "COLORTERM": "truecolor",
+    // Claude Code's Bash tool runs bash, not the login shell (zsh). zsh's
+    // `=word` expansion, unmatched-glob errors and `$var:r`-style modifiers
+    // have mangled commands written for bash; interactive terminals stay zsh.
+    "CLAUDE_CODE_SHELL": "/bin/bash",
     // Claude Code state lives in a named volume (see "mounts"). Claude keeps
     // the OAuth session in a .claude.json OUTSIDE ~/.claude by default, so the
     // volume alone would still lose the login on every rebuild; pointing

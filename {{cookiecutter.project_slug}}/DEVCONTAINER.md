@@ -121,7 +121,8 @@ Sign-in and cache volumes belong to this project only; run `dev auth` here once.
   `.devcontainer/config/claude/managed-settings.json`, baked into the image) denies
   force-push, `git reflog expire`, `git gc --prune`, Azure `delete`/`purge`, Docker volume
   removal, `gh repo delete`, `gh api ... DELETE` and reading or printing tokens, and
-  disables bypass mode. Rules match command text: a floor, not a boundary.
+  disables bypass mode and Claude Code's Bash sandbox. Rules match command text: a floor,
+  not a boundary.
 {%- if cookiecutter.network_firewall == "on" %}
 - **Firewall.** Outbound traffic reaches only the hosts in
   `.devcontainer/firewall/allowed-domains.txt` plus GitHub's ranges; `localhost` is

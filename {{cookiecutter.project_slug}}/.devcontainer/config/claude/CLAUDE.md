@@ -19,6 +19,8 @@ removal and pruning, `gh repo delete` and `gh api` DELETE calls, and reading or
 printing the gh, Azure and Claude tokens.
 **A denied command was denied on purpose.** Report it and ask; do not look for another
 spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
+After any permission denial, ask the user and wait for the answer; do not retry or
+switch to other commands meanwhile.
 
 **The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
 you cannot change and must not try to: everything here reaches only an allowlist of hosts
@@ -251,10 +253,15 @@ dev servers, potentially your own session's processes. Instead:
 
 ## Shell
 
-The shell is zsh. Brace a variable that is followed by a colon (`"${app}:${tag}"`,
-`"${app}:latest"`): after an unbraced name zsh reads `:l`, `:u`, `:h`, `:t` and others as
-modifiers and silently changes the string (`$app:light-only` once reached Azure as
-`frontendight-only`).
+Your Bash tool runs bash (`CLAUDE_CODE_SHELL`); the user's terminals are zsh. Still
+brace a variable that is followed by a colon (`"${app}:${tag}"`, `"${app}:latest"`) in
+anything the user may paste into a terminal: after an unbraced name zsh reads `:l`,
+`:u`, `:h`, `:t` and others as modifiers and silently changes the string
+(`$app:light-only` once reached Azure as `frontendight-only`).
+
+A bare foreground `sleep` is refused by the harness. To wait, poll the condition with
+an `until` loop (`until curl -fs localhost:8000/health; do sleep 2; done`), or run the
+command as a background task.
 
 ## Subagents
 

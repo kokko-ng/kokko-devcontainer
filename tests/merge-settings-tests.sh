@@ -11,8 +11,8 @@
 #                           are pruned from the live settings unless the user
 #                           overrode them.
 #   managed-settings.json - the policy file post-create.sh installs to
-#                           /etc/claude-code/: bypass mode locked, deny list
-#                           present and scoped.
+#                           /etc/claude-code/: bypass mode locked, Bash sandbox
+#                           forced off, deny list present and scoped.
 #   hooks/session-provision-status.sh - the SessionStart hook: prints the
 #                           provisioning ledger when it is non-empty, nothing
 #                           otherwise, and never fails.
@@ -117,9 +117,11 @@ check "every deny rule is a scoped Bash, Read or Edit pattern" \
 # the policy, limits where they can go); the policy at least refuses to read
 # the Claude token file or print the gh and az tokens on an agent's behalf.
 # Claude Code's own Bash sandbox is not used: bubblewrap cannot create user
-# namespaces in an unprivileged container, and the policy must not turn it on.
-check "policy does not switch on the Bash sandbox" \
-    '(.sandbox.enabled // false) == false' "$MANAGED_JSON"
+# namespaces in an unprivileged container. The policy forces it off, so a
+# project's own .claude/settings.local.json (on the bind-mounted workspace)
+# cannot switch it on and send every command to an unsandboxed-retry prompt.
+check "policy forces the Bash sandbox off" \
+    '.sandbox == {enabled: false}' "$MANAGED_JSON"
 check "policy denies reading the shared Claude token" \
     '.permissions.deny | index("Read(~/.config/claude-auth/**)") != null' "$MANAGED_JSON"
 # CLAUDE_CODE_SUBPROCESS_ENV_SCRUB forces the permission mode back to default,

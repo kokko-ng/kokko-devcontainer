@@ -194,6 +194,8 @@ jobs:
             test -z "$(DEVCONTAINER_PROVISION_STATUS=/dev/null "$HOME/.claude/hooks/session-provision-status.sh")"
             printf '2026-01-01T00:00:00Z FAILED: example-step\n' > /tmp/ledger
             DEVCONTAINER_PROVISION_STATUS=/tmp/ledger "$HOME/.claude/hooks/session-provision-status.sh" | grep -q 'example-step'
+            # Claude Code's Bash tool runs bash, not the login shell (zsh).
+            test "$CLAUDE_CODE_SHELL" = /bin/bash
             # OpenSSL skips its arm64 CPU probe; the Azure tooling is baked
             # in: the extensions in an image path (not the ~/.azure volume),
             # and az bicep on the pinned binary.
@@ -202,6 +204,7 @@ jobs:
             az extension show --name log-analytics --query version
             az bicep version | grep -F "$(grep -oE 'BICEP_VERSION=v[0-9.]+' .devcontainer/Dockerfile | cut -dv -f2)"
             # Policy lives in managed settings, above anything a user can set.
+            jq -e '.sandbox.enabled == false' /etc/claude-code/managed-settings.json
             jq -e '.permissions.disableBypassPermissionsMode == "disable"' /etc/claude-code/managed-settings.json
             jq -e '.permissions.deny | index("Bash(git push --force*)") != null' /etc/claude-code/managed-settings.json
             # git works in the bind mount and in any worktree under it.
