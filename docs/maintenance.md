@@ -17,7 +17,8 @@ start (or now: `bash .devcontainer/post-create.sh --config-only`); the Dockerfil
 | `docker` cannot connect, `colima status` looks fine | VM disk full: [When the disk is full](#when-the-disk-is-full) |
 | Container very slow, exec sessions die | VM on `sshfs`: [Mount type](#mount-type) |
 | Files like `name 2.ext` keep appearing | Project in a cloud-synced folder. Move it to `~/code` |
-| "No route to host" from a host | The firewall: [security.md](security.md#firewall) |
+| "No route to host" from a host | The firewall: `devcontainer-firewall --blocked` names it; [security.md](security.md#firewall) |
+| "Illegal instruction" from az or Python | Old image without `OPENSSL_armcap=0`. `dev rebuild` |
 | Orange renders as red | Old container without `COLORTERM=truecolor`. `dev rebuild` |
 | A provisioning step failed | Shown when a Claude Code session starts; details in `/tmp/post-create.log` |
 
@@ -85,6 +86,8 @@ quarterly (files under `{{cookiecutter.project_slug}}/`):
 | Pin | File | Latest |
 |---|---|---|
 | `uv==`, `pre-commit==`, Starship, Claude Code fallback | `.devcontainer/Dockerfile` | PyPI; `gh release view -R starship/starship`; `npm view @anthropic-ai/claude-code version` |
+| `BICEP_VERSION` | `.devcontainer/Dockerfile` | `gh release view -R Azure/bicep` |
+| `autoMode.allow` (Claude Code's default allow rules, copied from 2.1.295) | `.devcontainer/config/claude/settings.json` | `claude auto-mode defaults`; refresh when the Claude Code version moves, keeping the last two rules |
 | `@github/copilot@`, `@playwright/cli@`, zsh plugin tags | `.devcontainer/post-create.sh` | `npm view <package> version`; `git ls-remote --tags` |
 | Node `version`, feature major tags | `.devcontainer/devcontainer.json` | `devcontainer features info tags <feature>` |
 | Hook `rev:`s | `.pre-commit-config.yaml` | `pre-commit autoupdate` in a rendered project, then copy back |
