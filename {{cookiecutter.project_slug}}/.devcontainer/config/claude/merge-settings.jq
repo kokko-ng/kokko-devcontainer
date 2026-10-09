@@ -25,9 +25,13 @@
 #     wired in when no hook in that event references it yet. A user's own
 #     hooks are never touched, a user's edits to the bundled entry (a
 #     different timeout, say) survive, and a second run adds nothing.
-#   * attribution, permissions.defaultMode, alwaysThinkingEnabled — only when
-#     absent: a fresh settings.json gets the bundled defaults, while any value
-#     the user has set — whatever it is — wins.
+#   * attribution, permissions.defaultMode, alwaysThinkingEnabled, tui — only
+#     when absent: a fresh settings.json gets the bundled defaults, while any
+#     value the user has set — whatever it is — wins.
+#   * autoMode — only when absent, and then whole: Claude Code's own allow
+#     rules plus the bundle's two. A custom allow list REPLACES the defaults,
+#     so the bundle carries them; a user's own autoMode block wins outright
+#     rather than being mixed with ours.
 #
 # Policy that must NOT be user-overridable (the deny list, the bypass-mode
 # lock) is not merged here at all: it ships in managed-settings.json, which
@@ -98,6 +102,12 @@ def wired($groups):
   else . end
 | if (has("alwaysThinkingEnabled") | not) and ($new | has("alwaysThinkingEnabled"))
   then .alwaysThinkingEnabled = $new.alwaysThinkingEnabled
+  else . end
+| if (has("tui") | not) and ($new | has("tui"))
+  then .tui = $new.tui
+  else . end
+| if (has("autoMode") | not) and ($new | has("autoMode"))
+  then .autoMode = $new.autoMode
   else . end
 | if .skipDangerousModePermissionPrompt == true
   then del(.skipDangerousModePermissionPrompt)

@@ -194,6 +194,8 @@ jobs:
             test -z "$(DEVCONTAINER_PROVISION_STATUS=/dev/null "$HOME/.claude/hooks/session-provision-status.sh")"
             printf '2026-01-01T00:00:00Z FAILED: example-step\n' > /tmp/ledger
             DEVCONTAINER_PROVISION_STATUS=/tmp/ledger "$HOME/.claude/hooks/session-provision-status.sh" | grep -q 'example-step'
+            # The merge added the bundled renderer and Auto mode allow rules.
+            jq -e '.tui == "fullscreen" and (.autoMode.allow | length == 19)' "$HOME/.claude/settings.json"
             # Claude Code's Bash tool runs bash, not the login shell (zsh).
             test "$CLAUDE_CODE_SHELL" = /bin/bash
             # OpenSSL skips its arm64 CPU probe; the Azure tooling is baked

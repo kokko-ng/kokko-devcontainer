@@ -325,6 +325,9 @@ assert_jq "bundled managed settings stay valid JSON and lock bypass mode" \
     '.permissions.disableBypassPermissionsMode == "disable"'
 assert_jq "the policy forces Claude Code's Bash sandbox off" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" '.sandbox.enabled == false'
+assert_jq "the bundle ships the autoMode allow rules and the fullscreen renderer" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.tui == "fullscreen" and (.autoMode.allow | length == 19)'
 # The bundled container CLAUDE.md (copied verbatim, so checked once here).
 CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
 assert "container CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64' "$CCM"
