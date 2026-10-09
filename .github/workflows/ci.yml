@@ -101,6 +101,8 @@ jobs:
             "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+            "{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh" \
+            "{{cookiecutter.project_slug}}/scripts/hooks/frontend.sh" \
             tests/merge-settings-tests.sh \
             tests/template-tests.sh \
             bin/dev
@@ -203,6 +205,18 @@ jobs:
             # The firewall is in force: allowlisted hosts answer, others do not.
             curl -fsS --max-time 10 -o /dev/null https://api.github.com/zen
             if curl -fsS --max-time 5 -o /dev/null https://example.com; then echo "firewall is not in force"; exit 1; fi
+            # The generated project's quality gate works here, firewall up:
+            # provisioning wrote uv.lock, every hook passes on the fresh
+            # project, a conventional commit lands, and any other is refused.
+            test -f uv.lock
+            git init -q -b main
+            git config user.name "CI" && git config user.email "ci@example.com"
+            pre-commit install
+            test -f .git/hooks/commit-msg && test -f .git/hooks/pre-push
+            git add -A
+            pre-commit run --all-files --show-diff-on-failure
+            git commit -q -m "chore: scaffold from kokko-devcontainer"
+            if git commit -q --allow-empty -m "not a conventional message"; then echo "commitizen accepted a bad message"; exit 1; fi
 
   gitleaks:
     name: gitleaks (secret scan)
