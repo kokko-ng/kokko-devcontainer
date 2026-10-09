@@ -76,6 +76,9 @@ check "bundle does not roster kokko-safety" \
     '.enabledPlugins | has("kokko-safety@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
 check "policy denies squash merges" \
     '[.permissions.deny[] | select(test("squash"))] | length >= 3' "$MANAGED_JSON"
+check "bundle no longer rosters kokko-code-quality or kokko-janitor" \
+    '(.enabledPlugins | keys | map(select(test("kokko-code-quality|kokko-janitor"))) | length == 0)
+       and (.extraKnownMarketplaces | has("kokko-ng-kokko-janitor") | not)' "$BUNDLE_JSON"
 check "bundle rosters theme-sync with its marketplace" \
     '.enabledPlugins["theme-sync@kokko-claude-mods"] == true
        and (.extraKnownMarketplaces | has("kokko-claude-mods"))' "$BUNDLE_JSON"

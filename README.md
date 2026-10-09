@@ -162,12 +162,13 @@ The `kokko-ng` roster installs, on first start and at most once a day after:
 
 | Marketplace | Plugins |
 |---|---|
-| [kokko-skills](https://github.com/kokko-ng/kokko-skills) | kokko-git, kokko-code-quality, kokko-viz, kokko-infra, kokko-ai-config, kokko-notifications, kokko-validation, kokko-env |
-| [kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill) | kokko-janitor |
+| [kokko-skills](https://github.com/kokko-ng/kokko-skills) | kokko-git, kokko-viz, kokko-infra, kokko-ai-config, kokko-notifications, kokko-validation, kokko-env |
 | [kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods) | theme-sync |
 
 Edit `enabledPlugins` in `.devcontainer/config/claude/settings.json`; `false` means never
-installed. `KOKKO_PLUGIN_REFRESH=1` forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it.
+installed. `KOKKO_PLUGIN_REFRESH=1` forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it. Code
+quality is enforced by each repo's pre-commit config, not a plugin; kokko-code-quality
+and kokko-janitor are uninstalled from existing containers on their next start.
 
 ## Other ways in
 

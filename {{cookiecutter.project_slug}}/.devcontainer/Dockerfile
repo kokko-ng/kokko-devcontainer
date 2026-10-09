@@ -111,8 +111,8 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
 # the account the devcontainer base image creates, and devcontainer.json's
 # `remoteUser` names it as a string — hardcoding its uid here would duplicate a
 # mapping the base image owns and silently rot when that image changes it.
-# hadolint ignore=DL3066
 ARG CLAUDE_CODE_VERSION
+# hadolint ignore=DL3066
 USER vscode
 RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.295}"
 # Devcontainer features and any later build steps expect to run as root

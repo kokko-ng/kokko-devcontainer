@@ -144,11 +144,10 @@ The roster is empty. Add marketplaces and plugins to
 `.devcontainer/config/claude/settings.json`, then run
 `bash .devcontainer/post-create.sh --config-only`.
 {%- else -%}
-The `kokko-ng` roster: kokko-git, kokko-code-quality, kokko-viz, kokko-infra,
-kokko-ai-config, kokko-notifications, kokko-validation and kokko-env from
-[kokko-skills](https://github.com/kokko-ng/kokko-skills), kokko-janitor from
-[kokko-janitor-skill](https://github.com/kokko-ng/kokko-janitor-skill), and theme-sync
-from [kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). Set a plugin to
+The `kokko-ng` roster: kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
+kokko-notifications, kokko-validation and kokko-env from
+[kokko-skills](https://github.com/kokko-ng/kokko-skills), and theme-sync from
+[kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). Set a plugin to
 `false` in `enabledPlugins` to never install it.
 {%- endif %}
 
