@@ -95,11 +95,15 @@ whether the infrastructure is the cause, not just the code in front of you.
   the user asks for that specific change.
 - **Commit as the configured identity** (`kokko-ng <Kokko.Ng@insight.com>`) and add no
   `Co-Authored-By`, `Claude-Session` or other AI trailers to commits or PR bodies.
-- **Never change a repository's visibility** or push private code to a public repo,
+- **Never change a repository's visibility or access** without asking: no visibility
+  change, and no collaborator or team grants. Never push private code to a public repo,
   including forks; check a new fork is private.
 - **Before merging a subagent's branch**, compare `git merge-base main <branch>` with
   `main`: a stale base silently drops other work in auto-merged files. Have the agent
   merge `main` and re-run its checks instead of resolving its conflicts yourself.
+- **Check a Dependabot alert's manifest before patching.** GitHub keeps alerting on
+  manifests that no longer exist; if the alert's `dependency.manifest_path` is not on
+  `main`, report it as a stale alert instead of bumping a lock file.
 - **Work that seems lost probably is not.** On an unexplained clean tree mid-task, check
   `git stash list` (and the reflog) before redoing or reporting anything as lost.
 
@@ -234,12 +238,10 @@ context remaining is never a reason to stop a task early or cut it short.
 
 ## Testing and Development Files
 
-All testing artifacts, temporary files, and development scripts should be placed in `/tmp` to maintain repository cleanliness:
-
-- Development scripts and experiments
-- Temporary output files
-- Test artifacts and logs
-- Mock data generators
+Put temporary files, development scripts, experiments, test artifacts, logs and mock
+data in the session scratchpad directory Claude Code gives each session (named in the
+system prompt), not in the repository. Use `/tmp` only when a session has no
+scratchpad.
 
 ## Process Management
 
