@@ -443,6 +443,24 @@ retire_git_safety_layer() {
     fi
 }
 
+# kokko-code-quality and kokko-janitor left the roster: a strict pre-commit
+# config per repo does that job. The roster prune disables them; this removes
+# the installed copies and the janitor marketplace. Idempotent.
+retire_quality_plugins() {
+    local p removed=0
+    if [[ "${KOKKO_SKIP_PLUGINS:-}" == "1" ]] || ! command -v claude >/dev/null 2>&1; then
+        return 0
+    fi
+    for p in kokko-code-quality@kokko-ng-kokko-cmds kokko-janitor@kokko-ng-kokko-janitor; do
+        claude plugin uninstall "$p" >/dev/null 2>&1 && removed=1
+    done
+    claude plugin marketplace remove kokko-ng-kokko-janitor >/dev/null 2>&1 && removed=1
+    if [[ "$removed" -eq 1 ]]; then
+        echo "=== Removed the retired kokko-code-quality and kokko-janitor plugins ==="
+    fi
+    return 0
+}
+
 # Merge the bundled settings into the live settings.json. See
 # merge-settings.jq: this preserves the user's own settings and hooks, strips
 # the retired git-safety hook wiring, and is safe to re-run on every rebuild.
@@ -850,6 +868,7 @@ check_vm_disk() {
 apply_bundled_config() {
     configure_claude
     retire_git_safety_layer
+    retire_quality_plugins
     merge_claude_settings
     install_claude_hooks
     install_managed_settings
