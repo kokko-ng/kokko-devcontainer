@@ -1,7 +1,7 @@
 // devcontainer.json — {{ cookiecutter.project_name }}
 // Generated from the kokko-devcontainer cookiecutter template.
 // See DEVCONTAINER.md next to this directory for what is installed and how to
-// change it; the upstream README.md has the host setup.
+// change it; the upstream README.md and docs/setup.md have the host setup.
 {
   "name": "{{ cookiecutter.__container_name }}",
   "build": {
@@ -21,7 +21,7 @@
     "ghcr.io/devcontainers/features/azure-cli:1": {},
 {%- endif %}
     "ghcr.io/devcontainers/features/node:2": {
-      // Feature option pin — invisible to Dependabot; see MANAGING.md -> Pin audit.
+      // Feature option pin — invisible to Dependabot; see upstream docs/maintenance.md -> Pin audit.
       "version": "{{ cookiecutter.node_version }}"
     },
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
@@ -35,7 +35,7 @@
     // not reclaimed by `docker image prune`. It therefore grows unnoticed until
     // the Colima VM's disk fills. Prune it from INSIDE the container with
     // `docker system prune -a`, and delete the volume by name when retiring a
-    // project. See MANAGING.md -> Disk management.
+    // project. See upstream docs/maintenance.md -> Disk management.
     "ghcr.io/devcontainers/features/docker-in-docker:4": {},
 {%- endif %}
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -116,7 +116,7 @@
   // /tmp/post-start.log.
   "postStartCommand": "bash -o pipefail -c 'bash .devcontainer/post-create.sh --config-only 2>&1 | tee /tmp/post-start.log'",
   // Backend ({{ cookiecutter.backend_port }}) and frontend dev server ({{ cookiecutter.frontend_port }}).
-  // Two containers cannot forward the same host port — see MANAGING.md -> Port conflicts.
+  // Two containers cannot forward the same host port — see upstream docs/maintenance.md -> Port conflicts.
   "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
 {%- if cookiecutter.network_firewall == "on" %}

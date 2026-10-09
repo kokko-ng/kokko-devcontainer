@@ -17,7 +17,7 @@ FROM mcr.microsoft.com/devcontainers/python:{{ cookiecutter.python_version }}-bo
 # from this copy (post-create.sh prefers the project's own pin when there is
 # one, and falls back to this).
 # NOTE: Dependabot cannot see these pins (its docker ecosystem only bumps FROM
-# digests) — check for newer versions manually; see MANAGING.md -> Pin audit.
+# digests) — check for newer versions manually; see upstream docs/maintenance.md -> Pin audit.
 RUN pip install --no-cache-dir uv==0.12.1 pre-commit==4.6.2
 
 # Fail piped RUN commands if any pipeline stage fails (hadolint DL4006).
@@ -88,7 +88,7 @@ RUN chmod 0755 /usr/local/sbin/devcontainer-firewall \
 # zsh config falls back to an Oh My Zsh theme when the binary is absent, so an
 # image built before this layer still gets a prompt. Placed after the CA layer
 # so the download trusts corporate-proxy certs. Dependabot cannot see this pin
-# (MANAGING.md -> Pin audit).
+# (upstream docs/maintenance.md -> Pin audit).
 RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/starship-$(uname -m)-unknown-linux-musl.tar.gz" \
     | tar -xz -C /usr/local/bin starship \
     && starship --version
@@ -100,7 +100,7 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
 # Reopen in Container), it falls back to the pin below, so two such rebuilds
 # still produce the same agent. DISABLE_AUTOUPDATER=1 in containerEnv keeps
 # the binary put between rebuilds; `cu` installs the latest on demand. Bump
-# the pin here — Dependabot cannot see it (MANAGING.md -> Pin audit). It needs no node — the installer drops a standalone binary in
+# the pin here — Dependabot cannot see it (upstream docs/maintenance.md -> Pin audit). It needs no node — the installer drops a standalone binary in
 # ~/.local/bin, owned by vscode, hence the USER switch. Placed after the CA
 # layer so corporate-proxy certs are already trusted. post-create.sh keeps its
 # `command -v claude` fallback for images built before this layer existed. The

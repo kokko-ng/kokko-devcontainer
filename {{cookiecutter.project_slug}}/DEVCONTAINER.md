@@ -6,7 +6,8 @@ Container name: `{{ cookiecutter.__container_name }}`.
 ## Starting it
 
 Host setup (Colima, the devcontainer CLI, `dev` on PATH) is in the upstream
-[README](https://github.com/kokko-ng/kokko-devcontainer#readme).
+[README](https://github.com/kokko-ng/kokko-devcontainer#install) and
+[setup docs](https://github.com/kokko-ng/kokko-devcontainer/blob/main/docs/setup.md).
 
 ```bash
 dev                 # start Colima and the container if needed, then a shell in it
