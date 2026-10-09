@@ -156,7 +156,7 @@ install_zsh_plugins() {
     echo "=== Installing zsh plugins ==="
     # Pinned to release tags so a rebuild cannot silently pick up an untested
     # HEAD. Dependabot cannot see these pins — check for newer tags manually
-    # (git ls-remote --tags <repo>); see MANAGING.md -> Pin audit.
+    # (git ls-remote --tags <repo>); see upstream docs/maintenance.md -> Pin audit.
     clone_zsh_plugin https://github.com/zsh-users/zsh-autosuggestions zsh-autosuggestions v0.7.1
     clone_zsh_plugin https://github.com/zsh-users/zsh-syntax-highlighting zsh-syntax-highlighting 0.8.0
 }
@@ -182,7 +182,7 @@ install_copilot_cli() {
     # Published as @github/copilot on npm. The devcontainer Node feature creates
     # a user-writable global prefix, so no sudo is needed. Pinned, like the
     # Playwright CLI below: Dependabot cannot see this pin — bump it manually
-    # (npm view @github/copilot version); see MANAGING.md -> Pin audit.
+    # (npm view @github/copilot version); see upstream docs/maintenance.md -> Pin audit.
     if command -v copilot >/dev/null 2>&1; then
         echo "  Copilot CLI already installed at $(command -v copilot)"
     elif command -v npm >/dev/null 2>&1; then
@@ -207,7 +207,7 @@ install_playwright_cli() {
         echo "  Playwright CLI already installed at $(command -v playwright-cli)"
     else
         # Pinned (was @latest). Dependabot cannot see this pin — bump it
-        # manually (npm view @playwright/cli version); see MANAGING.md -> Pin audit.
+        # manually (npm view @playwright/cli version); see upstream docs/maintenance.md -> Pin audit.
         step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
@@ -439,7 +439,8 @@ retire_git_safety_layer() {
     fi
     if [[ "$removed" -eq 1 ]]; then
         echo "=== Removed the retired git safety layer (hooks, snaps, kokko-safety) ==="
-        echo "    Leftover refs/snapshots/* in project repos are inert; see MANAGING.md to prune them."
+        echo "    Leftover refs/snapshots/* in project repos are inert; to prune them see"
+        echo "    https://github.com/kokko-ng/kokko-devcontainer/blob/main/docs/maintenance.md#leftover-snapshot-refs"
     fi
 }
 
@@ -830,7 +831,7 @@ create_env_file() {
 # Runs last so the warning is the final thing on screen.
 #
 # A full Colima disk kills the Docker daemon with no usable error (`colima
-# status` still reports healthy), so warn early. See MANAGING.md.
+# status` still reports healthy), so warn early. See upstream docs/maintenance.md -> Disk management.
 #
 # Inside a container `df /` reports the VM's disk, so this measures the right
 # thing. Must never fail the build -- hence the guards and the `|| true`.
@@ -854,7 +855,7 @@ check_vm_disk() {
     echo "  Do NOT use 'docker system prune --volumes': it also deletes the"
     echo "  docker-in-docker, Claude Code and VS Code state volumes."
     echo ""
-    echo "  See MANAGING.md -> Disk management."
+    echo "  See https://github.com/kokko-ng/kokko-devcontainer/blob/main/docs/maintenance.md#disk-management"
     echo ""
 }
 

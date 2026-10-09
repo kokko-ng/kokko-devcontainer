@@ -1,19 +1,15 @@
-# Managing kokko-devcontainer
+# Maintenance
 
-Operations, troubleshooting and maintainer notes. Start with the [README](README.md).
+## Updating a project
 
-## How it fits together
+`/devcontainer-update` (kokko-env plugin) diffs `.devcontainer/` against upstream,
+updates it and reports what needs a rebuild. To update this clone and every project at
+once, use [prompts/update.md](../prompts/update.md).
 
-| Piece | Runs on | Role |
-|---|---|---|
-| `bin/dev` | Mac | Sizes and starts Colima, runs `devcontainer up` with the memory cap and the Mac's Claude Code version, fills the shared sign-in volumes, syncs Claude Code version/theme/onboarding, opens a shell, Claude Code or VS Code |
-| `cookiecutter.json`, `hooks/` | Mac | Prompts; `pre_gen_project.py` rejects bad answers, `post_gen_project.py` edits the bundled `settings.json` (roster, attribution) |
-| `.devcontainer/init-host-*.sh` | Mac (`initializeCommand`) | Copy host CA certs, warn about cloud-synced folders, record the Mac's git identity |
-| `Dockerfile` | Build | Base image, tools, Claude Code, the policy and the firewall script |
-| `post-create.sh` | Container | Full provisioning on create; `--config-only` on every start (settings merge, policy, hook, plugins, git, zsh), then firewall and sudo lock |
-
-Options reach `post-create.sh` as `DEVCONTAINER_*` variables in `containerEnv`, not as
-Jinja. Repo layout and rules for changing it: [CLAUDE.md](CLAUDE.md).
+| Change | Takes effect |
+|---|---|
+| `.devcontainer/config/`, `post-create.sh` | Next container start, or now with `bash .devcontainer/post-create.sh --config-only` |
+| `Dockerfile`, `devcontainer.json`, policy, firewall allowlist, `init-host-*.sh` | `dev rebuild` |
 
 ## Troubleshooting
 
@@ -22,9 +18,10 @@ Jinja. Repo layout and rules for changing it: [CLAUDE.md](CLAUDE.md).
 | `docker` cannot connect, `colima status` looks fine | VM disk full. Check `colima ssh -- df -h /`; see [When the disk is full](#when-the-disk-is-full) |
 | Container very slow, `dce` or exec sessions die | VM on `sshfs`. See [Mount type](#mount-type) |
 | Files like `name 2.ext` keep appearing | Project is in a cloud-synced folder. Move it to `~/code` (or rename the iCloud parent to `*.nosync`). `sweep-phantoms.sh` removes untracked copies on each start; `init-host-guard.sh` warns at build |
-| Mac swapping | VM too large. `dev vm`, then `dev vm resize` |
-| "connection refused" from a host | The firewall. Add the host to `.devcontainer/firewall/allowed-domains.txt`, `dev rebuild`. `sudo devcontainer-firewall` re-resolves addresses when a CDN rotates them |
+| Mac swapping | VM too large. `dev vm`, then `dev vm resize` ([resources.md](resources.md)) |
+| "connection refused" from a host | The firewall. Allowlist the host: [security.md](security.md#firewall) |
 | Orange renders as red | Old container without `COLORTERM=truecolor`. `dev rebuild` |
+| A provisioning step failed | Listed at the start of each Claude Code session; details in `/tmp/post-create.log` |
 
 ## Port conflicts
 
@@ -124,13 +121,5 @@ by hand, quarterly (paths under `{{cookiecutter.project_slug}}/.devcontainer/`):
 | Node feature `version`, feature major tags | `devcontainer.json` | Node release schedule; `devcontainer features info tags <feature>` |
 
 Feature major tags (`node:2`, `azure-cli:1`) float within the major on purpose. Only
-Python `3.14` has a digest; other versions render a tag-only `FROM`.
-
-## Releases
-
-1. Bump `VERSION` in the PR that warrants it.
-2. Merge to `main`. When CI passes, `release.yml` creates the `v<VERSION>` tag and GitHub
-   release (skipped if the tag exists). Never run `gh release create` by hand.
-
-Projects pin with `cookiecutter ... --checkout v<VERSION>` or
-`/devcontainer-update --ref v<VERSION>`.
+Python `3.14` has a digest; other versions render a tag-only `FROM`, and the project's
+`DEVCONTAINER.md` says how to pin it.
