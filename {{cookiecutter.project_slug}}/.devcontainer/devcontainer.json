@@ -1,7 +1,7 @@
 // devcontainer.json — {{ cookiecutter.project_name }}
 // Generated from the kokko-devcontainer cookiecutter template.
 // See DEVCONTAINER.md next to this directory for what is installed and how to
-// change it; the upstream INSTRUCTIONS.md has the full host setup guide.
+// change it; the upstream README.md has the host setup.
 {
   "name": "{{ cookiecutter.__container_name }}",
   "build": {
@@ -9,7 +9,10 @@
     "args": {
       // Forwarded to the Dockerfile so /Users/<host_user> -> /home/vscode
       // resolves macOS absolute paths in Claude plugin configs.
-      "HOST_USER": "${localEnv:USER}"
+      "HOST_USER": "${localEnv:USER}",
+      // The host's Claude Code version, set by `dev`; empty means the
+      // Dockerfile's pin.
+      "CLAUDE_CODE_VERSION": "${localEnv:DEVCONTAINER_CLAUDE_VERSION}"
     }
   },
   "remoteUser": "vscode",

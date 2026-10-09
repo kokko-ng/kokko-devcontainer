@@ -93,14 +93,14 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
     | tar -xz -C /usr/local/bin starship \
     && starship --version
 
-# Claude Code native binary, PINNED and baked into the image, so every rebuild
-# neither re-downloads it in post-create nor picks up whatever happens to be
-# the latest release that day: two rebuilds produce the same agent, which is
-# the same reason the base image is digest-pinned. DISABLE_AUTOUPDATER=1 in
-# devcontainer.json's containerEnv keeps the binary at this version between
-# rebuilds; the `cu` alias installs the latest release on demand until the
-# next rebuild. Bump the pin here — Dependabot cannot see it (MANAGING.md ->
-# Pin audit). It needs no node — the installer drops a standalone binary in
+# Claude Code native binary, baked into the image. `dev` passes the host's
+# version (DEVCONTAINER_CLAUDE_VERSION -> CLAUDE_CODE_VERSION), so the
+# container runs the same Claude Code as the Mac, and updates an existing
+# container to it when the Mac moves ahead. Built without `dev` (VS Code's
+# Reopen in Container), it falls back to the pin below, so two such rebuilds
+# still produce the same agent. DISABLE_AUTOUPDATER=1 in containerEnv keeps
+# the binary put between rebuilds; `cu` installs the latest on demand. Bump
+# the pin here — Dependabot cannot see it (MANAGING.md -> Pin audit). It needs no node — the installer drops a standalone binary in
 # ~/.local/bin, owned by vscode, hence the USER switch. Placed after the CA
 # layer so corporate-proxy certs are already trusted. post-create.sh keeps its
 # `command -v claude` fallback for images built before this layer existed. The
@@ -112,8 +112,9 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/s
 # `remoteUser` names it as a string — hardcoding its uid here would duplicate a
 # mapping the base image owns and silently rot when that image changes it.
 # hadolint ignore=DL3066
+ARG CLAUDE_CODE_VERSION
 USER vscode
-RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.274
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.295}"
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
 # hadolint ignore=DL3002,DL3066

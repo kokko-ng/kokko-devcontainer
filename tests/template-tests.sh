@@ -245,6 +245,10 @@ assert_jq "bundled settings.json stays valid JSON" \
 assert_jq "default roster ships the kokko-ng plugins" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.enabledPlugins | length > 0 and (keys | any(test("@kokko-ng-")))'
+assert_jq "default roster ships theme-sync, so tt reaches open sessions" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.enabledPlugins["theme-sync@kokko-claude-mods"] == true
+       and .extraKnownMarketplaces["kokko-claude-mods"].source.repo == "kokko-ng/kokko-claude-mods"'
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
@@ -281,8 +285,10 @@ done
 
 assert "default Dockerfile installs the ODBC driver" \
     grep -q msodbcsql18 "$DEFAULT/.devcontainer/Dockerfile"
-assert "default Dockerfile pins the Claude Code version" \
-    grep -qE 'install\.sh \| bash -s [0-9]+\.[0-9]+\.[0-9]+$' "$DEFAULT/.devcontainer/Dockerfile"
+assert "default Dockerfile installs the host's Claude Code version, else a pinned one" \
+    grep -qE 'install\.sh \| bash -s "\$\{CLAUDE_CODE_VERSION:-[0-9]+\.[0-9]+\.[0-9]+\}"$' "$DEFAULT/.devcontainer/Dockerfile"
+assert_jq "devcontainer.json passes dev's Claude Code version to the build" "$DC" \
+    '.build.args.CLAUDE_CODE_VERSION == "${localEnv:DEVCONTAINER_CLAUDE_VERSION}"'
 assert "default Dockerfile installs shellcheck and the sandbox dependencies" \
     grep -qE 'apt-get install .* shellcheck bubblewrap socat' "$DEFAULT/.devcontainer/Dockerfile"
 assert "default Dockerfile pins the Starship version" \
