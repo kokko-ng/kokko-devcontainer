@@ -95,11 +95,15 @@ whether the infrastructure is the cause, not just the code in front of you.
   the user asks for that specific change.
 - **Commit as the configured identity** (`kokko-ng <Kokko.Ng@insight.com>`) and add no
   `Co-Authored-By`, `Claude-Session` or other AI trailers to commits or PR bodies.
-- **Never change a repository's visibility** or push private code to a public repo,
+- **Never change a repository's visibility or access** without asking: no visibility
+  change, and no collaborator or team grants. Never push private code to a public repo,
   including forks; check a new fork is private.
 - **Before merging a subagent's branch**, compare `git merge-base main <branch>` with
   `main`: a stale base silently drops other work in auto-merged files. Have the agent
   merge `main` and re-run its checks instead of resolving its conflicts yourself.
+- **Check a Dependabot alert's manifest before patching.** GitHub keeps alerting on
+  manifests that no longer exist; if the alert's `dependency.manifest_path` is not on
+  `main`, report it as a stale alert instead of bumping a lock file.
 - **Work that seems lost probably is not.** On an unexplained clean tree mid-task, check
   `git stash list` (and the reflog) before redoing or reporting anything as lost.
 
@@ -159,10 +163,20 @@ only artifacts and terminology the customer actually receives.
   identifier, term, or diagram is shared with the customer, **ask the user which artifacts
   the customer sees before writing** — do not guess, and do not silently drop content that
   may in fact be shared. One question up front is cheaper than a rewrite.
-- **Commercial documents** (proposals, SOWs, RFP responses): never show labour rates,
-  rate cards, internal estimating tools or currency conversions; round amounts to the
-  nearest 10 so lines still add up to totals; use role titles rather than names outside
-  the personnel section.
+- **Commercial documents** (proposals, SOWs, RFP responses):
+  - Never show labour rates, rate cards, internal estimating tools or currency
+    conversions; use role titles rather than names outside the personnel section.
+  - Every figure is a whole dollar rounded **up** to the nearest $10, and totals sum the
+    rounded rows. The document never mentions rounding or total hours; those belong in
+    the WBS and the pricing model.
+  - Where a price is driven by something countable (sites, users, event days), show the
+    unit and the price per unit, so the reader can reproduce the figure.
+  - Mark optional scope optional everywhere it appears: the scope narrative, the
+    schedule and the payment milestones.
+  - No em dashes in a SOW or WBS, nor spaced en dashes used as separators; use colons in
+    labels.
+  - Never let template drafting guidance reach the client (instruction blocks, "Delete
+    if not required").
 - **Describe local-only material neutrally** ("local reference material, never
   committed"), never as confidential client or engagement material, and leave no trail
   (file names, titles, source IDs) back to it in anything committed.
@@ -176,6 +190,17 @@ only artifacts and terminology the customer actually receives.
 
 What the user or client has already reviewed is the spec. Do not "correct" reviewed sizes,
 colours or spacing toward a design document on your own initiative; ask first.
+
+## Frontend
+
+- **Verify a visual fix in the browser** by computed style (`getComputedStyle`, or
+  Playwright), not by the class list or a unit test.
+- **One Tailwind utility per property per element.** With two (`h-9` and `h-10`, a
+  gradient and `bg-none`), the rule Tailwind emits later in its stylesheet wins, whatever
+  the class order. Keep each property in one map of variants.
+- **Never build a Tailwind class name at runtime** (`icon-${size}`): the content scan
+  cannot see it and silently drops the rule. Set the value inline or write every variant
+  out as a literal.
 
 ## Finishing a task
 
@@ -234,12 +259,10 @@ context remaining is never a reason to stop a task early or cut it short.
 
 ## Testing and Development Files
 
-All testing artifacts, temporary files, and development scripts should be placed in `/tmp` to maintain repository cleanliness:
-
-- Development scripts and experiments
-- Temporary output files
-- Test artifacts and logs
-- Mock data generators
+Put temporary files, development scripts, experiments, test artifacts, logs and mock
+data in the session scratchpad directory Claude Code gives each session (named in the
+system prompt), not in the repository. Use `/tmp` only when a session has no
+scratchpad.
 
 ## Process Management
 
