@@ -76,6 +76,22 @@ check "bundle wires only the SessionStart status hook" \
        and ([.hooks.SessionStart[].hooks[].command] == [\"$HOOK_CMD\"])" "$BUNDLE_JSON"
 check "bundle does not roster kokko-safety" \
     '.enabledPlugins | has("kokko-safety@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
+check "bundle rosters impeccable with its marketplace" \
+    '.enabledPlugins["impeccable@impeccable"] == true
+       and .extraKnownMarketplaces.impeccable.source.repo == "pbakaus/impeccable"' "$BUNDLE_JSON"
+# skills.json drives install_claude_skills: every entry needs a path-safe
+# name, an owner/repo and a full commit SHA (a branch name would float).
+check "skills.json lists asd-ste100 and every entry is pinned to a commit" \
+    '(.skills | map(.name) | index("asd-ste100") != null)
+       and all(.skills[]; (.name | test("^[A-Za-z0-9._-]+$"))
+                          and (.repo | test("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"))
+                          and (.ref | test("^[0-9a-f]{40}$")))' "$(cat "$CLAUDE_CONFIG/skills.json")"
+# The bundled autoMode block is Claude Code's defaults plus the bundle's own
+# rules (scripts/auto-mode/): its own rules are exactly own-rules.json's, last.
+# shellcheck disable=SC2016  # $own is a jq variable
+assert "bundled autoMode.allow ends with own-rules.json's rules" \
+    jq -e --slurpfile own "$ROOT/scripts/auto-mode/own-rules.json" \
+    '.autoMode.allow[-($own[0].allow | length):] == $own[0].allow' "$BUNDLED_SETTINGS"
 check "policy denies squash merges" \
     '[.permissions.deny[] | select(test("squash"))] | length >= 3' "$MANAGED_JSON"
 check "bundle no longer rosters kokko-code-quality or kokko-janitor" \
@@ -98,22 +114,28 @@ check "bundle ships the sandbox configured for a container but switched off" \
        and (.sandbox.excludedCommands | index("docker *") != null)' "$BUNDLE_JSON"
 check "bundle defaults Claude Code to the fullscreen renderer" \
     '.tui == "fullscreen"' "$BUNDLE_JSON"
-# A custom autoMode.allow REPLACES Claude Code's defaults, so the bundle must
-# carry all 17 of them (claude auto-mode defaults, 2.1.295) plus its own two.
-check "bundle autoMode allow keeps Claude Code's 17 defaults and adds two rules" \
-    '(.autoMode | keys) == ["allow"]
-       and (.autoMode.allow | length == 19)
+# A custom autoMode.allow or environment REPLACES Claude Code's defaults, so
+# the bundle carries all of them (claude auto-mode defaults: 17 allow rules)
+# plus its own six rules and environment entries (scripts/auto-mode/).
+check "bundle autoMode allow keeps Claude Code's 17 defaults and adds six rules" \
+    '(.autoMode | keys) == ["allow", "environment"]
+       and (.autoMode.allow | length == 23)
        and ([.autoMode.allow[] | split(":")[0]]
             | (.[0] == "Security Discussion")
               and (index("Read-Only Operations") != null)
               and (index("Git Push Destination") != null)
               and (index("Browser Trusted Navigation") == 16)
-              and (.[17] == "Own-Repo PR Merge")
-              and (.[18] == "Approved Sandbox Redeploy"))' "$BUNDLE_JSON"
+              and (.[17:] == ["Own-Repo PR Merge", "Own-Org Repositories", "Approved Sandbox Redeploy",
+                              "Sandbox Deploy on Request", "Sandbox Secret Writes", "Repo Script Service Keys"]))' "$BUNDLE_JSON"
+check "bundle autoMode environment names the user's orgs and the prod markers" \
+    '[.autoMode.environment[] | select(startswith("**Source control**") or startswith("**Sensitive remote targets**"))]
+       | length == 2 and (.[0] | test("Insight-Services-APAC")) and (.[1] | test("prd"))' "$BUNDLE_JSON"
 check "the PR-merge rule keeps squash merges and red checks out" \
     '.autoMode.allow[17] | test("Squash merges are never wanted") and test("--admin")' "$BUNDLE_JSON"
 check "the redeploy rule covers sandbox/dev/demo targets and never prod" \
-    '.autoMode.allow[18] | test("sandbox, dev or demo") and test("prod or production")' "$BUNDLE_JSON"
+    '.autoMode.allow[19] | test("sandbox, dev or demo") and test("prod or production")' "$BUNDLE_JSON"
+check "the sandbox deploy, secret and key rules are scoped to sandbox, dev or demo targets" \
+    '[.autoMode.allow[20:23][] | test("named sandbox, dev or demo")] == [true, true, true]' "$BUNDLE_JSON"
 check "bundle carries no policy keys (those live in managed-settings.json)" \
     '(.permissions | has("deny") or has("disableBypassPermissionsMode")) | not' "$BUNDLE_JSON"
 
@@ -454,6 +476,41 @@ mp_fresh=$(mp_missing /dev/null)
 assert "missing-plugins flags every enabled plugin when nothing is installed" test "$mp_fresh" = "a@m b@m gone@m"
 assert "post-create consults missing-plugins.jq inside the 24h window" \
     grep -q 'missing-plugins.jq' "$ROOT/{{cookiecutter.project_slug}}/.devcontainer/post-create.sh"
+
+# ===========================================================================
+# 6. refresh-auto-mode.sh - newer bundled autoMode rules reach old containers
+# ===========================================================================
+REFRESH="$CLAUDE_CONFIG/refresh-auto-mode.sh"
+SHIPPED="$CLAUDE_CONFIG/auto-mode-shipped.sha256"
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | awk '{print $1}'; }
+assert "refresh-auto-mode.sh is executable" test -x "$REFRESH"
+assert "the shipped list records the current bundle's autoMode block" \
+    grep -qxF "$(jq -cS .autoMode "$BUNDLED_SETTINGS" | sha256_of)" "$SHIPPED"
+# shellcheck disable=SC2016  # $own is a jq variable
+assert "bundled autoMode.environment carries every own-rules.json entry" \
+    jq -e --slurpfile own "$ROOT/scripts/auto-mode/own-rules.json" \
+    '.autoMode.environment as $e | all($own[0].environment[]; . as $x | $e | index($x) != null)' "$BUNDLED_SETTINGS"
+echo '{"autoMode":{"allow":["A: shipped earlier"]},"model":"opus"}' > "$WORK/am-old.json"
+echo '{"autoMode":{"allow":["A: edited by the user"]}}' > "$WORK/am-own.json"
+echo '{"model":"opus"}' > "$WORK/am-none.json"
+{ jq -cS .autoMode "$WORK/am-old.json" | sha256_of; } > "$WORK/am-shipped"
+am_out=$(bash "$REFRESH" "$WORK/am-old.json" "$BUNDLED_SETTINGS" "$WORK/am-shipped")
+check "an unedited earlier block is replaced by the bundled one" \
+    ".autoMode == $(jq -c .autoMode "$BUNDLED_SETTINGS") and .model == \"opus\"" "$(cat "$WORK/am-old.json")"
+assert "the refresh says what it did" grep -q 'Refreshed the auto mode rules' <<<"$am_out"
+am_out=$(bash "$REFRESH" "$WORK/am-own.json" "$BUNDLED_SETTINGS" "$WORK/am-shipped")
+check "a user's own block is left alone" \
+    '.autoMode.allow == ["A: edited by the user"]' "$(cat "$WORK/am-own.json")"
+assert "a user's own block earns a note" grep -q 'NOTE: settings.json has its own autoMode rules' <<<"$am_out"
+bash "$REFRESH" "$WORK/am-none.json" "$BUNDLED_SETTINGS" "$WORK/am-shipped" >/dev/null
+check "a file without autoMode is left to the merge" '. == {"model": "opus"}' "$(cat "$WORK/am-none.json")"
+cp "$BUNDLED_SETTINGS" "$WORK/am-current.json"
+assert "a current block is a silent no-op" \
+    test -z "$(bash "$REFRESH" "$WORK/am-current.json" "$BUNDLED_SETTINGS" "$WORK/am-shipped")"
+# The full sign-in `dev auth --full` writes is as sensitive as the shared token.
+check "policy denies reading and editing the full sign-in's credentials file" \
+    '(.permissions.deny | index("Read(~/.claude/.credentials.json)") != null)
+       and (.permissions.deny | index("Edit(~/.claude/.credentials.json)") != null)' "$MANAGED_JSON"
 
 # ===========================================================================
 echo ""

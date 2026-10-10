@@ -118,9 +118,10 @@ shellcheck --severity=info \
     "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
     "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+    "{{cookiecutter.project_slug}}/.devcontainer/config/claude/refresh-auto-mode.sh" \
     "{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh" \
     "{{cookiecutter.project_slug}}/scripts/hooks/frontend.sh" \
-    tests/merge-settings-tests.sh tests/template-tests.sh bin/dev
+    tests/merge-settings-tests.sh tests/template-tests.sh bin/dev scripts/update-pins.sh
 ```
 
 ## Layout — what runs where
@@ -139,6 +140,12 @@ shellcheck --severity=info \
 | `.../config/claude/settings.json` | Bundled Claude Code defaults: Auto permission mode and its allow rules, Bash tool limits, sandbox (off), fullscreen `tui`, SessionStart hook wiring, plugin roster |
 | `.../config/claude/managed-settings.json` | Policy, baked into the image at `/etc/claude-code/`: the deny list (including reading the shared Claude token and printing gh/az tokens), the bypass-mode lock and the Bash sandbox lock |
 | `.../config/claude/hooks/session-provision-status.sh` | SessionStart hook: prints failed provisioning steps into the session |
+| `.../config/claude/skills.json` | Skills published as bare repos (not plugins), each pinned to a commit; `install_claude_skills` (post-create.sh) puts them in `~/.claude/skills` and marks what it installed |
+| `.../config/chromium/managed-policy.json` | Chromium policy baked into the image (`/etc/chromium/policies/managed/`): turns off the browser background traffic the firewall would refuse |
+| `.../config/azure/` | A logging filter for az's "altered by the following extension" warning, installed into az's Python by `quiet_az_extension_warning` |
+| `scripts/update-pins.sh`, `.github/workflows/update-pins.yml` | Daily pin update: the script bumps every pin Dependabot cannot see (docs/maintenance.md -> Pin audit); the workflow runs it, opens a PR, dispatches CI, merges on green and dispatches a minor release. bash 3.2-compatible |
+| `.../config/claude/refresh-auto-mode.sh`, `auto-mode-shipped.sha256` | Moves a live `autoMode` block that is exactly one an earlier bundle shipped (its hash is in the list) onto the bundled one; an edited block is left alone. Append the new hash when the bundled block changes |
+| `scripts/auto-mode/` | `build.jq` builds the bundled `autoMode` block from `claude auto-mode defaults` plus `own-rules.json` (the bundle's own allow rules and environment entries) |
 | `.../config/claude/merge-settings.jq` | Merges bundled settings/roster into a live settings.json (idempotent, preserves user settings, strips retired hook wiring) |
 | `.../config/claude/prune-roster.jq` | Removes roster entries the bundle dropped, unless user-overridden |
 | `.../post-create.sh` | Provisioning; `--config-only` re-applies bundled config (settings, policy, hook, CLAUDE.md, zsh) in place |

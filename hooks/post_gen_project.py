@@ -3,7 +3,8 @@
 Only two things happen here that Jinja could not do inline:
 
   * The bundled Claude settings.json is edited as JSON rather than templated:
-    the plugin roster is emptied on request. (Claude Code's commit and PR
+    the plugin roster (and the skill list in skills.json) is emptied on
+    request. (Claude Code's commit and PR
     attribution is always off: the bundle ships it as empty strings.) Keeping that file free
     of Jinja is deliberate — it stays valid JSON at rest, so `check-json`,
     `jq`, and tests/merge-settings-tests.sh all run against the template
@@ -26,6 +27,7 @@ CONTAINER_NAME = "{{ cookiecutter.__container_name }}"
 PINNED_PYTHON_VERSION = "3.14"
 
 SETTINGS = os.path.join(".devcontainer", "config", "claude", "settings.json")
+SKILLS = os.path.join(".devcontainer", "config", "claude", "skills.json")
 
 notes = []
 
@@ -40,9 +42,13 @@ settings_edits = []
 
 if CLAUDE_PLUGIN_ROSTER == "none":
     settings_edits.append(clear_plugin_roster)
+    with open(SKILLS, "w", encoding="utf-8") as handle:
+        json.dump({"skills": []}, handle, indent=2)
+        handle.write("\n")
     notes.append(
-        "Claude Code ships with an empty plugin roster. Add marketplaces and\n"
-        "    plugins to .devcontainer/config/claude/settings.json, then run\n"
+        "Claude Code ships with an empty plugin roster and no bundled skills. Add\n"
+        "    marketplaces and plugins to .devcontainer/config/claude/settings.json\n"
+        "    (skills to skills.json next to it), then run\n"
         "    'bash .devcontainer/post-create.sh --config-only' to install them."
     )
 

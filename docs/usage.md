@@ -24,6 +24,10 @@ A first build takes a few minutes; `dev` shows the current step, and the full lo
 empty folder, and opens a project an interrupted `dev new` already generated. Set
 `DEV_TEMPLATE` to generate from another source, such as your clone.
 
+`dev code` opens VS Code with the folder and the Docker context (Colima's) in the URI;
+without the context the Dev Containers extension looks for `/var/run/docker.sock` and
+reports "Docker returned an error".
+
 `dev theme` with no argument applies the Mac's theme; `light` and `dark` mean the `-ansi`
 themes. Sessions started afterwards use it; one already open keeps the theme it started with.
 

@@ -44,6 +44,13 @@ DNSMASQ_CONF="$STATE_DIR/dnsmasq.conf"
 DNSMASQ_PID="$STATE_DIR/dnsmasq.pid"
 SUPERVISOR_PID="$STATE_DIR/supervisor.pid"
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+# Refused hosts that --blocked lists apart, as expected background traffic:
+# Chromium's Google services (sign-in, sync, autofill, updates, Safe Browsing,
+# connectivity checks; the image's Chromium policy stops most of them) and
+# tool telemetry. They stay blocked; they are just not news.
+BACKGROUND_HOSTS='^(accounts|android\.clients|clients[0-9]*|www|update|ssl)\.google\.com$'
+BACKGROUND_HOSTS+='|^(content-autofill|optimizationguide-pa|safebrowsing|update|clientservices|passwordsleakcheck-pa|chromesyncpasswords-pa|translate-pa)\.googleapis\.com$'
+BACKGROUND_HOSTS+='|\.gvt[12]\.com$|(^|\.)datadoghq\.(com|eu)$'
 
 say() { echo "devcontainer-firewall: $*"; }
 die() {
@@ -159,11 +166,26 @@ blocked() {
         say "no refused lookups in the query log"
         return 0
     fi
+    # Refused on purpose and not worth reading past (BACKGROUND_HOSTS): they
+    # go on one line after the list of real blocks.
+    local noise=()
+    for name in "${!refused[@]}"; do
+        if [[ "$name" =~ $BACKGROUND_HOSTS ]]; then noise+=("$name"); fi
+    done
     echo "Hosts looked up whose addresses the firewall refuses (most recent last)."
     echo "Allow one by adding it to .devcontainer/firewall/allowed-domains.txt, then dev rebuild."
-    for name in "${!refused[@]}"; do
-        printf '%s  %s  (%s)\n' "${refused[$name]//-/ }" "$name" "${addrs[$name]}"
-    done | sort -k1,1M -k2,2n -k3,3 | tail -n 50
+    if ((${#refused[@]} > ${#noise[@]})); then
+        for name in "${!refused[@]}"; do
+            if [[ "$name" =~ $BACKGROUND_HOSTS ]]; then continue; fi
+            printf '%s  %s  (%s)\n' "${refused[$name]//-/ }" "$name" "${addrs[$name]}"
+        done | sort -k1,1M -k2,2n -k3,3 | tail -n 50
+    else
+        echo "  (none apart from the background traffic below)"
+    fi
+    if ((${#noise[@]} > 0)); then
+        echo "Also refused, expected background traffic (browser services, telemetry):"
+        printf '%s\n' "${noise[@]}" | sort | paste -sd' ' - | fold -s -w 76 | sed 's/^/  /'
+    fi
 }
 
 case "$mode" in

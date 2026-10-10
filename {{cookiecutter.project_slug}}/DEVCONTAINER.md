@@ -96,9 +96,9 @@ there so the gate has code to check; replace it.
 
 | Volume | Holds |
 |---|---|
-| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code plugins, settings, history (this project only) |
+| `{{ cookiecutter.project_slug }}-claude-config` | Claude Code plugins, skills, settings, history, and a full sign-in from `dev auth --full` (this project only) |
 | `{{ cookiecutter.__volume_prefix }}-gh-config` | gh sign-in, also used by git and Copilot |
-| `{{ cookiecutter.__volume_prefix }}-claude-auth` | Claude Code token |
+| `{{ cookiecutter.__volume_prefix }}-claude-auth` | Claude Code token (inference-only; Remote Control needs `dev auth --full`) |
 {%- if cookiecutter.include_azure_cli == "yes" %}
 | `{{ cookiecutter.__volume_prefix }}-azure-config` | Azure CLI sign-in |
 {%- endif %}
@@ -168,8 +168,11 @@ The roster is empty. Add marketplaces and plugins to
 {%- else -%}
 The `kokko-ng` roster: kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
 kokko-validation and kokko-env from
-[kokko-skills](https://github.com/kokko-ng/kokko-skills). Set a plugin to
-`false` in `enabledPlugins` to never install it.
+[kokko-skills](https://github.com/kokko-ng/kokko-skills), and
+[impeccable](https://github.com/pbakaus/impeccable) for frontend design. Set a plugin to
+`false` in `enabledPlugins` to never install it. The skills in
+`.devcontainer/config/claude/skills.json` (asd-ste100, pinned to a commit) are installed
+into `~/.claude/skills`.
 {%- endif %}
 
 Plugins refresh at most once a day; `KOKKO_PLUGIN_REFRESH=1` forces it.

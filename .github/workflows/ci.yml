@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # update-pins.yml dispatches CI on its branch: its push and PR, made with
+  # GITHUB_TOKEN, start no workflow runs themselves.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -101,11 +104,13 @@ jobs:
             "{{cookiecutter.project_slug}}/.devcontainer/init-host-identity.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/firewall/init-firewall.sh" \
             "{{cookiecutter.project_slug}}/.devcontainer/config/claude/hooks/session-provision-status.sh" \
+            "{{cookiecutter.project_slug}}/.devcontainer/config/claude/refresh-auto-mode.sh" \
             "{{cookiecutter.project_slug}}/scripts/hooks/trivy.sh" \
             "{{cookiecutter.project_slug}}/scripts/hooks/frontend.sh" \
             tests/merge-settings-tests.sh \
             tests/template-tests.sh \
-            bin/dev
+            bin/dev \
+            scripts/update-pins.sh
 
   hadolint:
     name: hadolint (rendered Dockerfiles)
@@ -195,7 +200,7 @@ jobs:
             printf '2026-01-01T00:00:00Z FAILED: example-step\n' > /tmp/ledger
             DEVCONTAINER_PROVISION_STATUS=/tmp/ledger "$HOME/.claude/hooks/session-provision-status.sh" | grep -q 'example-step'
             # The merge added the bundled renderer and Auto mode allow rules.
-            jq -e '.tui == "fullscreen" and (.autoMode.allow | length == 19)' "$HOME/.claude/settings.json"
+            jq -e '.tui == "fullscreen" and (.autoMode.allow | length == 23) and (.autoMode.environment | length > 0)' "$HOME/.claude/settings.json"
             # Claude Code's Bash tool runs bash, not the login shell (zsh).
             test "$CLAUDE_CODE_SHELL" = /bin/bash
             # OpenSSL skips its arm64 CPU probe; the Azure tooling is baked
@@ -205,6 +210,13 @@ jobs:
             az extension show --name containerapp --query version
             az extension show --name log-analytics --query version
             az bicep version | grep -F "$(grep -oE 'BICEP_VERSION=v[0-9.]+' .devcontainer/Dockerfile | cut -dv -f2)"
+            # Provisioning put the containerapp override-warning filter into
+            # az's own Python, and az still starts cleanly with it.
+            ls /opt/az/lib/python3*/site-packages/devcontainer-az-quiet.pth
+            az version >/dev/null 2>/tmp/az-version.err
+            if grep -q 'Error processing' /tmp/az-version.err; then cat /tmp/az-version.err; exit 1; fi
+            # Playwright's Chromium reads the image's policy.
+            jq -e '.SyncDisabled == true' /etc/chromium/policies/managed/devcontainer.json
             # Policy lives in managed settings, above anything a user can set.
             jq -e '.sandbox.enabled == false' /etc/claude-code/managed-settings.json
             jq -e '.permissions.disableBypassPermissionsMode == "disable"' /etc/claude-code/managed-settings.json

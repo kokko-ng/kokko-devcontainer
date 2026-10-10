@@ -1,0 +1,5 @@
+# sha256 of `jq -cS .autoMode` for every autoMode block a bundle has shipped:
+# refresh-auto-mode.sh replaces a live block found here (never edited by the user).
+# Append the new hash whenever the bundled autoMode block changes; a test checks it.
+e2afcad9e49b0770ddbc1763f9d5c919d9b726af25d8da6d681f3136992c8c52
+e5576738e14750d3157eaf8e7fca559ab21f6456dc825a232beb5ec20c9b39da

@@ -6,14 +6,37 @@
 # `devcontainer-firewall --blocked` lists hosts that were refused.
 #
 # Baked into the image: edit this file, then rebuild (dev rebuild) to apply.
-# Add the hosts your project talks to: its Azure resources (storage accounts,
-# Key Vaults, OpenAI deployments, web apps), databases and other APIs.
+#
+# What belongs here. The firewall's job is to stop a misled agent sending data
+# to a host someone else controls, so an entry must be one of:
+#   - a vendor's own service or read-only content (registries, docs, CDNs of
+#     published packages, sign-in pages), where nobody else can stand up a
+#     receiver under the name;
+#   - a cloud namespace whose names are regions or that only accepts this
+#     user's Entra ID sign-in (Speech regions, Key Vault);
+#   - one of your own resources, by its exact name.
+# Never a namespace where anyone can create a host that accepts data: storage
+# accounts (*.blob.core.windows.net), web apps (*.azurewebsites.net), API
+# gateways, telemetry ingestion, tunnels, paste and file-sharing sites, or
+# serverless hosting (*.workers.dev, *.vercel.app, *.netlify.app). Add your
+# project's own resources by exact name instead, in the last section.
+# The exceptions are marked "EXCEPTION" below: Claude Code's own download
+# bucket, and Azure namespaces every project here deploys to daily. For those,
+# the auto mode classifier's exfiltration rules, not this list, stop data going
+# to someone else's resource. Replace them with exact names where you can.
 
 # Claude Code
 api.anthropic.com
 claude.ai
 downloads.claude.ai
+# EXCEPTION (see the top): Claude Code fetches plugins from its own bucket on
+# Google Cloud Storage, where anyone can create a bucket.
 storage.googleapis.com
+# A full sign-in (`claude auth login`, which `dev auth --full` runs) and its
+# token refresh, Remote Control's session bridge, and claude.ai connectors.
+platform.claude.com
+bridge.claudeusercontent.com
+mcp-proxy.anthropic.com
 
 # GitHub and Copilot CLI (address ranges come from api.github.com/meta)
 github.com
@@ -22,6 +45,8 @@ codeload.github.com
 objects.githubusercontent.com
 raw.githubusercontent.com
 release-assets.githubusercontent.com
+# gh release upload
+uploads.github.com
 api.githubcopilot.com
 api.individual.githubcopilot.com
 api.business.githubcopilot.com
@@ -31,6 +56,33 @@ copilot-proxy.githubusercontent.com
 registry.npmjs.org
 pypi.org
 files.pythonhosted.org
+# uv's managed Python builds, for a project that pins a Python the image lacks.
+releases.astral.sh
+# Java and .NET toolchains and packages (app-migration-workbench packs).
+repo.maven.apache.org
+repo1.maven.org
+plugins.gradle.org
+services.gradle.org
+api.nuget.org
+www.nuget.org
+api.adoptium.net
+downloads.gradle.org
+downloads.gradle-dn.com
+central.sonatype.com
+# .NET SDK installs (dot.net redirects to the install script; the SDKs come
+# from Microsoft's own CDNs).
+dot.net
+dotnet.microsoft.com
+builds.dotnet.microsoft.com
+dotnetcli.azureedge.net
+dotnetcli.blob.core.windows.net
+# Helm and kubectl, for AKS work (afl-sandbox).
+get.helm.sh
+dl.k8s.io
+# Vulnerability and package metadata lookups (read-only APIs).
+api.osv.dev
+api.deps.dev
+endoflife.date
 
 # Go toolchain and modules: pre-commit builds the gitleaks hook from source
 # with a Go it downloads itself (go.dev, dl.google.com), fetching modules
@@ -50,6 +102,8 @@ management.core.windows.net
 graph.microsoft.com
 azurecliprod.blob.core.windows.net
 azcliprod.blob.core.windows.net
+# az extension add reads its index here (Microsoft's own storage account).
+azcliextensionsync.blob.core.windows.net
 aka.ms
 # Bicep: az bicep resolves releases through aka.ms (BicepReleases,
 # BicepLatestRelease), which redirect here; downloads come from here too.
@@ -63,16 +117,40 @@ live-data.bicep.azure.com
 prices.azure.com
 api.loganalytics.io
 api.loganalytics.azure.com
+# EXCEPTION (see the top): anyone can create a registry.
 *.azurecr.io
 
 # Azure data plane: AI Foundry, Azure OpenAI and Cognitive Services
 # endpoints, and Container Apps (app and environment FQDNs).
+# EXCEPTION (see the top), all but *.api.cognitive.microsoft.com (regional):
+# anyone can create these resources.
 *.services.ai.azure.com
 *.cognitiveservices.azure.com
 *.openai.azure.com
 *.api.cognitive.microsoft.com
 *.azurecontainerapps.io
 *.azurecontainerapps.dev
+
+# Azure data plane, where the name is a region or access needs this user's
+# own Entra ID sign-in: Speech (text to speech, speech to text), Key Vault,
+# Application Insights queries, and Microsoft Fabric and Power BI APIs.
+*.tts.speech.microsoft.com
+*.stt.speech.microsoft.com
+*.vault.azure.net
+api.applicationinsights.io
+api.fabric.microsoft.com
+api.powerbi.com
+onelake.dfs.fabric.microsoft.com
+*.analysis.windows.net
+# The Azure AI Foundry portal (Entra ID sign-in).
+ai.azure.com
+# Entra ID sign-in pages load their scripts from these, when playwright-cli
+# signs in to an app.
+aadcdn.msauth.net
+aadcdn.msftauth.net
+logincdn.msauth.net
+aadcdn.msftauthimages.net
+login.live.com
 
 # Playwright browser downloads
 cdn.playwright.dev
@@ -83,8 +161,164 @@ playwright.azureedge.net
 fonts.googleapis.com
 fonts.gstatic.com
 
+# Published JavaScript and CSS that pages, Slidev decks and self-contained
+# HTML diagrams load (read-only CDNs of npm and curated libraries).
+cdn.jsdelivr.net
+unpkg.com
+cdnjs.cloudflare.com
+esm.sh
+ga.jspm.io
+# Icons Slidev and UnoCSS resolve, and the Inter font's own site.
+api.iconify.design
+rsms.me
+# JSON schemas editors and linters fetch for config files.
+json.schemastore.org
+www.schemastore.org
+# Chrome for Testing version lists (Remotion, Puppeteer).
+googlechromelabs.github.io
+# Stock and placeholder images for demo pages (read-only image CDNs).
+images.unsplash.com
+images.pexels.com
+placehold.co
+picsum.photos
+
+# Container images and their package mirrors: Docker-in-Docker builds, and
+# Trivy's vulnerability database (mirror.gcr.io, then ghcr.io).
+mcr.microsoft.com
+*.data.mcr.microsoft.com
+ghcr.io
+pkg-containers.githubusercontent.com
+registry-1.docker.io
+auth.docker.io
+production.cloudflare.docker.com
+mirror.gcr.io
+deb.debian.org
+dl-cdn.alpinelinux.org
+archive.ubuntu.com
+security.ubuntu.com
+ports.ubuntu.com
+packages.microsoft.com
+deb.nodesource.com
+
+# Media, data and assets the projects fetch: Remotion's headless Chrome,
+# Azure architecture icons, Wikidata queries (read-only SPARQL), GitHub
+# avatars in rendered pages.
+remotion.media
+arch-center.azureedge.net
+query.wikidata.org
+avatars.githubusercontent.com
+
+# Documentation an agent reads with WebFetch, which fetches from inside the
+# container (WebSearch does not). Read-only sites of the vendors themselves.
+# Microsoft and Azure
+learn.microsoft.com
+docs.microsoft.com
+azure.microsoft.com
+azure.github.io
+microsoft.github.io
+azure.status.microsoft
+devblogs.microsoft.com
+code.visualstudio.com
+azuresdkdocs.blob.core.windows.net
+# GitHub and Anthropic
+docs.github.com
+cli.github.com
+code.claude.com
+docs.claude.com
+docs.anthropic.com
+status.claude.com
+support.claude.com
+www.anthropic.com
+modelcontextprotocol.io
+git-scm.com
+github.blog
+www.githubstatus.com
+# Python
+www.python.org
+docs.python.org
+peps.python.org
+packaging.python.org
+docs.astral.sh
+docs.pytest.org
+docs.pydantic.dev
+docs.sqlalchemy.org
+alembic.sqlalchemy.org
+docs.djangoproject.com
+fastapi.tiangolo.com
+typer.tiangolo.com
+sqlmodel.tiangolo.com
+www.starlette.io
+www.uvicorn.org
+www.python-httpx.org
+mypy.readthedocs.io
+pre-commit.com
+numpy.org
+pandas.pydata.org
+matplotlib.org
+jupyter.org
+help.pythonanywhere.com
+# JavaScript, frontend and tooling
+developer.mozilla.org
+web.dev
+developer.chrome.com
+caniuse.com
+www.w3.org
+html.spec.whatwg.org
+nodejs.org
+www.npmjs.com
+docs.npmjs.com
+www.typescriptlang.org
+vuejs.org
+vueuse.org
+vitepress.dev
+vite.dev
+vitest.dev
+tailwindcss.com
+primevue.org
+eslint.org
+typescript-eslint.io
+prettier.io
+zod.dev
+axios-http.com
+www.chartjs.org
+echarts.apache.org
+playwright.dev
+docs.docker.com
+kubernetes.io
+helm.sh
+json-schema.org
+spec.openapis.org
+# Java and .NET (app migration work).
+docs.oracle.com
+openjdk.org
+adoptium.net
+docs.spring.io
+maven.apache.org
+docs.gradle.org
+# Video, slides and diagrams
+remotion.dev
+ffmpeg.org
+sli.dev
+revealjs.com
+marp.app
+docs.astro.build
+mermaid.js.org
+graphviz.org
+d3js.org
+
+# Your own published sites, to check a deploy.
+kokko-ng.github.io
+manuelfdng.pythonanywhere.com
+
 # VS Code server and extensions (Reopen in Container)
 update.code.visualstudio.com
 vscode.download.prss.microsoft.com
 marketplace.visualstudio.com
 main.vscode-cdn.net
+
+# This project's own Azure resources, by exact name: storage accounts
+# (<name>.blob.core.windows.net), AI Search (<name>.search.windows.net),
+# Cosmos DB (<name>.documents.azure.com), SQL (<server>.database.windows.net),
+# App Configuration (<name>.azconfig.io), API Management (<name>.azure-api.net),
+# App Service (<app>.azurewebsites.net and <app>.scm.azurewebsites.net), and
+# Application Insights ingestion (<region>.in.applicationinsights.azure.com).

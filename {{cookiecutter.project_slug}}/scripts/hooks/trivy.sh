@@ -4,9 +4,9 @@
 # because it needs the network for its vulnerability database.
 #
 # Uses a local trivy binary when there is one, otherwise the pinned official
-# image through Docker. The devcontainer has neither (trivy's database host is
-# not on the firewall allowlist), so there it skips with a notice: CI runs the
-# same scan as its own job, where a missing scanner is a failure, not a skip.
+# image through Docker. The devcontainer has neither unless the project enabled
+# Docker-in-Docker, so there it skips with a notice: CI runs the same scan as
+# its own job, where a missing scanner is a failure, not a skip.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

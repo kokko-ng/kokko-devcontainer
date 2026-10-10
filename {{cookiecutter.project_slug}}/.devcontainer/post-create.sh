@@ -232,6 +232,23 @@ install_playwright_cli() {
     step "playwright-skills" bash -c 'cd "$HOME" && playwright-cli install --skills'
 }
 
+# The image's containerapp extension overrides the built-in `az containerapp`
+# commands, and az then warns "The behavior of this command has been altered
+# by the following extension: containerapp" on every call: noise in every
+# agent's output. A logging filter for that one message goes into az's own
+# Python (config/azure/), imported through a .pth file. The Azure CLI feature
+# installs az after the Dockerfile runs, so this is a provisioning step, done
+# with root before lock_sudo.
+quiet_az_extension_warning() {
+    local src="$BUNDLED_CONFIG_DIR/azure" site
+    if ! command -v az >/dev/null 2>&1 || [[ ! -d "$src" ]]; then return 0; fi
+    site="$(find /opt/az/lib -maxdepth 2 -type d -name site-packages 2>/dev/null | head -1)"
+    [[ -n "$site" ]] || return 0
+    if sudo -n install -m 0644 "$src/devcontainer_az_quiet.py" "$src/devcontainer-az-quiet.pth" "$site/" 2>/dev/null; then
+        echo "=== az: the containerapp extension's override warning is filtered ==="
+    fi
+}
+
 configure_claude() {
     echo "=== Configuring Claude Code ==="
     mkdir -p "$CLAUDE_DIR"
@@ -512,6 +529,10 @@ merge_claude_settings() {
                 && jq -e . "$CLAUDE_DIR/settings.json.tmp" >/dev/null 2>&1; then
                 mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
                 echo "  Merged bundled settings and plugin roster into settings.json (backup: $(basename "$bak"))"
+                # The merge adds autoMode only when absent; this moves an
+                # unedited block from an earlier bundle onto the current one.
+                bash "$BUNDLED_CLAUDE_DIR/refresh-auto-mode.sh" "$CLAUDE_DIR/settings.json" \
+                    "$BUNDLED_CLAUDE_DIR/settings.json" "$BUNDLED_CLAUDE_DIR/auto-mode-shipped.sha256"
                 prune_removed_roster_entries
             else
                 rm -f "$CLAUDE_DIR/settings.json.tmp"
@@ -658,6 +679,52 @@ bootstrap_claude_plugins() {
     if [[ "$failed" -eq 0 ]]; then
         touch "$stamp"
     fi
+}
+
+# =====================
+# Claude Code skills
+# =====================
+# Skills published as a bare repository (SKILL.md at the root) rather than as a
+# plugin, listed with a pinned commit in config/claude/skills.json and
+# installed as user-level skills in ~/.claude/skills/<name>. A marker file
+# records what was installed, so a moved pin replaces the folder, a skill
+# dropped from the list is removed, and a folder without the marker (your own
+# copy) is never touched. The network is needed only when a pin moved.
+install_claude_skills() {
+    local list="$BUNDLED_CLAUDE_DIR/skills.json" dir="$CLAUDE_DIR/skills"
+    local name repo ref dest tmp wanted=" " d
+    [[ -f "$list" ]] || return 0
+    if [[ "${KOKKO_SKIP_PLUGINS:-}" == "1" ]] || ! command -v jq >/dev/null 2>&1; then return 0; fi
+    mkdir -p "$dir"
+    while IFS=$'\t' read -r name repo ref; do
+        if [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ || ! "$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ || ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "  WARNING: skipping a malformed entry in skills.json ($name)"
+            continue
+        fi
+        wanted="$wanted$name "
+        dest="$dir/$name"
+        if [[ -e "$dest" && ! -f "$dest/.kokko-skill" ]]; then
+            echo "  skill $name: $dest is your own copy, left alone"
+            continue
+        fi
+        [[ "$(cat "$dest/.kokko-skill" 2>/dev/null)" == "$repo@$ref" ]] && continue
+        tmp="$(mktemp -d "$dir/.install.XXXXXX")"
+        if curl -fsSL "https://codeload.github.com/$repo/tar.gz/$ref" | tar -xz -C "$tmp" --strip-components=1 &&
+            [[ -f "$tmp/SKILL.md" ]]; then
+            printf '%s\n' "$repo@$ref" >"$tmp/.kokko-skill"
+            rm -rf "$dest" && mv "$tmp" "$dest"
+            echo "  skill $name: installed $repo at ${ref:0:12}"
+        else
+            rm -rf "$tmp"
+            echo "  WARNING: could not install skill $name ($repo@$ref)"
+        fi
+    done < <(jq -r '.skills[]? | [.name, .repo, .ref] | @tsv' "$list")
+    for d in "$dir"/*/; do
+        d="${d%/}"
+        [[ -f "$d/.kokko-skill" && "$wanted" != *" $(basename "$d") "* ]] || continue
+        rm -rf "$d" && echo "  skill $(basename "$d"): removed (no longer bundled)"
+    done
+    return 0
 }
 
 # Never expire the reflog or prune unreachable objects. The default 90/30-day
@@ -929,6 +996,7 @@ apply_bundled_config() {
     install_claude_hooks
     install_managed_settings
     bootstrap_claude_plugins || true
+    install_claude_skills
     configure_git
     link_shell_config
 }
@@ -962,6 +1030,7 @@ install_zsh_plugins
 install_claude_cli
 install_copilot_cli
 install_playwright_cli
+quiet_az_extension_warning
 apply_bundled_config
 report_plugin_paths
 install_python_deps

@@ -1,0 +1,267 @@
+name: Update pins
+
+# Daily: scripts/update-pins.sh brings every version the template pins up to
+# date (docs/maintenance.md -> Daily pin update). When something moved, the
+# change goes out as a PR, CI runs on it, and on green it is merged with a
+# merge commit and released as the next minor version. A failed CI run leaves
+# the PR open and fails this workflow; later runs skip while it stays open.
+#
+# Split so that the job running freshly bumped third-party code (npm, PyPI,
+# hook repos at their new revs, the tests) holds a read-only token, and the
+# job holding the write token runs nothing but git and gh on a patch.
+#
+# Events made with GITHUB_TOKEN start no workflow runs (workflow_dispatch
+# aside): the push and the PR start no CI, the merge no release. The ship job
+# dispatches both itself, which is why ci.yml has a workflow_dispatch trigger.
+#
+# REQUIRED repository setting: Settings -> Actions -> General -> "Allow GitHub
+# Actions to create and approve pull requests". Without it `gh pr create`
+# is refused and the run fails after pushing the branch.
+
+on:
+  schedule:
+    # Daily at 05:23 UTC: off the top of the hour, when scheduled runs queue.
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: update-pins
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate:
+    name: skip while a daily PR is open
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # list open PRs
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+    steps:
+      # An open deps/daily-* PR is one whose CI failed (or a run still in
+      # flight): a human has to look before another update piles on top. Only
+      # main is updated; a dispatch from another branch would merge that
+      # branch's state into main.
+      - name: Check for an open daily PR
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::notice::Pin updates run on main only, not $GITHUB_REF. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          open="$(gh pr list --state open --limit 200 --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("deps/daily-")) | "#\(.number)"] | join(" ")')"
+          if [ -n "$open" ]; then
+            echo "::notice::Daily pin update PR $open is still open; a human needs to look at it. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  update:
+    name: update pins and test
+    needs: gate
+    if: needs.gate.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read # read-only: this job runs the newly pinned code
+    outputs:
+      changed: ${{ steps.pins.outputs.changed }}
+      version: ${{ steps.pins.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install cookiecutter and pre-commit
+        run: pip install cookiecutter pre-commit
+      # The token reads release metadata through gh; it is read-only here.
+      # --no-repo-workflows: GITHUB_TOKEN may not push a change to this repo's
+      # own .github/workflows/ files (there is no workflows permission to
+      # grant it), so their pins go into the PR body for a human instead.
+      - name: Update every pin
+        id: pins
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash scripts/update-pins.sh --bump-minor --no-repo-workflows \
+            --summary "$RUNNER_TEMP/pin-summary.md"
+          cat "$RUNNER_TEMP/pin-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::notice::Every pin is current; nothing to release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --cached --stat
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Settings pipeline tests
+        if: steps.pins.outputs.changed == 'true'
+        run: bash tests/merge-settings-tests.sh
+      - name: Template render tests
+        if: steps.pins.outputs.changed == 'true'
+        run: bash tests/template-tests.sh
+      # Fails if a hook at its new rev rewrites a file, as well as on findings.
+      - name: pre-commit on all files
+        if: steps.pins.outputs.changed == 'true'
+        run: pre-commit run --all-files --show-diff-on-failure
+      - name: Package the change
+        if: steps.pins.outputs.changed == 'true'
+        run: git diff --cached --binary > "$RUNNER_TEMP/pins.patch"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.pins.outputs.changed == 'true'
+        with:
+          name: pin-update
+          path: |
+            ${{ runner.temp }}/pins.patch
+            ${{ runner.temp }}/pin-summary.md
+          if-no-files-found: error
+          retention-days: 7
+
+  ship:
+    name: PR, CI, merge and release
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    # Most of it is waiting for CI, whose devcontainer build is the long pole.
+    timeout-minutes: 120
+    permissions:
+      contents: write # push the branch and the merge, delete the branch
+      pull-requests: write # open the PR; comment on it when CI fails
+      actions: write # dispatch ci.yml and release.yml; watch the CI run
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OWNER: ${{ github.repository_owner }}
+      VERSION: ${{ needs.update.outputs.version }}
+      # Every commit in this repo is authored and committed by kokko-ng.
+      GIT_AUTHOR_NAME: kokko-ng
+      GIT_AUTHOR_EMAIL: Kokko.Ng@insight.com
+      GIT_COMMITTER_NAME: kokko-ng
+      GIT_COMMITTER_EMAIL: Kokko.Ng@insight.com
+    steps:
+      # The same commit the update job patched (github.sha), with history for
+      # the merge. No stored credentials: pushes go through gh's helper.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pin-update
+          path: ${{ runner.temp }}/pin-update
+      - name: Commit, push and open the PR
+        id: pr
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.0$ ]]; then
+            echo "::error::Unexpected version from the update job: '$VERSION'"
+            exit 1
+          fi
+          branch="deps/daily-$(date -u +%Y-%m-%d)"
+          gh auth setup-git
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "::error::$branch already exists on origin (a closed PR's branch?). Delete it and run again."
+            exit 1
+          fi
+          git switch -c "$branch"
+          git apply --index "$RUNNER_TEMP/pin-update/pins.patch"
+          title="build(deps): daily pin update; release $VERSION"
+          { echo "$title"; echo; sed '1,2d' "$RUNNER_TEMP/pin-update/pin-summary.md"; } > "$RUNNER_TEMP/message"
+          git commit -q -F "$RUNNER_TEMP/message"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "$title" \
+            --body-file "$RUNNER_TEMP/pin-update/pin-summary.md"
+          {
+            echo "branch=$branch"
+            echo "title=$title"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "number=$(gh pr view "$branch" --json number --jq .number)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Run CI on the branch and wait for it
+        id: ci
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          HEAD_SHA: ${{ steps.pr.outputs.sha }}
+        run: |
+          out="$(gh workflow run ci.yml --ref "$BRANCH" 2>&1)"
+          echo "$out"
+          # gh prints the new run's URL when the API returns it; otherwise find
+          # the run by event and commit (the branch and commit are new, so the
+          # only match is ours).
+          run_id="$(printf '%s\n' "$out" | grep -oE 'actions/runs/[0-9]+' | head -n 1 | cut -d/ -f3 || true)"
+          tries=0
+          while [ -z "$run_id" ] && [ "$tries" -lt 30 ]; do
+            sleep 10
+            tries=$((tries + 1))
+            run_id="$(gh run list --workflow ci.yml --event workflow_dispatch --commit "$HEAD_SHA" \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::No CI run appeared for $HEAD_SHA."
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          gh run watch "$run_id" --exit-status --interval 30
+      # A merge commit by kokko-ng, as a PR merge on GitHub would make; GitHub
+      # marks the PR merged when the push lands.
+      - name: Merge to main
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          PR: ${{ steps.pr.outputs.number }}
+          TITLE: ${{ steps.pr.outputs.title }}
+        run: |
+          git switch main
+          git fetch origin main
+          git merge --ff-only origin/main
+          git merge --no-ff "$BRANCH" -m "Merge pull request #$PR from $OWNER/$BRANCH" -m "$TITLE"
+          git push origin main
+          # Deleting the branch before GitHub has seen the merge would close the
+          # PR unmerged, so wait for it first.
+          state=""
+          for _ in $(seq 1 30); do
+            state="$(gh pr view "$PR" --json state --jq .state)"
+            [ "$state" = MERGED ] && break
+            sleep 10
+          done
+          if [ "$state" != MERGED ]; then
+            echo "::error::PR #$PR is $state after the push to main; branch $BRANCH kept, release not dispatched."
+            exit 1
+          fi
+          git push origin --delete "$BRANCH"
+      - name: Release
+        run: gh workflow run release.yml --ref main -f tag="v$VERSION"
+      # Whatever failed after the PR opened, the PR stays open and says so,
+      # and the daily run skips until a human has dealt with it.
+      - name: Leave the PR open with the failure on it
+        if: failure() && steps.pr.outputs.number != ''
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          CI_OUTCOME: ${{ steps.ci.outcome }}
+          RUN_ID: ${{ steps.ci.outputs.run_id }}
+        run: |
+          if [ "$CI_OUTCOME" = failure ] && [ -n "$RUN_ID" ]; then
+            what="CI failed on this branch ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID), so it was not merged or released."
+          else
+            what="The pin update failed after opening this PR ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Check whether main has the merge and whether v$VERSION was released."
+          fi
+          gh pr comment "$PR" --body "$what Fix it on this branch and merge it by hand, or close it and delete the branch. The daily pin update skips while a deps/daily-* PR is open."
