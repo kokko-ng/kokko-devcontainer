@@ -8,6 +8,7 @@
 #   dev new NAME [key=value...]               generate ~/code/NAME from the template, then open it
 #   dev up [PROJECT]                          start the container without opening anything
 #   dev auth [--claude] [PROJECT]             sign in once, for every devcontainer on this Mac
+#   dev auth --full [PROJECT]                 ... plus a full Claude sign-in for PROJECT (Remote Control)
 #   dev rebuild [PROJECT]                     recreate the container, then open it
 #   dev stop [--keep-vm] [PROJECT]            stop the container; stop Colima when none is left
 #   dev root [PROJECT]                        a root shell in the container (the agent has no sudo)
@@ -27,7 +28,9 @@
 #   Copilot  reuses the gh login (the container's `copilot` passes it on)
 #   Azure    copied from the host's own `az login` (its token cache)
 #   Claude   a long-lived `claude setup-token` token kept in the macOS
-#            Keychain; `dev auth` creates it once per Mac (one browser click)
+#            Keychain; `dev auth` creates it once per Mac (one browser click).
+#            It is inference-only: Remote Control needs `dev auth --full`,
+#            a sign-in of the project's own, once per project
 #
 # Resources: the Colima VM is sized from this Mac's RAM (an 8 GB Mac gets
 # 2 CPUs / 3 GB), each container is capped below the VM, a Mac under 16 GB
@@ -449,10 +452,11 @@ ensure_ready() {
 }
 
 cmd_auth() {
-    local refresh_claude=0 dir cid token typescript
+    local refresh_claude=0 full=0 dir cid token typescript
     while [[ "${1:-}" == -* ]]; do
         case "$1" in
             --claude) refresh_claude=1 ;;
+            --full) full=1 ;;
             *) die "dev auth: unknown option $1" ;;
         esac
         shift
@@ -506,7 +510,28 @@ cmd_auth() {
     fi
     seed_claude_token "$cid" "$token"
     note "every devcontainer on this Mac now signs in with it"
+    if ((full == 1)); then
+        claude_full_login "$cid" "$(basename "$dir")"
+    fi
     say "Done. Open a shell with: dev $(basename "$dir")"
+}
+
+# The shared token is inference-only, so Remote Control (/rc) and /code-review
+# ultra refuse it. A full sign-in goes into this project's own ~/.claude
+# volume (it refreshes itself, so it cannot be shared), and the container's
+# shells stop exporting the token once it exists.
+claude_full_login() {
+    local cid="$1" name="$2"
+    say "Claude Code: full sign-in for $name (Remote Control, /code-review ultra)"
+    # shellcheck disable=SC2016 # expands in the container's shell
+    if in_container "$cid" sh -c 'test -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"'; then
+        note "already signed in; new shells in $name use it"
+        return 0
+    fi
+    note "Open the link it prints in your browser, approve, and paste the code back here."
+    docker exec -it -u vscode "$cid" /home/vscode/.local/bin/claude auth login ||
+        die "the sign-in did not complete; run dev auth --full $name again"
+    note "signed in; open a new shell in $name (dev $name) for Remote Control"
 }
 
 # ------------------------------------------------------------------- opening
@@ -602,14 +627,20 @@ cmd_new() {
 
 # VS Code attached to the container dev started (VM sized, sign-ins filled),
 # rather than "Reopen in Container" building one on its own. The URI names the
-# host folder in hex, which is how the Dev Containers extension finds it.
+# host folder (hex-encoded), which is how the Dev Containers extension finds it.
 cmd_code() {
-    local dir hex
+    local dir hex ctx
     dir="$(project_dir "${1:-}")"
     command -v code >/dev/null 2>&1 || die "the VS Code 'code' command is not on PATH"
     container_up "$dir"
     ensure_ready "$(container_id "$dir")"
-    hex="$(printf '%s' "$dir" | od -An -tx1 | tr -d ' \n')"
+    # The URI carries the Docker context too: without one the Dev Containers
+    # extension runs docker with DOCKER_CONTEXT=default, whose socket
+    # (/var/run/docker.sock) Colima does not create, and VS Code reports
+    # "Docker returned an error". The authority is then JSON, hex-encoded.
+    ctx="$(docker context show 2>/dev/null || echo colima)"
+    hex="$(jq -cn --arg p "$dir" --arg c "$ctx" '{hostPath: $p, settings: {context: $c}}' |
+        tr -d '\n' | od -An -tx1 | tr -d ' \n')"
     code --folder-uri "vscode-remote://dev-container+${hex}/workspaces/$(basename "$dir")"
     say "Opened $(basename "$dir") in VS Code, attached to its container"
 }
@@ -712,6 +743,7 @@ cmd_guide() {
     printf '\n%sOnce per Mac%s                         %sClaude token:%s %s\n' "$b" "$r" "$d" "$r" "$token"
     guide_row "dev auth" "dev auth" "sign in for every devcontainer: gh and Azure from this Mac,"
     printf '  %-29s %s\n' "" "Copilot reuses gh, Claude gets a year-long token"
+    guide_row "dev auth --full" "dev auth" "a full Claude sign-in for one project, for Remote Control"
 
     printf '\n%sStart%s   %sPROJECT: a folder in %s or a path. Inside a project folder, leave it out:%s\n' "$b" "$r" "$d" "${DEV_HOME/#"$HOME"/\~}" "$r"
     printf '        %sin %s/%s, dev claude does what dev claude %s does from anywhere%s\n' "$d" "${DEV_HOME/#"$HOME"/\~}" "$here" "$here" "$r"

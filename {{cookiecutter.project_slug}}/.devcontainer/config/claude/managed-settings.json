@@ -28,6 +28,8 @@
       "Bash(az account get-access-token*)",
       "Read(~/.config/claude-auth/**)",
       "Edit(~/.config/claude-auth/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Edit(~/.claude/.credentials.json)",
       "Read(~/.azure/msal_token_cache*)",
       "Read(~/.config/gh/hosts.yml)"
     ],

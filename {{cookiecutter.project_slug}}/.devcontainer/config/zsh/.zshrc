@@ -22,9 +22,12 @@ DOTFILES_ZSH="${0:A:h}"
 # ===================
 # Every devcontainer shares these volumes, filled once by the host `dev`
 # command (dev auth). Claude Code: a long-lived `claude setup-token` token,
-# so no per-project /login. The Claude Code policy scrubs it from the
-# environment of the commands an agent runs and denies reading the file.
-if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$HOME/.config/claude-auth/oauth-token" ]]; then
+# so no per-project /login. The Claude Code policy denies reading the file.
+# That token is inference-only, so Remote Control and /code-review ultra need
+# a full sign-in (`dev auth --full` on the host, stored in this project's
+# ~/.claude). Once there is one, the token is not exported: it would win.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$HOME/.config/claude-auth/oauth-token" &&
+    ! -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ]]; then
     export CLAUDE_CODE_OAUTH_TOKEN="$(<"$HOME/.config/claude-auth/oauth-token")"
 fi
 # Copilot CLI: reuse the gh sign-in instead of a separate /login. Passed to

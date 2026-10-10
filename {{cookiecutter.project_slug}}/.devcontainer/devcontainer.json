@@ -185,7 +185,10 @@
     // Claude Code sign-in shared across projects: a long-lived token from
     // `claude setup-token`, which the host `dev` command copies in from the
     // macOS Keychain. .zshrc exports it as CLAUDE_CODE_OAUTH_TOKEN, so the
-    // per-project state volume above no longer needs its own /login.
+    // per-project state volume above no longer needs its own /login. The token
+    // is inference-only; Remote Control needs a full sign-in, which
+    // `dev auth --full` stores in the state volume above, and once it exists
+    // .zshrc stops exporting the token.
     "source={{ cookiecutter.__volume_prefix }}-claude-auth,target=/home/vscode/.config/claude-auth,type=volume",
 {%- if cookiecutter.include_azure_cli == "yes" %}
     // Azure CLI sign-in (`az login --use-device-code`, or `dev auth`), kept

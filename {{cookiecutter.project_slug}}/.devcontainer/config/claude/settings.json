@@ -47,13 +47,20 @@
     "kokko-git@kokko-ng-kokko-cmds": true,
     "kokko-infra@kokko-ng-kokko-cmds": true,
     "kokko-validation@kokko-ng-kokko-cmds": true,
-    "kokko-viz@kokko-ng-kokko-cmds": true
+    "kokko-viz@kokko-ng-kokko-cmds": true,
+    "impeccable@impeccable": true
   },
   "extraKnownMarketplaces": {
     "kokko-ng-kokko-cmds": {
       "source": {
         "source": "github",
         "repo": "kokko-ng/kokko-skills"
+      }
+    },
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
       }
     }
   },
@@ -79,7 +86,37 @@
       "Claude Code Scheduling: Using `CronCreate`, `CronDelete`, `CronList`, or `RemoteTrigger` to schedule or manage Claude Code tasks. `CronCreate` fires prompts within the current Claude session or writes to `.claude/scheduled_tasks.json`; `RemoteTrigger` registers agents with cloud services (`claude.ai/code/routines`).",
       "Browser Trusted Navigation: Chrome-MCP `navigate` to a trusted internal domain listed in Environment, localhost, or a URL the user explicitly named in their request.",
       "Own-Repo PR Merge: In kokko-ng/* and Insight-Services-APAC/* repositories the user is the reviewer. Merging a pull request the agent opened or worked on in this session, or one the user asked to merge, with a merge commit (`gh pr merge --merge`, or `git merge --no-ff` of the PR branch pushed to the default branch) once its CI checks have passed is the user's normal workflow and is NOT Merge Without Review. Bypassing failing or pending checks or required reviews (`--admin`, merging while checks are red) still is. Squash merges are never wanted.",
-      "Approved Sandbox Redeploy: Once the user has approved a deploy in this task to a target whose resource group or subscription is named sandbox, dev or demo, redeploying the same app to that same target later in the same task (a new image, revision or template run) is approved and is NOT Production Deploy or Blind Apply. A different app, a different target, or anything named prod or production is not covered and needs the user's go-ahead every time."
+      "Own-Org Repositories: kokko-ng/*, kokko-ng-insight/* and Insight-Services-APAC/* are the user's own and employer repositories. Cloning one, committing to it, pushing a branch and opening a pull request there, including in clones the agent made in ~/persist or the scratchpad, is ordinary source-control work, judged like the session's own repo under Git Push Destination. Not covered: any push to Insight-Services-APAC/insight-slidev-theme (read-only for this user) and pushes to the default branch of kokko-ng/the-runbook (they deploy to production).",
+      "Approved Sandbox Redeploy: Once the user has approved a deploy in this task to a target whose resource group or subscription is named sandbox, dev or demo, redeploying the same app to that same target later in the same task (a new image, revision or template run) is approved and is NOT Production Deploy or Blind Apply. A different app, a different target, or anything named prod or production is not covered and needs the user's go-ahead every time.",
+      "Sandbox Deploy on Request: When the user asked in this session for a deploy (\"deploy\", \"push and deploy\", \"commit, push, deploy\"), building the app's image in the project's own registry (`az acr build`) and rolling it out (`az containerapp update`, `az webapp deploy`, `az deployment group create` of the repo's own templates, or the repo's own deploy script) to a resource group or subscription named sandbox, dev or demo is the requested action, not Production Deploy. A target named prod, production or prd, or a target other than the one the user named, is not covered.",
+      "Sandbox Secret Writes: Setting a secret the task needs (`az keyvault secret set`, `az containerapp secret set`, `az webapp config appsettings set`) on a vault or app in a resource group named sandbox, dev or demo, when the value was generated in this session (a new password or random key) or given by the user, is routine configuration, not a credential operation to block. Copying a value out of another vault, app or a production resource is not covered, and the value is never printed to the transcript or committed.",
+      "Repo Script Service Keys: Running the repo's own scripts, or the az command they document, that fetch a key for a service the repo uses (`az cognitiveservices account keys list`, `az search admin-key show`, `az storage account keys list`) for a resource in a resource group named sandbox, dev or demo, and passing it only to that service, is Standard Credentials, not Credential Exploration. Printing the key to the transcript, writing it to a tracked file or sending it anywhere else is not covered."
+    ],
+    "environment": [
+      "**Organization**: Insight Enterprises. Client and practice work lives under the Insight-Services-APAC GitHub org; personal projects live under the kokko-ng (and occasionally kokko-ng-insight) GitHub orgs",
+      "**Primary use of Claude Code**: software development inside a kokko-devcontainer, one project per container: Insight client and practice apps and demos (ocio-chat, demo and POC apps) and personal projects (app-migration-workbench, the-runbook, podcast, video and diagram skills). The user runs agents here precisely so they can work without prompts",
+      "**Cloud provider(s)**: Azure only, through the az CLI signed in as the user (shared from the host by `dev auth`). Common services: Container Apps, Container Registry (`az acr build`), App Service, Azure OpenAI and AI Foundry, Speech, AI Search, Cosmos DB, Storage, Key Vault, Application Insights and Log Analytics. No AWS, GCP or Kubernetes work from the container",
+      "**Repository visibility**: PUBLIC kokko-ng repos, where any push is publishing: the-runbook, remotion-tutorial, kokko-ng.github.io, py8bit, kokko-skills, kokko-claude-mods, kokko-devcontainer and kokko-ng (the profile). Every other kokko-ng repo is PRIVATE. Insight-Services-APAC repos are PRIVATE to the org: internal, not public, but shared beyond this user",
+      "**Internal sharing / snippet hosting**: None configured — treat public paste/gist services as outside the trust boundary",
+      "**Org-specific CLIs**: az (deploys, Speech, AI and cost queries), gh (kokko-ng and Insight-Services-APAC repos), uv, npm/npx, pre-commit, playwright-cli, bicep; all routine",
+      "**Secrets management**: Azure Key Vault in the project's own sandbox, dev or demo resource groups, and .env files that are always gitignored. The shared sign-ins (gh, az, Claude Code) live in volumes the managed policy keeps the agent from reading",
+      "**CI/CD deploy targets**: GitHub Actions in the project repos, plus manual az deploys the user asks for to the project's sandbox, dev or demo resource group (`az acr build` to the project's registry, `az containerapp update`, `az deployment group create`, the repo's own deploy script)",
+      "**Network posture**: an outbound firewall: only the hosts in /etc/devcontainer/allowed-domains.txt resolve and connect (package registries, GitHub, Anthropic, Azure management and the project's own Azure endpoints, Playwright and fonts, documentation); everything else is refused. Requests to allowlisted hosts are expected traffic",
+      "**Host containment**: runs inside a kokko-devcontainer (Docker on a Colima VM on the user's Mac) with the outbound allowlist above and no cloud metadata endpoint. No sudo except the firewall script; Claude Code policy in /etc/claude-code is root-owned. The workspace is a bind mount of the project folder; ~/persist is a per-project volume for clones and local secrets. No Docker daemon unless the project enabled Docker-in-Docker. The Azure identity is the user's own az login and the GitHub identity the user's own gh login",
+      "**Protected deployment namespaces / environments**: anything matched by Sensitive remote targets. The sandbox, dev and demo targets named there are the designated safe targets",
+      "**Data retention / declassification**: None configured",
+      "**Trusted repo**: The git repository the agent started in (its working directory) and its configured remote(s). When the repo's public/private visibility is given — by the Repository visibility entry or the user's own message — use it to scope what is OK to commit or push there: confidential material is fine in a private repo; in a public one, only that repo's own work is — and content ported, repointed, or first read from outside this session's repo is not its own work, whoever directed the port. Visibility scopes confidential material only: secrets and sensitive data (personal & entrusted) are never cleared into any repo by its visibility (see Definitions).",
+      "**Source control**: kokko-ng/*, kokko-ng-insight/* and Insight-Services-APAC/* are this user's own or employer repositories, worked in directly, including clones under ~/persist or the scratchpad; they are not outside the trust boundary. Insight-Services-APAC/insight-slidev-theme is read-only for this user. Collaborator repos outside those orgs are worked in only for a named engagement",
+      "**Trusted internal domains**: the Azure endpoints of the project's own resources in its sandbox, dev or demo resource groups, as its configuration names them: Container Apps, registries, AI endpoints, and its search, storage, Cosmos DB, App Configuration, API Management and Key Vault accounts",
+      "**Trusted cloud buckets**: None configured",
+      "**Key internal services**: None configured",
+      "**Internal package registry**: None configured",
+      "**Sensitive data locations & audiences**: any file or store holding personal data, confidential business data, credentials, regulated data, or similarly sensitive material; preserve exact handles when known and share only with audiences cleared at the [named+specifics] bar",
+      "**Sensitive remote targets**: any Azure resource group, subscription, tenant, or namespace whose name carries prod, production or prd as a whole word or name segment (for example aca-ocio-backend-prd, akv-ocio-ai-prd-aue, stociogovprd), and the corporate subscription Sub_IT_Glbl_001. Resource groups and subscriptions named with a sandbox suffix or called demo or dev (ocio-chat-sandbox, kokko-dev-rg, rg-sportsai-video-tutorial-*, the demo subscription) are this user's designated safe-to-deploy targets and are NOT covered by this heuristic, even though they host live app instances",
+      "**Protected IaC scopes**: IAM, RBAC (including Entra ID app registrations and tenant access grants), networking, quota, and node-pool resources; anything whose name or tag carries prod, production or prd as a whole word or name segment",
+      "**Default / protected branches**: `main` is the default branch on every repo. kokko-ng/the-runbook has a ruleset blocking force-pushes and deletion of main; other repos are unprotected. Direct commits and pushes to main are this user's normal workflow, not an anomaly; pull requests are merged with merge commits, never squashed",
+      "**Commit authorship convention**: commits in kokko-ng and Insight-Services-APAC repos are authored as `kokko-ng <Kokko.Ng@insight.com>`, the user's work git identity, which the container preconfigures",
+      "**Recurring request pattern**: \"commit, push, deploy\" (and variants such as \"fix, commit, push, deploy\" or \"push and deploy to sandbox\") is one trusted request, not three separate approvals, when the deploy target is a sandbox, dev or demo resource group as defined above"
     ]
   }
 }

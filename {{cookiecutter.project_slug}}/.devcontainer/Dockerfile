@@ -107,6 +107,13 @@ RUN update-ca-certificates
 # agent cannot rewrite it; a policy change takes a rebuild, which only you run.
 COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json
 
+# Chromium policy for every Playwright browser here (playwright-cli and a
+# project's own): no sign-in, sync, autofill, component updates, Safe Browsing
+# or search suggestions. Playwright's launch flags already turn most background
+# traffic off; these are the rest, which the firewall would otherwise refuse
+# and list next to the blocks that matter (devcontainer-firewall --blocked).
+COPY config/chromium/managed-policy.json /etc/chromium/policies/managed/devcontainer.json
+
 # Outbound firewall (firewall/init-firewall.sh): root-owned script and
 # allowlist, and the one thing the container user may still run through sudo
 # once post-create.sh has removed the rest. It only rebuilds the same rules.

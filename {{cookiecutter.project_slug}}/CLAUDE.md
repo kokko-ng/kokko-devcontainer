@@ -69,13 +69,16 @@ the same hooks on every file, checks every commit message, and runs Trivy.
   CI (or `az acr build`), or have the user enable `include_docker_in_docker` (a
   privileged container) and rebuild.
 {%- endif %}
-- Temporary files, scratch scripts and test artifacts go in `/tmp`, not the repo.
+- Temporary files, scratch scripts and test artifacts go in the session scratchpad (or
+  `/tmp`), not the repo; both are lost on rebuild. What must survive one goes in
+  `~/persist`.
 
 ## Permissions
 
 Claude Code runs in Auto mode. A managed deny list in
 `/etc/claude-code/managed-settings.json` blocks the irreversible operations: force-push,
-`git reflog expire`, Azure `delete` and `purge`, Docker volume pruning, `gh repo delete`.
+`git reflog expire`, Docker volume pruning, `gh repo delete`. Azure `delete` and `purge`
+always stop at a permission prompt for the user.
 A denied command was denied on purpose — report it and ask, do not look for another
 spelling of the same operation. Bypass mode is disabled.
 {%- if cookiecutter.agent_sudo == "yes" %} The container user keeps passwordless sudo.

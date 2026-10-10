@@ -41,6 +41,7 @@ Inside `~/code/demo`, leave the project out: `dev claude` does the same.
 | `dev new NAME [key=value...]` | Generate `~/code/NAME`, `git init` it, open it |
 | `dev up` / `dev rebuild` | Start the container / recreate it, then open a shell |
 | `dev auth [--claude]` | Sign in for every devcontainer |
+| `dev auth --full [PROJECT]` | Full Claude sign-in for one project (Remote Control) |
 | `dev stop [--keep-vm]` | Stop the container, and Colima when nothing else runs |
 | `dev root` | Root shell in the container |
 | `dev theme [light\|dark]` | Set Claude Code's theme in every running devcontainer |

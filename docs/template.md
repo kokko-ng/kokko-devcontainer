@@ -28,11 +28,20 @@ before anything is written.
 
 `kokko-ng` installs kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
 kokko-validation and kokko-env from
-[kokko-skills](https://github.com/kokko-ng/kokko-skills). They refresh at most
+[kokko-skills](https://github.com/kokko-ng/kokko-skills), and
+[impeccable](https://github.com/pbakaus/impeccable) for frontend design. They refresh at most
 once a day, except that a plugin enabled but not installed (one the bundle just added) is
 installed on the next start. Set a plugin to `false` in `enabledPlugins` in
 `.devcontainer/config/claude/settings.json` to never install it. `KOKKO_PLUGIN_REFRESH=1`
 forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it.
+
+Skills published as a bare repository rather than a plugin are listed, each at a pinned
+commit, in `.devcontainer/config/claude/skills.json` and installed into
+`~/.claude/skills/<name>`: today
+[asd-ste100](https://github.com/danyuchn/asd-ste100-skill), Simplified Technical
+English, which the container's CLAUDE.md requires for all technical documentation. A moved pin replaces the folder, a skill dropped
+from the list is removed, and a folder of the same name that the list did not install
+is left alone. `none` empties the list too.
 
 ## The generated project
 

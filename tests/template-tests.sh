@@ -265,6 +265,13 @@ assert_jq "the Azure sign-in volume is shared" "$DC" \
        == ["source=devcontainer-azure-config,target=/home/vscode/.azure,type=volume"]'
 assert "the image bakes in the Claude Code policy" \
     grep -q 'COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the build context lets the Chromium policy through" \
+    grep -qx '!config/chromium/managed-policy.json' "$DEFAULT/.devcontainer/.dockerignore"
+assert "the image installs the Chromium policy where Playwright's Chromium reads it" \
+    grep -q 'COPY config/chromium/managed-policy.json /etc/chromium/policies/managed/devcontainer.json' "$DEFAULT/.devcontainer/Dockerfile"
+assert_jq "the Chromium policy is valid JSON and turns sync and component updates off" \
+    "$DEFAULT/.devcontainer/config/chromium/managed-policy.json" \
+    '.SyncDisabled == true and .ComponentUpdatesEnabled == false and .AutofillAddressEnabled == false'
 assert "the policy is in the build context" \
     grep -qx '!config/claude/managed-settings.json' "$DEFAULT/.devcontainer/.dockerignore"
 assert_jq "azure-cli feature is present by default" "$DC" \
@@ -316,6 +323,18 @@ assert "the allowlist covers Azure prices, Log Analytics, ACR, Bicep live data a
     bash -c 'for h in prices.azure.com api.loganalytics.io "*.azurecr.io" live-data.bicep.azure.com fonts.googleapis.com fonts.gstatic.com; do grep -qxF "$h" "$1" || exit 1; done' _ "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
 refute "datadog telemetry stays blocked" \
     grep -qi datadog "$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+AL="$DEFAULT/.devcontainer/firewall/allowed-domains.txt"
+# shellcheck disable=SC2016  # $h and $1 expand in the inner bash
+assert "the allowlist covers Remote Control, the full sign-in and uv's Python builds" \
+    bash -c 'for h in bridge.claudeusercontent.com platform.claude.com releases.astral.sh; do grep -qxF "$h" "$1" || exit 1; done' _ "$AL"
+assert "the allowlist has no duplicate entries" \
+    test -z "$(grep -vE '^(#|$)' "$AL" | sort | uniq -d)"
+assert "every allowlist entry is a host name or a *. wildcard" \
+    test -z "$(grep -vE '^(#|$)' "$AL" | grep -vxE '(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?')"
+# The list's own rule (see its header): no namespace where anyone can create a
+# host that accepts data. A project allows its own resources by exact name.
+refute "the allowlist opens no namespace where anyone can stand up a receiver" \
+    grep -qxE '\*\.(blob\.core\.windows\.net|web\.core\.windows\.net|azurewebsites\.net|azure-api\.net|in\.applicationinsights\.azure\.com|search\.windows\.net|documents\.azure\.com|database\.windows\.net|azconfig\.io|servicebus\.windows\.net|workers\.dev|vercel\.app|netlify\.app|pages\.dev|herokuapp\.com|github\.io|s3\.amazonaws\.com|r2\.dev)|(ngrok\.io|ngrok-free\.app|webhook\.site|pastebin\.com|transfer\.sh|file\.io|requestbin\.com|swagger\.io)' "$AL"
 # shellcheck disable=SC2016  # a literal line of the Dockerfile
 assert "the image drops the global pytest that shadows a project's" \
     grep -q 'rm -f "/usr/local/py-utils/bin/$t"' "$DEFAULT/.devcontainer/Dockerfile"
@@ -331,6 +350,12 @@ assert_jq "default roster no longer ships theme-sync" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
        and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)'
+assert_jq "default roster ships impeccable and its marketplace" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.enabledPlugins["impeccable@impeccable"] == true and (.extraKnownMarketplaces | has("impeccable"))'
+assert_jq "default skill list installs asd-ste100" \
+    "$DEFAULT/.devcontainer/config/claude/skills.json" \
+    '.skills | map(.name) | index("asd-ste100") != null'
 assert_jq "default roster registers the kokko-ng marketplaces" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.extraKnownMarketplaces | length > 0'
@@ -347,7 +372,7 @@ assert_jq "the policy forces Claude Code's Bash sandbox off" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" '.sandbox.enabled == false'
 assert_jq "the bundle ships the autoMode allow rules and the fullscreen renderer" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
-    '.tui == "fullscreen" and (.autoMode.allow | length == 19)'
+    '.tui == "fullscreen" and (.autoMode.allow | length == 23) and (.autoMode.environment | length > 0)'
 # The bundled container CLAUDE.md (copied verbatim, so checked once here).
 CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
 assert "container CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64' "$CCM"
@@ -518,6 +543,9 @@ refute "the trivy hook fails in CI without a scanner" \
 for f in config/claude/merge-settings.jq config/claude/prune-roster.jq config/zsh/.zshrc \
          config/claude/settings.json config/claude/CLAUDE.md \
          config/claude/managed-settings.json config/claude/hooks/session-provision-status.sh \
+         config/claude/skills.json config/chromium/managed-policy.json \
+         config/claude/refresh-auto-mode.sh config/claude/auto-mode-shipped.sha256 \
+         config/azure/devcontainer_az_quiet.py config/azure/devcontainer-az-quiet.pth \
          config/starship/starship.toml; do
     assert "$f is copied verbatim" \
         cmp -s "$TEMPLATE_PAYLOAD/.devcontainer/$f" "$DEFAULT/.devcontainer/$f"
@@ -635,6 +663,8 @@ assert_jq "empty roster is still valid JSON" \
 assert_jq "roster is emptied on request" \
     "$SLIM/.devcontainer/config/claude/settings.json" \
     '(.enabledPlugins | length == 0) and (.extraKnownMarketplaces | length == 0)'
+assert_jq "the empty roster also empties the skill list" \
+    "$SLIM/.devcontainer/config/claude/skills.json" '.skills == []'
 assert_jq "emptying the roster keeps the other settings" \
     "$SLIM/.devcontainer/config/claude/settings.json" \
     '.permissions.defaultMode == "auto"'

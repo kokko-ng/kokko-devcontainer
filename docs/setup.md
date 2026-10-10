@@ -23,6 +23,11 @@ Claude Code uses a year-long `claude setup-token` token kept in the macOS Keycha
 - `dev auth` once per Mac: copies gh and Azure, or runs their login when the Mac has none,
   and creates the Claude token (one browser sign-in).
 - `dev auth --claude` replaces the Claude token, for example when it expires.
+- `dev auth --full PROJECT` adds a full Claude Code sign-in to that project, for Remote
+  Control (`/rc`) and `/code-review ultra`, which refuse the shared token: it is
+  inference-only. The sign-in runs in the container (open the link it prints, paste the
+  code back), lives in the project's own Claude volume and refreshes itself, so each
+  project needs its own. Shells opened afterwards use it instead of the token.
 - Every other `dev` start fills what a container is missing and names what is not signed
   in. With `cache_volume_scope=per-project`, run `dev auth` in each project.
 

@@ -24,9 +24,12 @@ spelling, wrapper, or program that does the same thing. Bypass mode is disabled.
 After any permission denial, ask the user and wait for the answer; do not retry or
 switch to other commands meanwhile.
 
-Writes to secret stores (`gh secret set` or `delete`, Key Vault secrets) are held by
-auto mode until the user approves them in their own words. Ask for that approval up
-front, naming the secret, rather than discovering the block mid-task.
+Setting a secret the task needs in a sandbox, dev or demo resource (a Key Vault
+secret, a Container Apps secret, an app setting) is routine here when you generated the
+value in this session or the user gave it to you; never print or commit the value.
+Every other secret-store write (`gh secret set` or `delete`, a production vault, a value
+copied from somewhere else) is held by auto mode until the user approves it in their
+own words: ask up front, naming the secret, rather than discovering the block mid-task.
 
 **The container has an outbound firewall** (unless `DEVCONTAINER_FIREWALL` is `0`) that
 you cannot change and must not try to: everything here reaches only an allowlist of hosts
@@ -34,7 +37,10 @@ you cannot change and must not try to: everything here reaches only an allowlist
 also covers its subdomains). Addresses are added as names are looked up, so rotating
 CDNs keep working. A request that fails at once with "No route to host" or "Couldn't
 connect" is the firewall, not an outage: `devcontainer-firewall --blocked` lists the
-hosts it refused. Say which host it needed and let the user add it to
+hosts it refused, with a browser's own Google services and tool telemetry on a
+separate line as expected background traffic. WebFetch fetches from inside the
+container too, so it reaches only allowlisted hosts (common documentation sites are
+on the list); WebSearch is not affected. Say which host it needed and let the user add it to
 `.devcontainer/firewall/allowed-domains.txt` (`*.example.com` for a whole domain); do
 not route around it. `sudo devcontainer-firewall` re-applies it (normally the only
 thing sudo does here). System packages need a Dockerfile change and a rebuild, which
@@ -48,6 +54,11 @@ any binary: an x64 one either does not start or fails opaquely under emulation.
 time: no `pytest -n auto`, no `make -j`, no several installs or builds at once, no more
 dev servers than the task needs, and stop the ones you started when you are done. If a
 step looks likely to need more than about 2 GB of memory, ask first.
+
+**Claude Code is signed in with a shared, inference-only token** unless this project
+has a full sign-in. Remote Control (`/rc`) and `/code-review ultra` refuse that token
+("requires a full-scope login token"): ask the user to run `dev auth --full <project>`
+on the Mac, then start a new shell.
 
 A `SessionStart` hook prints any provisioning step that failed when the container was
 built. If it does, the tools that step installs may be missing — fix the cause or tell
@@ -132,6 +143,11 @@ unasked.
   is a silent no-op, so verify `.git/hooks/pre-commit` exists rather than assuming.
   Repos cloned or initialised in this container get the hooks automatically
   (`init.templateDir`); one cloned before that needs `pre-commit install`.
+- **In a fresh clone, install its dependencies before the first hook run**: `uv sync
+  --frozen --all-groups --all-extras` where there is a `uv.lock`, and `npm ci` in each
+  folder with a `package-lock.json` (`npm --prefix <dir> ci`). Until then the hooks fail
+  with errors that look like code problems but are missing packages: `Cannot find
+  package`, `ERR_PACKAGE_PATH_NOT_EXPORTED`, `No module named`, `Failed to spawn`.
 - **When hooks fail, fix the cause.** Read the output, correct the code, and commit again.
   Do not work around the check, loosen the rule, or add per-file ignores to make it pass
   unless the user asks for exactly that.
@@ -194,6 +210,24 @@ only artifacts and terminology the customer actually receives.
   identifier patterns, internal hostnames, and internal tool names, and report anything you
   removed or need a decision on.
 
+## Technical documentation: ASD-STE100
+
+**Use the `asd-ste100` skill (installed here) for all technical documentation you
+write or change**: READMEs, files under `docs/`, CLAUDE.md and other agent
+instructions, runbooks, as-built and design documents, PR descriptions, code comments
+and docstrings, CLI help, tool descriptions, error messages and status reports. Write
+the text, then run it through the skill before you commit or hand it over.
+
+- **Strict mode** for procedures, error messages, tool descriptions and instructions
+  to another agent: one instruction per sentence, active voice, simple tenses.
+- **STE-flavored mode** for READMEs, PR descriptions and explanatory prose: the same
+  sentence rules without the fixed vocabulary.
+- The skill never drops a fact, condition or scope qualifier to get a shorter sentence;
+  neither do you. Code, commands, identifiers and quoted output stay exactly as they
+  are.
+- Not for marketing or creative copy, and not for text the user wrote and asked you to
+  keep as written.
+
 ## Visual changes
 
 What the user or client has already reviewed is the spec. Do not "correct" reviewed sizes,
@@ -201,6 +235,9 @@ colours or spacing toward a design document on your own initiative; ask first.
 
 ## Frontend
 
+- **Design work goes through impeccable** (`/impeccable`, installed here): `critique`
+  and `audit` to review a UI, `polish`, `layout`, `typeset`, `adapt` and the rest to
+  fix one. Refinement keeps the existing look; ask before a redesign.
 - **Verify a visual fix in the browser** by computed style (`getComputedStyle`, or
   Playwright), not by the class list or a unit test.
 - **One Tailwind utility per property per element.** With two (`h-9` and `h-10`, a
