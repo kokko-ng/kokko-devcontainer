@@ -24,6 +24,13 @@
 # bucket, and Azure namespaces every project here deploys to daily. For those,
 # the auto mode classifier's exfiltration rules, not this list, stop data going
 # to someone else's resource. Replace them with exact names where you can.
+#
+# A limit to keep in mind: the firewall allows by address, not by name. A host
+# served from a shared CDN (Cloudflare, Fastly, Google, Netlify, Vercel,
+# GitHub Pages) lets through every other site on the addresses it resolved
+# to. Wikidata's query service shares Wikimedia's addresses with Wikipedia,
+# which takes anonymous edits, so it is left out: add it to a project that
+# needs it.
 
 # Claude Code
 api.anthropic.com
@@ -200,12 +207,10 @@ ports.ubuntu.com
 packages.microsoft.com
 deb.nodesource.com
 
-# Media, data and assets the projects fetch: Remotion's headless Chrome,
-# Azure architecture icons, Wikidata queries (read-only SPARQL), GitHub
-# avatars in rendered pages.
+# Media and assets the projects fetch: Remotion's headless Chrome, Azure
+# architecture icons, GitHub avatars in rendered pages.
 remotion.media
 arch-center.azureedge.net
-query.wikidata.org
 avatars.githubusercontent.com
 
 # Documentation an agent reads with WebFetch, which fetches from inside the
