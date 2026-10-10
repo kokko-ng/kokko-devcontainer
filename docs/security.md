@@ -53,6 +53,10 @@ unaffected and other hosts fail at once with "No route to host".
   in `/etc/chromium/policies/managed/`) that turns off sign-in, sync, autofill, component
   updates, Safe Browsing and search suggestions, the background traffic Playwright's own
   launch flags leave on.
+- It allows by address, not by name: a host on a shared CDN (Cloudflare, Fastly, Google,
+  Netlify, Vercel, GitHub Pages) also lets through other sites served from the same
+  addresses. `query.wikidata.org` is left out for that reason (it opens Wikipedia,
+  which takes anonymous edits). Filtering by name would need a TLS-aware proxy.
 - The list covers the hosts the kokko projects use: package registries (PyPI, npm,
   Maven, NuGet, uv's Python builds), GitHub, Anthropic (including the full sign-in and
   Remote Control's bridge), Azure management and the data-plane services the projects

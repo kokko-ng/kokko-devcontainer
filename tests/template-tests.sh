@@ -333,6 +333,10 @@ assert "every allowlist entry is a host name or a *. wildcard" \
     test -z "$(grep -vE '^(#|$)' "$AL" | grep -vxE '(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?')"
 # The list's own rule (see its header): no namespace where anyone can create a
 # host that accepts data. A project allows its own resources by exact name.
+# The firewall allows by address: Wikidata's query service shares Wikimedia's
+# addresses with Wikipedia, which takes anonymous edits.
+refute "the allowlist leaves out Wikidata (it opens Wikipedia)" \
+    grep -qx 'query.wikidata.org' "$AL"
 refute "the allowlist opens no namespace where anyone can stand up a receiver" \
     grep -qxE '\*\.(blob\.core\.windows\.net|web\.core\.windows\.net|azurewebsites\.net|azure-api\.net|in\.applicationinsights\.azure\.com|search\.windows\.net|documents\.azure\.com|database\.windows\.net|azconfig\.io|servicebus\.windows\.net|workers\.dev|vercel\.app|netlify\.app|pages\.dev|herokuapp\.com|github\.io|s3\.amazonaws\.com|r2\.dev)|(ngrok\.io|ngrok-free\.app|webhook\.site|pastebin\.com|transfer\.sh|file\.io|requestbin\.com|swagger\.io)' "$AL"
 # shellcheck disable=SC2016  # a literal line of the Dockerfile
