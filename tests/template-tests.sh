@@ -265,6 +265,8 @@ assert_jq "the Azure sign-in volume is shared" "$DC" \
        == ["source=devcontainer-azure-config,target=/home/vscode/.azure,type=volume"]'
 assert "the image bakes in the Claude Code policy" \
     grep -q 'COPY config/claude/managed-settings.json /etc/claude-code/managed-settings.json' "$DEFAULT/.devcontainer/Dockerfile"
+assert "the build context lets the Chromium policy through" \
+    grep -qx '!config/chromium/managed-policy.json' "$DEFAULT/.devcontainer/.dockerignore"
 assert "the image installs the Chromium policy where Playwright's Chromium reads it" \
     grep -q 'COPY config/chromium/managed-policy.json /etc/chromium/policies/managed/devcontainer.json' "$DEFAULT/.devcontainer/Dockerfile"
 assert_jq "the Chromium policy is valid JSON and turns sync and component updates off" \
