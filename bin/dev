@@ -339,6 +339,19 @@ keychain_token() {
     security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w 2>/dev/null || true
 }
 
+# The state of a container's full Claude sign-in (dev auth --full): none,
+# live, or expired. Claude Code empties the tokens of a sign-in whose refresh
+# failed and shows "Login expired", so only one that still holds a refresh
+# token is live. Prints nothing secret.
+full_signin_state() {
+    # shellcheck disable=SC2016 # expands in the container's shell
+    in_container "$1" sh -c '
+        f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"
+        if [ ! -s "$f" ]; then echo none
+        elif grep -qE "\"refreshToken\" *: *\"[^\"]" "$f"; then echo live
+        else echo expired; fi' 2>/dev/null || echo none
+}
+
 seed_claude_token() {
     local cid="$1" token="$2"
     # shellcheck disable=SC2016 # $1 expands in the container's shell
@@ -399,6 +412,12 @@ ensure_logins() {
     fi
     if ((${#missing[@]} > 0)); then
         say "Not signed in yet: ${missing[*]}. Run 'dev auth' once; every devcontainer shares it."
+    fi
+    if [[ "$(full_signin_state "$cid")" == "expired" ]]; then
+        local name
+        name="$(basename "$(docker inspect -f '{{ index .Config.Labels "devcontainer.local_folder" }}' "$cid")")"
+        say "Claude Code: the full sign-in in $name has expired, so new shells use the Keychain token"
+        note "Remote Control needs it again: dev auth --full $name"
     fi
 }
 
@@ -523,8 +542,7 @@ cmd_auth() {
 claude_full_login() {
     local cid="$1" name="$2"
     say "Claude Code: full sign-in for $name (Remote Control, /code-review ultra)"
-    # shellcheck disable=SC2016 # expands in the container's shell
-    if in_container "$cid" sh -c 'test -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"'; then
+    if [[ "$(full_signin_state "$cid")" == "live" ]]; then
         note "already signed in; new shells in $name use it"
         return 0
     fi

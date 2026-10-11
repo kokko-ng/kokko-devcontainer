@@ -42,7 +42,10 @@ separate line as expected background traffic. WebFetch fetches from inside the
 container too, so it reaches only allowlisted hosts (common documentation sites are
 on the list); WebSearch is not affected. Say which host it needed and let the user add it to
 `.devcontainer/firewall/allowed-domains.txt` (`*.example.com` for a whole domain); do
-not route around it. `sudo devcontainer-firewall` re-applies it (normally the only
+not route around it. A project's own Azure resource is added by its exact name, never
+by a wildcard anyone can create a resource under: a storage account has one host per
+service (`<account>.blob`, `.file`, `.queue`, `.table` and `.dfs.core.windows.net`), so
+name each one the task needs. `sudo devcontainer-firewall` re-applies it (normally the only
 thing sudo does here). System packages need a Dockerfile change and a rebuild, which
 the user runs.
 
@@ -58,7 +61,9 @@ step looks likely to need more than about 2 GB of memory, ask first.
 **Claude Code is signed in with a shared, inference-only token** unless this project
 has a full sign-in. Remote Control (`/rc`) and `/code-review ultra` refuse that token
 ("requires a full-scope login token"): ask the user to run `dev auth --full <project>`
-on the Mac, then start a new shell.
+on the Mac, then start a new shell. A full sign-in whose refresh failed shows "Login
+expired"; new shells then fall back to the shared token, and `dev auth --full` signs in
+again.
 
 A `SessionStart` hook prints any provisioning step that failed when the container was
 built. If it does, the tools that step installs may be missing — fix the cause or tell
@@ -240,6 +245,11 @@ colours or spacing toward a design document on your own initiative; ask first.
   fix one. Refinement keeps the existing look; ask before a redesign.
 - **Verify a visual fix in the browser** by computed style (`getComputedStyle`, or
   Playwright), not by the class list or a unit test.
+- **Close every playwright-cli browser you open** before you finish: an open page keeps
+  polling its app, which stops a scale-to-zero app from scaling in. Sessions are shared
+  across the container, so `playwright-cli list` and `close` work from any folder, except
+  inside a project that has its own `.playwright/` folder, which keeps a separate list.
+  `playwright-cli list --all` shows every browser, wherever it was opened.
 - **One Tailwind utility per property per element.** With two (`h-9` and `h-10`, a
   gradient and `bg-none`), the rule Tailwind emits later in its stylesheet wins, whatever
   the class order. Keep each property in one map of variants.

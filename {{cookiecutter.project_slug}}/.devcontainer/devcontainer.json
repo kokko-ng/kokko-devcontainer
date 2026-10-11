@@ -107,6 +107,11 @@
     // playwright-cli is pinned (post-create.sh); its daily "update available"
     // notice on every command is noise to an agent. Bump the pin instead.
     "NO_UPDATE_NOTIFIER": "1",
+    // playwright-cli's config (Playwright's Chromium, headless), written by
+    // post-create.sh. Kept out of ~/.playwright on purpose: the CLI keeps a
+    // separate session list for every folder with a .playwright/ directory,
+    // and `close` in one folder cannot see a browser opened in another.
+    "PLAYWRIGHT_MCP_CONFIG": "/home/vscode/.config/playwright-cli/cli.config.json",
 {%- endif %}
     // Passthrough for CI: with KOKKO_SKIP_PLUGINS=1 in the host env,
     // post-create skips the plugin bootstrap (network calls that need a
@@ -126,6 +131,10 @@
   // Two containers cannot forward the same host port — see upstream docs/maintenance.md -> Port conflicts.
   "forwardPorts": [{{ cookiecutter.backend_port }}, {{ cookiecutter.frontend_port }}],
   "runArgs": [
+    // A stable host name instead of the container ID, which changes on every
+    // rebuild: the memory-sync mod names this machine by it in the memory
+    // repo's commits and in a memory it keeps beside a conflicting one.
+    "--hostname={{ cookiecutter.project_slug }}",
 {%- if cookiecutter.network_firewall == "on" %}
     // The outbound firewall needs these to install its iptables rules. They
     // apply to root in the container only; the container user has no sudo

@@ -48,7 +48,7 @@ settings so extensions download on the Mac.
 | GitHub Copilot CLI | `copilot` |
 {%- endif %}
 {%- if cookiecutter.include_playwright == "yes" %}
-| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium, headless; its skill is in `~/.claude/skills`, not the project) |
+| Playwright CLI + Chromium | Browser automation for agents (`playwright-cli`, Playwright's own Chromium, headless; its skill is in `~/.claude/skills`, not the project, and its config is `PLAYWRIGHT_MCP_CONFIG`, so every folder shares one list of browser sessions) |
 {%- endif %}
 {%- if cookiecutter.include_docker_in_docker == "yes" %}
 | Docker-in-Docker | Container builds inside the devcontainer |
@@ -169,13 +169,16 @@ The roster is empty. Add marketplaces and plugins to
 The `kokko-ng` roster: kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
 kokko-validation and kokko-env from
 [kokko-skills](https://github.com/kokko-ng/kokko-skills), and
-[impeccable](https://github.com/pbakaus/impeccable) for frontend design. Set a plugin to
+[impeccable](https://github.com/pbakaus/impeccable) for frontend design, and the
+context-bar and memory-sync mods from
+[kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods). Set a plugin to
 `false` in `enabledPlugins` to never install it. The skills in
 `.devcontainer/config/claude/skills.json` (asd-ste100, pinned to a commit) are installed
 into `~/.claude/skills`.
 {%- endif %}
 
-Plugins refresh at most once a day; `KOKKO_PLUGIN_REFRESH=1` forces it.
+Plugins update on every rebuild and at most once a day on a start;
+`KOKKO_PLUGIN_REFRESH=1` forces it.
 
 ## Changing things
 

@@ -27,7 +27,10 @@ Claude Code uses a year-long `claude setup-token` token kept in the macOS Keycha
   Control (`/rc`) and `/code-review ultra`, which refuse the shared token: it is
   inference-only. The sign-in runs in the container (open the link it prints, paste the
   code back), lives in the project's own Claude volume and refreshes itself, so each
-  project needs its own. Shells opened afterwards use it instead of the token.
+  project needs its own. Shells opened afterwards use it instead of the token. If its
+  refresh ever fails, Claude Code shows "Login expired" and empties it; new shells then
+  fall back to the Keychain token, and `dev` says so the next time it opens the project.
+  Run `dev auth --full PROJECT` again for Remote Control.
 - Every other `dev` start fills what a container is missing and names what is not signed
   in. With `cache_volume_scope=per-project`, run `dev auth` in each project.
 

@@ -212,24 +212,40 @@ install_playwright_cli() {
         step "playwright-cli" npm install -g @playwright/cli@0.1.17
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
-    # Playwright's own Chromium, headless, as the CLI's global config
-    # (~/.playwright/cli.config.json). Its default is the Google Chrome
-    # channel, which has no Linux arm64 build; headless is pinned because the
-    # container has no display, real or virtual. Written only when absent, so an
-    # edit survives until the next rebuild.
-    local pw_config="$HOME/.playwright/cli.config.json"
+    # Playwright's own Chromium, headless. The CLI's default is the Google
+    # Chrome channel, which has no Linux arm64 build; headless is pinned
+    # because the container has no display, real or virtual. Written only when
+    # absent, so an edit survives until the next rebuild.
+    #
+    # The file is read through PLAYWRIGHT_MCP_CONFIG (devcontainer.json), not
+    # as ~/.playwright/cli.config.json: the CLI keeps a separate list of
+    # browser sessions for every folder that holds a .playwright/ directory,
+    # so one in $HOME split the sessions opened under it from those opened in
+    # the scratchpad, and `close` in one folder could not see a browser opened
+    # in another. With none, every session in the container is in one list.
+    local pw_config="${PLAYWRIGHT_MCP_CONFIG:-$HOME/.config/playwright-cli/cli.config.json}"
     if [[ ! -f "$pw_config" ]]; then
         mkdir -p "$(dirname "$pw_config")"
         printf '%s\n' '{"browser": {"browserName": "chromium", "launchOptions": {"channel": "chromium", "headless": true}}}' >"$pw_config"
     fi
-    # Run from $HOME: the CLI puts its skill in ./.claude/skills, which here is
-    # ~/.claude/skills (user level, in the ~/.claude volume) instead of the
-    # project, where it would be committed into every repo. The same command
-    # installs the configured Chromium into the browsers volume
+    # `install` creates a .playwright/ folder and the skill in the folder it
+    # runs in, and installs the configured Chromium into the browsers volume
     # (PLAYWRIGHT_BROWSERS_PATH) when that revision is missing; its system
-    # libraries are in the image (Dockerfile).
-    # shellcheck disable=SC2016  # $HOME expands in the inner shell
-    step "playwright-skills" bash -c 'cd "$HOME" && playwright-cli install --skills'
+    # libraries are in the image (Dockerfile). Run it in a throwaway folder that
+    # holds the config, then copy the skill to ~/.claude/skills (user level, in
+    # the ~/.claude volume) rather than the project, where it would be
+    # committed into every repo.
+    local work
+    work="$(mktemp -d)"
+    mkdir -p "$work/.playwright"
+    cp "$pw_config" "$work/.playwright/cli.config.json"
+    # shellcheck disable=SC2016  # $1 expands in the inner shell
+    step "playwright-skills" bash -c 'cd "$1" && playwright-cli install --skills' _ "$work"
+    if [[ -d "$work/.claude/skills/playwright-cli" ]]; then
+        mkdir -p "$CLAUDE_DIR/skills/playwright-cli"
+        cp -R "$work/.claude/skills/playwright-cli/." "$CLAUDE_DIR/skills/playwright-cli/"
+    fi
+    rm -rf "$work"
 }
 
 # The image's containerapp extension overrides the built-in `az containerapp`
@@ -478,13 +494,19 @@ retire_git_safety_layer() {
 # bell it fell back to was unreliable. The roster prune disables them; this removes the installed copies
 # and their marketplaces (kokko-claude-mods only while no plugin of the user's
 # still names it). Idempotent.
+#
+# Only a plugin Claude Code still records as installed is uninstalled: every
+# `claude plugin uninstall` refreshes an expired Claude sign-in, and four of
+# them on every container start were needless traffic against the one
+# refresh token a full sign-in has.
 retire_plugins() {
-    local p removed=""
+    local p removed="" installed="$CLAUDE_DIR/plugins/installed_plugins.json"
     if [[ "${KOKKO_SKIP_PLUGINS:-}" == "1" ]] || ! command -v claude >/dev/null 2>&1; then
         return 0
     fi
     for p in kokko-code-quality@kokko-ng-kokko-cmds kokko-janitor@kokko-ng-kokko-janitor \
         theme-sync@kokko-claude-mods kokko-notifications@kokko-ng-kokko-cmds; do
+        jq -e --arg p "$p" '(.plugins // {}) | has($p)' "$installed" >/dev/null 2>&1 || continue
         claude plugin uninstall "$p" >/dev/null 2>&1 && removed="$removed ${p%@*}"
     done
     claude plugin marketplace remove kokko-ng-kokko-janitor >/dev/null 2>&1 &&
@@ -610,9 +632,10 @@ bootstrap_claude_plugins() {
 
     # This step hits the network (marketplace + plugin fetches) on EVERY
     # container start via postStartCommand. A 24h TTL keeps starts fast and
-    # offline-tolerant; KOKKO_PLUGIN_REFRESH=1 forces a refresh now.
+    # offline-tolerant; KOKKO_PLUGIN_REFRESH=1 forces a refresh now, and a
+    # rebuild (the full provision) always refreshes.
     local stamp="$CLAUDE_DIR/.plugin-bootstrap-stamp"
-    if [[ "${KOKKO_PLUGIN_REFRESH:-}" != "1" && -f "$stamp" ]]; then
+    if [[ "$MODE" == "config" && "${KOKKO_PLUGIN_REFRESH:-}" != "1" && -f "$stamp" ]]; then
         local now mtime
         now=$(date +%s)
         mtime=$(stat -c %Y "$stamp" 2>/dev/null || echo 0)
@@ -657,17 +680,31 @@ bootstrap_claude_plugins() {
         | select(.value.source.source == "github")
         | "\(.key) \(.value.source.repo)"' "$settings")
 
-    local plugin
+    # Update first, install only what is not installed: `claude plugin install`
+    # succeeds on an installed plugin without touching it, which once left
+    # every container on the plugin versions it was first built with.
+    local plugin result outcome
     while read -r plugin; do
         [[ -n "$plugin" ]] || continue
-        if claude plugin install "$plugin" >/dev/null 2>&1; then
-            echo "  installed: $plugin"
-        elif claude plugin update "$plugin" >/dev/null 2>&1; then
-            echo "  updated: $plugin"
-        else
-            echo "  WARNING: could not install or update $plugin"
-            failed=1
-        fi
+        # --json prints one result line; take the last in case anything precedes it.
+        result="$(claude plugin update "$plugin" --json 2>/dev/null | tail -n 1)" || true
+        outcome="$(jq -r 'if .outcome == "ok" then (if .updateOutcome == "updated" then "updated" else "current" end)
+            else (.failureCode // "failed") end' <<<"$result" 2>/dev/null)" || outcome="failed"
+        case "$outcome" in
+            current) ;;
+            updated)
+                echo "  updated: $plugin ($(jq -r '"\(.oldVersion) -> \(.newVersion)"' <<<"$result"))" ;;
+            not_installed)
+                if claude plugin install "$plugin" >/dev/null 2>&1; then
+                    echo "  installed: $plugin"
+                else
+                    echo "  WARNING: could not install $plugin"
+                    failed=1
+                fi ;;
+            *)
+                echo "  WARNING: could not update $plugin (${outcome:-no result})"
+                failed=1 ;;
+        esac
     done < <(jq -r '
         (.enabledPlugins // {})
         | to_entries[]
