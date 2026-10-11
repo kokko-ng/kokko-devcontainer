@@ -187,7 +187,7 @@ install_copilot_cli() {
     if command -v copilot >/dev/null 2>&1; then
         echo "  Copilot CLI already installed at $(command -v copilot)"
     elif command -v npm >/dev/null 2>&1; then
-        step "copilot-cli" npm install -g @github/copilot@1.0.85
+        step "copilot-cli" npm install -g @github/copilot@1.0.95
     else
         echo "  npm not available — skipping Copilot CLI install"
     fi
@@ -209,7 +209,7 @@ install_playwright_cli() {
     else
         # Pinned (was @latest). Dependabot cannot see this pin — bump it
         # manually (npm view @playwright/cli version); see upstream docs/maintenance.md -> Pin audit.
-        step "playwright-cli" npm install -g @playwright/cli@0.1.17
+        step "playwright-cli" npm install -g @playwright/cli@0.1.22
     fi
     command -v playwright-cli >/dev/null 2>&1 || return 0
     # Playwright's own Chromium, headless. The CLI's default is the Google
