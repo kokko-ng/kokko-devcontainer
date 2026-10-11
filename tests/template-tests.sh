@@ -236,10 +236,21 @@ assert "post-create points the CLI's global config at Playwright's Chromium, hea
     grep -qF '"launchOptions": {"channel": "chromium", "headless": true}' "$PCS"
 refute "nothing sets a DISPLAY or installs a virtual display" \
     grep -qiE 'xvfb|"DISPLAY"|DISPLAY=' "$DEFAULT/.devcontainer/Dockerfile" "$DEFAULT/.devcontainer/devcontainer.json" "$PCS"
-# shellcheck disable=SC2016  # the $HOME is the script's own text
-assert "the CLI's global config lives in ~/.playwright" grep -qF 'pw_config="$HOME/.playwright/cli.config.json"' "$PCS"
-assert "the playwright-cli skill is installed from \$HOME (user level), not the project" \
-    grep -qF "step \"playwright-skills\" bash -c 'cd \"\$HOME\" && playwright-cli install --skills'" "$PCS"
+# One session list for the whole container: playwright-cli keeps a separate
+# list per folder holding a .playwright/ directory, so the config is read
+# through PLAYWRIGHT_MCP_CONFIG instead of from ~/.playwright, and `install`
+# runs in a throwaway folder whose skill is copied to ~/.claude/skills.
+assert_jq "playwright-cli reads its config outside any .playwright folder" "$DC" \
+    '.containerEnv.PLAYWRIGHT_MCP_CONFIG == "/home/vscode/.config/playwright-cli/cli.config.json"'
+# shellcheck disable=SC2016  # the script's own text
+assert "post-create writes the config where PLAYWRIGHT_MCP_CONFIG points" \
+    grep -qF 'pw_config="${PLAYWRIGHT_MCP_CONFIG:-$HOME/.config/playwright-cli/cli.config.json}"' "$PCS"
+# shellcheck disable=SC2016  # $1 expands in the inner shell
+refute "nothing creates ~/.playwright any more (comments aside)" \
+    bash -c 'grep -v "^[[:space:]]*#" "$1" | grep -qE "(HOME|~)/\.playwright"' _ "$PCS"
+# shellcheck disable=SC2016  # the script's own text
+assert "the playwright-cli skill is copied to the user-level skills folder" \
+    grep -qF 'cp -R "$work/.claude/skills/playwright-cli/." "$CLAUDE_DIR/skills/playwright-cli/"' "$PCS"
 refute "post-create no longer installs every Playwright browser with apt deps" \
     grep -q 'playwright-cli install-browser' "$PCS"
 assert_jq "the pinned playwright-cli does not print update notices" "$DC" '.containerEnv.NO_UPDATE_NOTIFIER == "1"'
@@ -300,6 +311,16 @@ assert_jq "default memory limit reaches runArgs behind dev's override, with swap
        and (.runArgs | index("--memory-swap=${localEnv:DEVCONTAINER_MEMORY_LIMIT:5g}") != null)'
 assert_jq "pids limit leaves room for parallel sessions" "$DC" \
     '.runArgs | index("--pids-limit=4096") != null'
+assert_jq "the container's host name is the project slug, stable across rebuilds" "$DC" \
+    '.runArgs | index("--hostname=my-project") != null'
+# A full sign-in whose refresh failed keeps a non-empty credentials file with
+# empty tokens; the shell must fall back to the shared token then.
+ZRC="$DEFAULT/.devcontainer/config/zsh/.zshrc"
+assert "a full sign-in only displaces the shared token while it holds a refresh token" \
+    grep -qF "grep -qE '\"refreshToken\" *: *\"[^\"]'" "$ZRC"
+# shellcheck disable=SC2016  # the script's own text
+refute "a merely non-empty credentials file no longer counts as signed in" \
+    grep -qF '! -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json"' "$ZRC"
 assert_jq "postStart output is captured like postCreate output" "$DC" \
     '.postStartCommand | test("tee /tmp/post-start.log")'
 assert "azure volume hint is offered with the azure cli" \
@@ -352,8 +373,12 @@ assert_jq "default roster ships the kokko-ng plugins" \
     '.enabledPlugins | length > 0 and (keys | any(test("@kokko-ng-")))'
 assert_jq "default roster no longer ships theme-sync" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
-    '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
-       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)'
+    '.enabledPlugins | has("theme-sync@kokko-claude-mods") | not'
+assert_jq "default roster ships the context-bar and memory-sync mods" \
+    "$DEFAULT/.devcontainer/config/claude/settings.json" \
+    '.enabledPlugins["context-bar@kokko-claude-mods"] == true
+       and .enabledPlugins["memory-sync@kokko-claude-mods"] == true
+       and (.extraKnownMarketplaces | has("kokko-claude-mods"))'
 assert_jq "default roster ships impeccable and its marketplace" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
     '.enabledPlugins["impeccable@impeccable"] == true and (.extraKnownMarketplaces | has("impeccable"))'
@@ -376,7 +401,7 @@ assert_jq "the policy forces Claude Code's Bash sandbox off" \
     "$DEFAULT/.devcontainer/config/claude/managed-settings.json" '.sandbox.enabled == false'
 assert_jq "the bundle ships the autoMode allow rules and the fullscreen renderer" \
     "$DEFAULT/.devcontainer/config/claude/settings.json" \
-    '.tui == "fullscreen" and (.autoMode.allow | length == 23) and (.autoMode.environment | length > 0)'
+    '.tui == "fullscreen" and (.autoMode.allow | length == 24) and (.autoMode.environment | length > 0)'
 # The bundled container CLAUDE.md (copied verbatim, so checked once here).
 CCM="$DEFAULT/.devcontainer/config/claude/CLAUDE.md"
 assert "container CLAUDE.md says the container is linux/arm64" grep -q 'linux/arm64' "$CCM"
@@ -595,7 +620,7 @@ assert_jq "copilot install is toggled off" "$SDC" \
 assert_jq "playwright install is toggled off" "$SDC" \
     '.containerEnv.DEVCONTAINER_INSTALL_PLAYWRIGHT == "0"'
 assert_jq "no playwright env without playwright" "$SDC" \
-    '.containerEnv | has("PLAYWRIGHT_BROWSERS_PATH") | not'
+    '.containerEnv | (has("PLAYWRIGHT_BROWSERS_PATH") or has("PLAYWRIGHT_MCP_CONFIG")) | not'
 assert_jq "no browser volume without playwright" "$SDC" \
     '[.mounts[] | select(test("ms-playwright"))] | length == 0'
 assert_jq "per-project caches are namespaced by slug" "$SDC" \

@@ -18,7 +18,7 @@ command text: a floor, not a boundary. It also forces Claude Code's Bash sandbox
 
 The bundled `settings.json` gives Auto mode's classifier an environment section (your
 GitHub orgs, Azure as the cloud, sandbox, dev and demo as the safe deploy targets and
-prod, production and prd as the protected ones, the firewall) and adds six allow rules to
+prod, production and prd as the protected ones, the firewall) and adds seven allow rules to
 Claude Code's defaults:
 
 - merging your own `kokko-ng/*` and `Insight-Services-APAC/*` PRs with a merge commit
@@ -28,7 +28,11 @@ Claude Code's defaults:
 - redeploying an approved app to the same sandbox, dev or demo target;
 - deploying to a sandbox, dev or demo target when you ask for a deploy;
 - setting a secret there that the session generated or you gave;
-- a repo's own scripts fetching a service key there and using it only with that service.
+- a repo's own scripts fetching a service key there and using it only with that service;
+- operating a run you asked for on your own sandbox, dev or demo app through its API
+  (start, pause, resume, cancel, raising its own cost or time limit to a figure you set),
+  including a watcher script such as a spend guard; Azure budgets, alerts and RBAC stay
+  out of it.
 
 Both come from `scripts/auto-mode/` (`own-rules.json` plus Claude Code's defaults, built
 by `build.jq`). The merge adds them only to a settings.json without an `autoMode` block,
@@ -62,9 +66,23 @@ unaffected and other hosts fail at once with "No route to host".
   Remote Control's bridge), Azure management and the data-plane services the projects
   call, container registries for Docker-in-Docker builds, and the documentation sites
   WebFetch reads.
+- A project's own Azure resources go in by exact name, in the file's last section,
+  never as a wildcard anyone can create a resource under. A storage account has one host
+  per service (`<account>.blob`, `.file`, `.queue`, `.table` and `.dfs.core.windows.net`);
+  name each one the project uses.
 - `sudo devcontainer-firewall` re-applies the rules.
 - In VS Code, set `"remote.downloadExtensionsLocally": true` so extensions download on
   the Mac.
+
+## What containers share
+
+Each project's Claude Code state, `~/persist` and full sign-in are its own. The sign-ins
+from `dev auth` (gh, Azure, the Claude token) are shared by every container. So are
+Claude Code's auto memories once the memory-sync mod has run: it keeps every project's
+memories in one private repo (`kokko-ng/claude-memory`), checked out into each
+container's `~/.claude/projects`, so an agent in one container can read what was noted in
+another project. Keep secrets out of memories; set `memory-sync@kokko-claude-mods` to
+`false` in the bundled `settings.json` to keep a project out of it.
 
 ## Sudo
 

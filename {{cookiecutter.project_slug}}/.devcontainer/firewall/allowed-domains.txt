@@ -321,8 +321,9 @@ vscode.download.prss.microsoft.com
 marketplace.visualstudio.com
 main.vscode-cdn.net
 
-# This project's own Azure resources, by exact name: storage accounts
-# (<name>.blob.core.windows.net), AI Search (<name>.search.windows.net),
+# This project's own Azure resources, by exact name: storage accounts, one host
+# per service used (<name>.blob, .file, .queue, .table or .dfs.core.windows.net),
+# AI Search (<name>.search.windows.net),
 # Cosmos DB (<name>.documents.azure.com), SQL (<server>.database.windows.net),
 # App Configuration (<name>.azconfig.io), API Management (<name>.azure-api.net),
 # App Service (<app>.azurewebsites.net and <app>.scm.azurewebsites.net), and

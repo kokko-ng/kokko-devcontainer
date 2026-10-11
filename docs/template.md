@@ -29,9 +29,13 @@ before anything is written.
 `kokko-ng` installs kokko-git, kokko-viz, kokko-infra, kokko-ai-config,
 kokko-validation and kokko-env from
 [kokko-skills](https://github.com/kokko-ng/kokko-skills), and
-[impeccable](https://github.com/pbakaus/impeccable) for frontend design. They refresh at most
-once a day, except that a plugin enabled but not installed (one the bundle just added) is
-installed on the next start. Set a plugin to `false` in `enabledPlugins` in
+[impeccable](https://github.com/pbakaus/impeccable) for frontend design, and the
+context-bar and memory-sync mods from
+[kokko-claude-mods](https://github.com/kokko-ng/kokko-claude-mods) (memory-sync shares
+every project's auto memory, through a private repo, with the Mac and every other
+container). Installed plugins update to their marketplace's latest version on every
+rebuild and at most once a day on a start, except that a plugin enabled but not
+installed (one the bundle just added) is installed on the next start. Set a plugin to `false` in `enabledPlugins` in
 `.devcontainer/config/claude/settings.json` to never install it. `KOKKO_PLUGIN_REFRESH=1`
 forces a refresh, `KOKKO_SKIP_PLUGINS=1` skips it.
 

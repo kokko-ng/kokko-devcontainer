@@ -99,9 +99,12 @@ check "bundle no longer rosters kokko-code-quality or kokko-janitor" \
        and (.extraKnownMarketplaces | has("kokko-ng-kokko-janitor") | not)' "$BUNDLE_JSON"
 check "bundle no longer rosters kokko-notifications" \
     '.enabledPlugins | has("kokko-notifications@kokko-ng-kokko-cmds") | not' "$BUNDLE_JSON"
-check "bundle no longer rosters theme-sync or its marketplace" \
-    '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
-       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)' "$BUNDLE_JSON"
+check "bundle no longer rosters theme-sync" \
+    '.enabledPlugins | has("theme-sync@kokko-claude-mods") | not' "$BUNDLE_JSON"
+check "bundle rosters the context-bar and memory-sync mods with their marketplace" \
+    '.enabledPlugins["context-bar@kokko-claude-mods"] == true
+       and .enabledPlugins["memory-sync@kokko-claude-mods"] == true
+       and .extraKnownMarketplaces["kokko-claude-mods"].source.repo == "kokko-ng/kokko-claude-mods"' "$BUNDLE_JSON"
 check "bundle no longer ships skipDangerousModePermissionPrompt" \
     'has("skipDangerousModePermissionPrompt") | not' "$BUNDLE_JSON"
 check "bundle raises the Bash tool limits" \
@@ -116,17 +119,18 @@ check "bundle defaults Claude Code to the fullscreen renderer" \
     '.tui == "fullscreen"' "$BUNDLE_JSON"
 # A custom autoMode.allow or environment REPLACES Claude Code's defaults, so
 # the bundle carries all of them (claude auto-mode defaults: 17 allow rules)
-# plus its own six rules and environment entries (scripts/auto-mode/).
-check "bundle autoMode allow keeps Claude Code's 17 defaults and adds six rules" \
+# plus its own seven rules and environment entries (scripts/auto-mode/).
+check "bundle autoMode allow keeps Claude Code's 17 defaults and adds seven rules" \
     '(.autoMode | keys) == ["allow", "environment"]
-       and (.autoMode.allow | length == 23)
+       and (.autoMode.allow | length == 24)
        and ([.autoMode.allow[] | split(":")[0]]
             | (.[0] == "Security Discussion")
               and (index("Read-Only Operations") != null)
               and (index("Git Push Destination") != null)
               and (index("Browser Trusted Navigation") == 16)
               and (.[17:] == ["Own-Repo PR Merge", "Own-Org Repositories", "Approved Sandbox Redeploy",
-                              "Sandbox Deploy on Request", "Sandbox Secret Writes", "Repo Script Service Keys"]))' "$BUNDLE_JSON"
+                              "Sandbox Deploy on Request", "Sandbox Secret Writes", "Repo Script Service Keys",
+                              "Own App Run Control"]))' "$BUNDLE_JSON"
 check "bundle autoMode environment names the user's orgs and the prod markers" \
     '[.autoMode.environment[] | select(startswith("**Source control**") or startswith("**Sensitive remote targets**"))]
        | length == 2 and (.[0] | test("Insight-Services-APAC")) and (.[1] | test("prd"))' "$BUNDLE_JSON"
@@ -136,6 +140,11 @@ check "the redeploy rule covers sandbox/dev/demo targets and never prod" \
     '.autoMode.allow[19] | test("sandbox, dev or demo") and test("prod or production")' "$BUNDLE_JSON"
 check "the sandbox deploy, secret and key rules are scoped to sandbox, dev or demo targets" \
     '[.autoMode.allow[20:23][] | test("named sandbox, dev or demo")] == [true, true, true]' "$BUNDLE_JSON"
+# The spend-guard rule: the user's own sandbox/dev/demo runs only, never prod,
+# budgets or RBAC.
+check "the run-control rule is scoped to sandbox, dev or demo apps and leaves budgets alone" \
+    '.autoMode.allow[23] | test("named sandbox, dev or demo") and test("prod, production or prd")
+       and test("Azure budgets, spending limits, alerts or RBAC") and test("not Modify Shared Resources")' "$BUNDLE_JSON"
 check "bundle carries no policy keys (those live in managed-settings.json)" \
     '(.permissions | has("deny") or has("disableBypassPermissionsMode")) | not' "$BUNDLE_JSON"
 
@@ -356,9 +365,9 @@ jq -s '.[0] * {enabledPlugins: .[1].enabledPlugins, extraKnownMarketplaces: .[1]
 upgraded63=$(jq -s -f "$PRUNE_JQ" "$WORK/prev-roster-63.json" "$BUNDLED_SETTINGS" "$WORK/old-live-63.json")
 check "upgrade prunes kokko-notifications from the live roster" \
     '.enabledPlugins | has("kokko-notifications@kokko-ng-kokko-cmds") | not' "$upgraded63"
-check "upgrade from 6.3 prunes theme-sync and the kokko-claude-mods marketplace" \
+check "upgrade from 6.3 prunes theme-sync but keeps the kokko-claude-mods marketplace" \
     '(.enabledPlugins | has("theme-sync@kokko-claude-mods") | not)
-       and (.extraKnownMarketplaces | has("kokko-claude-mods") | not)
+       and .extraKnownMarketplaces["kokko-claude-mods"].source.repo == "kokko-ng/kokko-claude-mods"
        and .enabledPlugins["kokko-git@kokko-ng-kokko-cmds"] == true' "$upgraded63"
 # A pre-4.0 snapshot has no env/sandbox section: the prune must leave those
 # untouched rather than treating "absent" as "shipped and now dropped".
@@ -476,6 +485,30 @@ mp_fresh=$(mp_missing /dev/null)
 assert "missing-plugins flags every enabled plugin when nothing is installed" test "$mp_fresh" = "a@m b@m gone@m"
 assert "post-create consults missing-plugins.jq inside the 24h window" \
     grep -q 'missing-plugins.jq' "$ROOT/{{cookiecutter.project_slug}}/.devcontainer/post-create.sh"
+POST_CREATE="$ROOT/{{cookiecutter.project_slug}}/.devcontainer/post-create.sh"
+# `claude plugin install` succeeds on an installed plugin without touching it,
+# so the bootstrap must update before it installs, and a rebuild (the full
+# provision) must not be skipped by the 24h stamp.
+# shellcheck disable=SC2016  # the script's own text
+assert "plugin bootstrap updates installed plugins (claude plugin update --json)" \
+    grep -q 'claude plugin update "$plugin" --json' "$POST_CREATE"
+assert "plugin bootstrap installs only a plugin update reports not_installed" \
+    grep -q 'not_installed)' "$POST_CREATE"
+# shellcheck disable=SC2016  # the script's own text
+assert "only a container start honours the 24h plugin window" \
+    grep -q '"$MODE" == "config" && "${KOKKO_PLUGIN_REFRESH:-}" != "1" && -f "$stamp"' "$POST_CREATE"
+# Each `claude plugin uninstall` refreshes an expired sign-in; only installed
+# retired plugins are uninstalled.
+assert "retire_plugins uninstalls only what installed_plugins.json records" \
+    grep -q "has(\$p)' \"\$installed\"" "$POST_CREATE"
+# A 6.4-6.6 container lost the kokko-claude-mods marketplace; the merge puts
+# the mods back.
+echo '{"enabledPlugins":{"kokko-git@kokko-ng-kokko-cmds":true},"extraKnownMarketplaces":{}}' > "$WORK/live-66.json"
+merged66=$(jq -s -f "$MERGE_JQ" "$WORK/live-66.json" "$BUNDLED_SETTINGS")
+check "merge into a 6.6 container enables context-bar and memory-sync again" \
+    '.enabledPlugins["context-bar@kokko-claude-mods"] == true
+       and .enabledPlugins["memory-sync@kokko-claude-mods"] == true
+       and (.extraKnownMarketplaces | has("kokko-claude-mods"))' "$merged66"
 
 # ===========================================================================
 # 6. refresh-auto-mode.sh - newer bundled autoMode rules reach old containers
