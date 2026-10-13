@@ -30,7 +30,7 @@ jobs:
         run: |
           if [ -f uv.lock ]; then uv sync --locked; elif [ -f pyproject.toml ]; then uv sync; fi
       - name: Run every hook on every file
-        run: uvx pre-commit@4.6.2 run --all-files --show-diff-on-failure
+        run: uvx pre-commit@4.7.0 run --all-files --show-diff-on-failure
 
   commit-messages:
     name: commit messages (commitizen)
