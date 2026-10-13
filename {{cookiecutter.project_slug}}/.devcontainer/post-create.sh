@@ -187,7 +187,7 @@ install_copilot_cli() {
     if command -v copilot >/dev/null 2>&1; then
         echo "  Copilot CLI already installed at $(command -v copilot)"
     elif command -v npm >/dev/null 2>&1; then
-        step "copilot-cli" npm install -g @github/copilot@1.0.95
+        step "copilot-cli" npm install -g @github/copilot@1.0.96
     else
         echo "  npm not available — skipping Copilot CLI install"
     fi
