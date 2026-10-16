@@ -180,7 +180,7 @@ RUN install -d -o vscode -g vscode -m 0755 "$AZURE_EXTENSION_DIR"
 ARG CLAUDE_CODE_VERSION
 # hadolint ignore=DL3066
 USER vscode
-RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.300}"
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.301}"
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
 # hadolint ignore=DL3002,DL3066
