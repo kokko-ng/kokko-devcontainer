@@ -130,7 +130,7 @@ RUN chmod 0755 /usr/local/sbin/devcontainer-firewall \
 # image built before this layer still gets a prompt. Placed after the CA layer
 # so the download trusts corporate-proxy certs. Dependabot cannot see this pin
 # (upstream docs/maintenance.md -> Pin audit).
-RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.26.0/starship-$(uname -m)-unknown-linux-musl.tar.gz" \
+RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.27.0/starship-$(uname -m)-unknown-linux-musl.tar.gz" \
     | tar -xz -C /usr/local/bin starship \
     && starship --version
 
@@ -180,7 +180,7 @@ RUN install -d -o vscode -g vscode -m 0755 "$AZURE_EXTENSION_DIR"
 ARG CLAUDE_CODE_VERSION
 # hadolint ignore=DL3066
 USER vscode
-RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.301}"
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.302}"
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
 # hadolint ignore=DL3002,DL3066
