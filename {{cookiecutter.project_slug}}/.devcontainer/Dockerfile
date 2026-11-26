@@ -31,7 +31,7 @@ ENV OPENSSL_armcap=0
 # pytest then runs that global copy outside the project's environment and fails
 # with a misleading "No module named ..." for the project's own imports. Without
 # them it fails plainly ("Failed to spawn: pytest"); projects bring their own.
-RUN pip install --no-cache-dir uv==0.13.4 pre-commit==4.7.0 \
+RUN pip install --no-cache-dir uv==0.13.10 pre-commit==4.7.0 \
     && for t in pytest py.test mypy mypyc dmypy stubgen stubtest black blackd flake8 \
         pylint pylint-config pyreverse symilar autopep8 yapf yapf-diff pycodestyle \
         pydocstyle bandit bandit-baseline bandit-config-generator; do \
@@ -142,7 +142,7 @@ RUN curl -fsSL "https://github.com/starship/starship/releases/download/v1.27.0/s
 # release check. Telemetry is off so its refused upload does not crowd
 # `devcontainer-firewall --blocked`. Dependabot cannot see this pin (upstream
 # docs/maintenance.md -> Pin audit).
-ARG BICEP_VERSION=v0.48.1
+ARG BICEP_VERSION=v0.49.2
 RUN case "$(dpkg --print-architecture)" in arm64) arch=arm64 ;; *) arch=x64 ;; esac \
     && curl -fsSL -o /usr/local/bin/bicep "https://github.com/Azure/bicep/releases/download/${BICEP_VERSION}/bicep-linux-${arch}" \
     && chmod 0755 /usr/local/bin/bicep \
@@ -180,7 +180,7 @@ RUN install -d -o vscode -g vscode -m 0755 "$AZURE_EXTENSION_DIR"
 ARG CLAUDE_CODE_VERSION
 # hadolint ignore=DL3066
 USER vscode
-RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.306}"
+RUN curl -fsSL https://claude.ai/install.sh | bash -s "${CLAUDE_CODE_VERSION:-2.1.332}"
 # Devcontainer features and any later build steps expect to run as root
 # (remoteUser=vscode handles the runtime switch).
 # hadolint ignore=DL3002,DL3066
