@@ -411,6 +411,8 @@ assert "container CLAUDE.md says the Bash tool is bash and terminals are zsh" \
     grep -q 'Bash tool runs bash (`CLAUDE_CODE_SHELL`); the user.s terminals are zsh' "$CCM"
 assert "container CLAUDE.md says to wait after a permission denial" \
     grep -q 'After any permission denial, ask the user and wait' "$CCM"
+assert "container CLAUDE.md asks for next steps as a numbered list" \
+    grep -q 'numbered list so the user can answer with the numbers' "$CCM"
 # shellcheck disable=SC2016  # the backticks are Markdown, not command substitution
 assert "container CLAUDE.md says how to wait without a foreground sleep" \
     grep -q 'foreground `sleep` is refused' "$CCM"
