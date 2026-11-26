@@ -260,8 +260,9 @@ colours or spacing toward a design document on your own initiative; ask first.
 ## Finishing a task
 
 Never end a task with only a summary of what was done. Every completed task ends with a
-short **Next steps** section — 2 to 5 concrete, specific items, ordered by value. Cover
-whatever applies:
+short **Next steps** section — 2 to 5 concrete, specific items, ordered by value, as a
+numbered list so the user can answer with the numbers ("do 1 and 3"). Each item is one
+action; leave out anything already done. Cover whatever applies:
 
 - **Follow-on work** the change implies but did not include (tests, docs, migrations,
   callers not yet updated, error paths not yet handled).
