@@ -33,7 +33,7 @@ repos:
 
   # Commit messages follow Conventional Commits; CI checks every commit too.
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.19.2
+    rev: v4.20.1
     hooks:
       - id: commitizen
         stages: [commit-msg]
